@@ -7,3 +7,4 @@ firmware/sdkconfig.old
 firmware/local_config.h
 dist/
 firmware/tools/publish-firmware.sh
+web-flasher/firmware/
