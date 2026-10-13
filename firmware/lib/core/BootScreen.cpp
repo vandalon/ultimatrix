@@ -66,11 +66,11 @@ constexpr float kCentreY = 40, kOuterX = 28, kOuterY = 22, kInnerX = 16, kInnerY
 // shown at full brightness as the logo.
 unsigned backdropLevel(int x, int y, unsigned glow = 0) {
   if (!(y & 1)) return 0;
-  float dx = x - 31.5f, dy = y - kCentreY;  // centred on the panel: the U is mirrored around the gap between columns 31 and 32
+  if (!(x & 1)) return 0;  // lit on odd columns only, so the U is symmetric around column 32
+  float dx = x - 32.0f, dy = y - kCentreY;
   bool outer = y <= kCentreY ? fabsf(dx) <= kOuterX : (dx * dx) / (kOuterX * kOuterX) + (dy * dy) / (kOuterY * kOuterY) <= 1;
   bool inner = y <= kCentreY ? fabsf(dx) <= kInnerX : (dx * dx) / (kInnerX * kInnerX) + (dy * dy) / (kInnerY * kInnerY) <= 1;
   if (!(outer && !inner)) return 0;  // no background: only the U is lit
-  if ((x & 1) != (x < 32)) return 0;  // every other column, mirrored: odd on the left, even on the right, so columns 31 and 32 are both lit
   unsigned dim = 70, bright = 255 - 190 * y / kSize;  // the dimmed U is one flat level, only the lit logo has the gradient
   return dim + (bright - dim) * glow / 255;
 }
@@ -81,7 +81,7 @@ void backdrop(Adafruit_GFX &gfx, unsigned glow = 0, unsigned fade = 255) {  // f
   for (int y = 1; y < kSize; y += 2) {
     int edge = (int)(fade * 13 / 10) - y * 255 / kSize;  // the wipe's soft edge is 76 (0.3 of the height) wide
     unsigned rowFade = edge <= 0 ? 0 : edge >= 76 ? 255 : edge * 255 / 76;
-    for (int x = 0; x < kSize; x++) {
+    for (int x = 1; x < kSize; x += 2) {
       int t = 255 * y / kSize * (int)glow / 255;  // cyan at the top to blue at the bottom when lit; the dimmed U is plain cyan
       Rgb c{(uint8_t)(kCyan.r + (kBlue.r - kCyan.r) * t / 255), (uint8_t)(kCyan.g + (kBlue.g - kCyan.g) * t / 255),
             (uint8_t)(kCyan.b + (kBlue.b - kCyan.b) * t / 255)};
@@ -187,12 +187,12 @@ void buildIcon(IconCache &cache, Icon icon) {
   const char *const *art = icon == kWifi ? kWifiArt : icon == kNoTime ? kNoTimeArt : kUpdateArt;
   const int rows = icon == kWifi ? sizeof(kWifiArt) / sizeof(*kWifiArt)
       : icon == kNoTime ? sizeof(kNoTimeArt) / sizeof(*kNoTimeArt) : sizeof(kUpdateArt) / sizeof(*kUpdateArt);
-  const int width = icon == kWifi ? 30 : 32, skip = (32 - width) / 2;  // the Wi-Fi symbol is 1px narrower on each side so it sits evenly inside the U's opening
-  const int left = (kSize - 32) / 2, top = (icon == kUpdate ? 23 : 26) - rows / 2;  // centred on (32, 26); the update icon sits higher so icon and two-line label centre together
+  const int width = icon == kWifi ? 31 : 32;  // the Wi-Fi symbol drops its middle column: 1px narrower, symmetric, and it sits evenly in the U's opening (centred on column 32)
+  const int left = icon == kWifi ? kSize / 2 - width / 2 : (kSize - 32) / 2, top = (icon == kUpdate ? 23 : 26) - rows / 2;  // centred on (32, 26); the update icon sits higher so icon and two-line label centre together
   memset(cache.cover, 0, sizeof(cache.cover));
   for (int y = 0; y < rows; ++y)
-    for (int x = skip; x < 32 - skip; ++x)
-      if (art[y][x] == '#') cache.cover[(top + y) * kSize + left + x] = 255;
+    for (int x = 0; x < width; ++x)
+      if (art[y][x + (icon == kWifi && x >= width / 2 + 1)] == '#') cache.cover[(top + y) * kSize + left + x] = 255;
   cache.top = top;
   cache.bottom = top + rows - 1;
   cache.icon = icon;
