@@ -586,6 +586,13 @@ static void background() {
     portalCloseAt = 0;
   }
   bool portalNow = wifi.getConfigPortalActive();
+  static uint32_t portalLogAt = 0;
+  if (portalNow && millis() - portalLogAt >= 5000) {
+    portalLogAt = millis();
+    wifi_mode_t mode; esp_wifi_get_mode(&mode);
+    Serial.printf("[Portal] mode %d, stations %u, sta status %d, channel %u, heap %u, largest %u\n", (int)mode, (unsigned)WiFi.softAPgetStationNum(),
+        (int)WiFi.status(), (unsigned)WiFi.channel(), (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+  }
   if (setupRefresh && !portalNow && !restartAt) restartAt = millis() + 1000;  // setup is over: restart out of the fast display (the face needs the memory and colour depth)
   if (portalActive && !portalNow && WiFi.status() != WL_CONNECTED) WiFi.begin();
   portalActive = portalNow;
@@ -671,6 +678,18 @@ void setup() {
     consoleLog("Wi-Fi power save: %d (0 = off)\n", (int)ps);
     mdnsDue = true;
   }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  wifi.setDebugOutput(true, WM_DEBUG_DEV);  // portal requests, redirects and DNS setup on serial
+  WiFi.onEvent([](arduino_event_id_t id, arduino_event_info_t info) {
+    switch (id) {
+      case ARDUINO_EVENT_WIFI_AP_START: Serial.printf("[AP] started, ip %s\n", WiFi.softAPIP().toString().c_str()); break;
+      case ARDUINO_EVENT_WIFI_AP_STACONNECTED: Serial.printf("[AP] phone joined, %u station(s)\n", (unsigned)WiFi.softAPgetStationNum()); break;
+      case ARDUINO_EVENT_WIFI_AP_STADISCONNECTED: Serial.printf("[AP] phone left, %u station(s)\n", (unsigned)WiFi.softAPgetStationNum()); break;
+      case ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED: Serial.printf("[AP] DHCP gave %s\n", IPAddress(info.wifi_ap_staipassigned.ip.addr).toString().c_str()); break;
+      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: Serial.printf("[STA] disconnected, reason %u\n", (unsigned)info.wifi_sta_disconnected.reason); break;
+      case ARDUINO_EVENT_WIFI_STA_CONNECTED: Serial.printf("[STA] connected on channel %u\n", (unsigned)info.wifi_sta_connected.channel); break;
+      default: break;
+    }
+  });
   wifi.setConfigPortalBlocking(false);
   wifi.setTitle("Ultimatrix");
   wifi.setClass("ultimatrix-portal");
@@ -679,6 +698,10 @@ void setup() {
     if (WiFi.status() == WL_CONNECTED) portalCloseAt = millis() + 10000;
   });
   wifi.setCustomHeadElement(R"HTML(<link rel='stylesheet' href='/theme.css'>
+<script>function busy(t){if(document.getElementById('busy'))return;var d=document.createElement('div');d.id='busy';d.className='busy';d.innerHTML='<div><i class="spin"></i><p>'+t+'</p></div>';document.body.appendChild(d)}
+addEventListener('submit',function(e){if(/\/wifi$/.test(e.target.getAttribute('action')||''))busy('Scanning for networks…')});
+addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a');if(a&&/\/wifi$/.test(a.getAttribute('href')||''))busy('Scanning for networks…')});
+addEventListener('pageshow',function(){var b=document.getElementById('busy');if(b)b.remove()})</script>
 <script>addEventListener('DOMContentLoaded',function(){document.querySelectorAll('.msg').forEach(function(m){
 if(!/Saving Credentials/.test(m.textContent))return;
 function link(u){return '<a href="'+u+'">'+u+'</a> (<a href="#" data-copy="'+u+'">copy</a>)'}
@@ -686,7 +709,7 @@ function show(ip){m.innerHTML='<b>Wi-Fi saved.</b><br>Reconnect to your normal W
 show('');m.addEventListener('click',function(e){var u=e.target.getAttribute('data-copy');if(!u)return;e.preventDefault();var t=document.createElement('textarea');t.value=u;document.body.appendChild(t);t.select();try{if(document.execCommand('copy'))e.target.textContent='copied'}catch(_){}t.remove()});
 var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(timer);return}fetch('/setup-ip',{cache:'no-store'}).then(function(r){return r.text()}).then(function(ip){if(!/^\d+\.\d+\.\d+\.\d+$/.test(ip))return;show(ip);clearInterval(timer)}).catch(function(){})},1000)
 })})</script>)HTML");
-  wifi.setCustomBodyHeader("<div class='portal-brand'><span class='matrix-mark'>▦</span>Ultimatrix.</div><h2 class='portal-title'>Wi-Fi setup</h2><p class='portal-intro'>Select a network and enter its password.</p>");
+  wifi.setCustomBodyHeader("<div class='portal-brand'><img class='brand-logo' src='/icon-192.png' alt='' width='40' height='40'>Ultimatrix<span class='brand-dot'>.</span></div><h2 class='portal-title'>Wi-Fi <span>setup</span></h2><p class='portal-intro'>Select a network and enter its password.</p>");
   wifi.setCustomBodyFooter("<p class='portal-foot'>Your saved network is kept until you choose another one.<br>Ultimatrix · LED Matrix Clock</p>");
   const char *portalMenu[] = {"wifi", "info", "exit"};
   wifi.setMenu(portalMenu, 3);
@@ -698,6 +721,10 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
       if (connected && !portalIpServed) { portalIpServed = true; portalCloseAt = millis() + 10000; }
     });
     wifi.server->on("/theme.css", HTTP_GET, []() { wifi.server->send_P(200, "text/css; charset=utf-8", themeCss); });
+    wifi.server->on("/icon-192.png", HTTP_GET, []() {
+      wifi.server->sendHeader("Cache-Control", "public, max-age=86400");
+      wifi.server->send_P(200, "image/png", (const char *)icon_192Start, icon_192End - icon_192Start);
+    });
     wifi.server->on("/favicon.ico", HTTP_GET, []() { wifi.server->send_P(200, "image/png", (const char *)favicon_32Start, favicon_32End - favicon_32Start); });
   });
   wifi.setAPCallback([](WiFiManager *) {
@@ -762,7 +789,10 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
 }
 
 void loop() {
+  uint32_t loopStart = millis();
   background();
+  uint32_t backgroundMs = millis() - loopStart;
+  if (portalActive && backgroundMs > 40) Serial.printf("[Portal] background() took %u ms\n", (unsigned)backgroundMs);
   if (!displayReady) { delay(50); return; }
   uint32_t now = millis();
   if (!face && !portalActive && WiFi.status() == WL_CONNECTED) {
@@ -792,8 +822,9 @@ void loop() {
       }
     }
     nextFrame = millis() + layout::frameMs;
+    if (portalActive && millis() - loopStart - backgroundMs > 40) Serial.printf("[Portal] frame took %u ms\n", (unsigned)(millis() - loopStart - backgroundMs));
   }
-  delay(2);
+  delay(portalActive ? 1 : 2);  // the setup page and DNS answers wait on this loop
 }
 
 // ESP-IDF owns startup. The rendering task stays on core 1; sport services
