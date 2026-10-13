@@ -634,3 +634,5 @@ Claude (13 Oct, later) Pixel colour depth back 7 -> 8 bits (7-bit gradients look
 2026-10-13: Joris: no publishing until he explicitly says so. Local commits remain authorized. Do not push, create public repositories/releases, or deploy firmware/artifacts to the web server until further instruction; this supersedes earlier upload authorization.
 
 2026-10-13: Codex reviewed current HANDOFF before starting local commits. Initial baseline includes current source, vendored dependencies, documentation and previews. Secret-pattern scan found no matches; private signing key, build trees, managed components and dist remain ignored. Latest 8-bit colour-depth change is unbuilt per Claude handoff; no new tests/builds or device operations performed for this snapshot. Publishing remains prohibited.
+
+2026-10-13: Initial local commit f45e3c4 created. Working tree clean afterward. Whitespace check reports existing trailing whitespace/CRLF in baseline source and vendor files; not cleaned up in this snapshot. No tests/builds run. No publishing.
