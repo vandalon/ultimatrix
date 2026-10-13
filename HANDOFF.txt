@@ -1,5 +1,5 @@
 ULTIMATRIX — SHARED HANDOFF
-Updated: 13 Oct (Claude, notice toast)
+Updated: 13 Oct (Claude, Mario square blocks and round coins)
 Project: ~/ultimatrix
 Reference implementation: ~/clockwise (preserve it)
 
@@ -866,3 +866,9 @@ Codex (13 Oct, 13:32 UTC monitor): 7f1052d Refine welcome screen QR and Wi-Fi st
 Claude (13 Oct, later) SETTINGS NOTICE: the #notice banner on the settings page (Saved etc.) is now a fixed top-right toast (last rule in firmware/web/theme.css) so it no longer shifts the layout. Not viewed in a browser or flashed; errors still stay until replaced.
 
 Codex (13 Oct, 13:42 UTC monitor): afc14af Show settings feedback as a fixed toast. Reviewed completed SETTINGS NOTICE handoff; fixed toast CSS committed. Whitespace check passed; no browser check by Codex. The broader welcome-mode/API changes remain active and uncommitted pending integration. No publishing.
+
+Claude (13 Oct, late) REBOOT+UPDATE FIXED: root cause was a timing bug in FirmwareUpdate::service(): `now - _stoppingAt` was unsigned and request() ran later in the same loop pass than the caller's `now`, so it wrapped to a huge value and aborted the install as "feeds did not stop in time" (silent). Now a signed compare (lib/core/FirmwareUpdate.cpp). Also startCheck() refuses while a job is pending, and update status/queue events log to the console. Separately the manifest fetch failed earlier only because the update server setting was lost (Joris re-entered it). Built and flashed to usbserial-10; serial shows "Install queued", "creating update worker", "Downloading and verifying application firmware". Final install/reboot into the new image not watched to the end.
+
+Claude (13 Oct, late) MARIO BLOCKS/COINS: question blocks are now square 14x14 (kBlockSize; x 0/15/35/50, top moved 10 -> 13 so the bottom edge stays at Mario's head height; digit moved up 1 px, shadow clipped at the bottom edge). Coins are round (6 tall, drawn procedurally; spin by narrowing 6/5/3/2/3/5) at cx 32 between the blocks and cx block+7 for the jumping coin. firmware/clockfaces/mario/Clockface.cpp. Syntax-checked only; preview GIF not regenerated (Pillow missing) and not seen on the panel. OPEN: check Mario's head vs block contact, 6 px coins in the 6 px gap between blocks 2 and 3, Luigi untouched.
+
+Codex (13 Oct, 13:52 UTC monitor): be6bec8 Refine Mario question blocks and coins. Reviewed the completed MARIO BLOCKS/COINS handoff and committed only firmware/clockfaces/mario/Clockface.cpp. Whitespace check passed; Claude reports syntax check only, no preview or device verification. The Mario composition questions in the handoff remain open. Other updater/welcome/feed/release changes remain uncommitted pending integration. No tests/builds run by Codex; no publishing.
