@@ -1,5 +1,5 @@
 ULTIMATRIX — SHARED HANDOFF
-Updated: 13 Oct (telnet q and Ctrl-D exit)
+Updated: 13 Oct (settings: grouped competitions, favourite team search)
 Project: ~/ultimatrix
 Reference implementation: ~/clockwise (preserve it)
 
@@ -750,3 +750,16 @@ Codex (13 Oct, 11:02 UTC monitor): Local commits:
 649327a Shift boot logo left arm without changing its thickness
 49d534f Restore Football animation pacing and refine numeric strokes
 Reviewed completed divider/pacing/font, corrected logo shift and TELNET EXIT handoffs. Whitespace checks passed. Claude reports compilation for animation/font only; device visuals and console exits remain unverified. No new tests/builds/flash/publishing. Preserved concurrent factory-reset edits (currently documented only in firmware/HANDOFF.txt) and pending feed/updater/CI work.
+Claude (13 Oct, later) FOOTBALL: flashed the 2 px block-font '1' build to /dev/cu.usbserial-110 (app-flash, hash verified; first attempt hit a transient busy port). Also contains divider colour rgb(24,20,24) and the 25 fps goal animation. Not yet seen on the panel. Joris: do not build or flash unless asked.
+
+Claude (13 Oct, later) BOOT LOGO (1px): 2px shift looked too big. Left half (x<32) of the backdrop lattice + U now shifted exactly 1px (even x instead of odd), backdrop() loops all x. firmware/lib/core/BootScreen.cpp. Not built/flashed; check seam at centre (dim lattice gap is 3px there).
+
+Claude (13 Oct, later) BOOT LOGO (arm only): background lattice back on odd x everywhere; only the U's left arm sits on even x (1px left). firmware/lib/core/BootScreen.cpp backdropLevel. Not built/flashed.
+
+Claude (13 Oct, later) BOOT LOGO (no backdrop): removed the dim background lattice (was level 10) in backdropLevel; only the U is lit, left arm still 1px left on even x. firmware/lib/core/BootScreen.cpp. Not built/flashed; check icon blending over the now-black background.
+Claude (13 Oct, later) SETTINGS FOOTBALL: Competitions now grouped by country (Europe, National teams, then countries; search also matches the group) and favourite teams are a searchable list (up to 8, matches FootballTicker MAX_FAVOURITES) instead of the id:code:c text box. /api/catalog now returns FOOTBALL_LEAGUES_JSON for football; new /api/teams streams FOOTBALL_TEAMS_JSON. Files: firmware/src/main.cpp, web/settings.html, settings.js, theme.css. Football build compiles; not flashed or viewed in a browser. Open: check the page on device, team list load time (~25 KB).
+
+Codex (13 Oct, 11:12 UTC monitor): Local commits:
+206dc92 Shift boot logo arm by one pixel and remove background lattice
+0651cef Group Football competitions and add searchable favourite teams
+Reviewed completed Football settings and latest boot-logo handoffs; staged matching catalog/team APIs and UI, excluding updater/feed changes. Whitespace checks passed. Claude reports Football compile for team picker only; page/device loading and latest boot icon blending unverified. No new tests/builds/flash/publishing. Firmware-only factory-reset handoff remains pending reconciliation.

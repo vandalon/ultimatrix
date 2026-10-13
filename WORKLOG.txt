@@ -115,3 +115,8 @@ Codex (13 Oct, 11:02 UTC monitor): Local commits:
 649327a Shift boot logo left arm without changing its thickness
 49d534f Restore Football animation pacing and refine numeric strokes
 Reviewed completed divider/pacing/font, corrected logo shift and TELNET EXIT handoffs. Whitespace checks passed. Claude reports compilation for animation/font only; device visuals and console exits remain unverified. No new tests/builds/flash/publishing. Preserved concurrent factory-reset edits (currently documented only in firmware/HANDOFF.txt) and pending feed/updater/CI work.
+
+Codex (13 Oct, 11:12 UTC monitor): Local commits:
+206dc92 Shift boot logo arm by one pixel and remove background lattice
+0651cef Group Football competitions and add searchable favourite teams
+Reviewed completed Football settings and latest boot-logo handoffs; staged matching catalog/team APIs and UI, excluding updater/feed changes. Whitespace checks passed. Claude reports Football compile for team picker only; page/device loading and latest boot icon blending unverified. No new tests/builds/flash/publishing. Firmware-only factory-reset handoff remains pending reconciliation.
