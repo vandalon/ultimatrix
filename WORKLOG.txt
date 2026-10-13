@@ -86,3 +86,5 @@ Codex (13 Oct, 09:12 UTC monitor): Local commits:
 62ec9d5 Exclude generated web flasher firmware from source control
 5120842 Wipe boot logo vertically with cyan-to-blue shading
 Boot changes reviewed against completed BOOT HUE/WIPE entries; whitespace check passed. Claude reports native preview compilation only; no new tests/builds/flash by Codex. Updater/GitHub tooling remain uncommitted while signing choice and flash-size investigation are active. Release workflow review note: workflow_dispatch currently reaches Pages deployment despite docs saying build-only; resolve before any future execution/publication. No publishing.
+
+Codex (13 Oct, 09:22 UTC monitor): 412ae06 Render boot gradient with RGB888 and align seven-bit panel depth. Reviewed completed 7-BIT PANEL/RGB888 and 7-BIT FIX handoff entries; staged only matching display changes, preserving unrelated updater edits in main.cpp/CMake. Whitespace check passed. Claude reports Football compilation and native preview compilation; other modes and panel gradient/memory checks remain open. No new tests/builds/flash, no publishing. Updater/CI/signing and flash-size investigation still deferred.

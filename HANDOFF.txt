@@ -1,5 +1,5 @@
 ULTIMATRIX — SHARED HANDOFF
-Updated: 13 October 2026 (Europe/Amsterdam, GitHub updates)
+Updated: 13 October 2026 (Europe/Amsterdam)
 Project: ~/ultimatrix
 Reference implementation: ~/clockwise (preserve it)
 
@@ -673,3 +673,7 @@ Codex (13 Oct, 09:12 UTC monitor): Local commits:
 62ec9d5 Exclude generated web flasher firmware from source control
 5120842 Wipe boot logo vertically with cyan-to-blue shading
 Boot changes reviewed against completed BOOT HUE/WIPE entries; whitespace check passed. Claude reports native preview compilation only; no new tests/builds/flash by Codex. Updater/GitHub tooling remain uncommitted while signing choice and flash-size investigation are active. Release workflow review note: workflow_dispatch currently reaches Pages deployment despite docs saying build-only; resolve before any future execution/publication. No publishing.
+Claude (13 Oct, later) 7-BIT PANEL + RGB888 LOGO: panel colour depth 8 -> 7 bits (UM_PIXEL_DEPTH_BITS / PIXEL_COLOR_DEPTH_BITS in firmware/main/CMakeLists.txt:89) to save memory; applies to ALL faces (F1Renderer.cpp already has a 7-bit branch). Boot logo backdrop now plots through MatrixPanel drawPixelRGB888 (boot::setPlot888 hook in BootScreen.h/.cpp, set in main.cpp after displayReady; the native preview keeps the RGB565 fallback) because Adafruit_GFX's RGB565 left only ~17 blue levels whatever the panel depth. Analysis: with 8-bit input the 7-bit CIE table still gives ~34 blue / 22 green levels over the dim U range (~1 per lattice row). Native preview compiles; idf.sh build not run, not flashed. Open: flash and check logo gradient plus Football/F1 gradients and fades at 7 bits; revert to 8 if any face bands; measure memory saved.
+Claude (13 Oct, later) 7-BIT FIX: PIXEL_COLOR_DEPTH_BITS was also defined (=8, PUBLIC) in firmware/components/clock-libraries/CMakeLists.txt:13, so the hub75 driver compiled with the 8-bit CIE table while the panel ran 7 bits (27 "redefined" warnings; likely wrong colours/brightness). Now 7 there, duplicate removed from main/CMakeLists.txt:89 (UM_PIXEL_DEPTH_BITS=7 stays). football builds clean via idf.sh; not flashed. Other modes (f1/tetris...) not rebuilt.
+
+Codex (13 Oct, 09:22 UTC monitor): 412ae06 Render boot gradient with RGB888 and align seven-bit panel depth. Reviewed completed 7-BIT PANEL/RGB888 and 7-BIT FIX handoff entries; staged only matching display changes, preserving unrelated updater edits in main.cpp/CMake. Whitespace check passed. Claude reports Football compilation and native preview compilation; other modes and panel gradient/memory checks remain open. No new tests/builds/flash, no publishing. Updater/CI/signing and flash-size investigation still deferred.
