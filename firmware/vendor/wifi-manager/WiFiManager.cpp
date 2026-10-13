@@ -490,6 +490,18 @@ bool WiFiManager::startAP(){
     }
   }
 
+  // Without a DNS address the AP's DHCP server offers none, so phones cannot resolve the captive-portal probes (and may prefer mobile data).
+  {
+    IPAddress apIp = _ap_static_ip ? _ap_static_ip : IPAddress(192, 168, 4, 1);
+    IPAddress apGw = _ap_static_ip ? _ap_static_gw : apIp;
+    IPAddress apSn = _ap_static_ip ? _ap_static_sn : IPAddress(255, 255, 255, 0);
+    if(!WiFi.softAPConfig(apIp, apGw, apSn, IPAddress((uint32_t)0), apIp)){
+      #ifdef WM_DEBUG_LEVEL
+      DEBUG_WM(WM_DEBUG_ERROR,F("[ERROR] softAPConfig with DNS failed!"));
+      #endif
+    }
+  }
+
   //@todo add callback here if needed to modify ap but cannot use setAPStaticIPConfig
   //@todo rework wifi channelsync as it will work unpredictably when not connected in sta
  
