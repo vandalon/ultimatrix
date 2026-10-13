@@ -33,33 +33,6 @@ static bool standingsPage(const football::Snapshot &snap, size_t page, RankingPa
   return false;
 }
 
-static bool simulatedStandings(size_t page, RankingPage &out) {
-  static const char *const teams[] = {"ARS", "MCI", "LIV", "AVL", "TOT", "CHE", "NEW", "MUN", "WHU", "BHA", "WOL", "FUL",
-                                      "CRY", "EVE", "BRE", "NFO", "BOU", "LEI", "IPS", "SOU",
-                                      "RMA", "BAR", "ATM", "GIR", "ATH", "SOC", "BET", "VIL", "VAL", "SEV", "OSA", "GET",
-                                      "CEL", "MLL", "LAS", "ALA", "ESP", "LEG", "RAY", "VLL"};
-  const size_t firstSteps = FootballTicker::standingsSteps(20);
-  out.pageCount = firstSteps * 2;
-  page %= out.pageCount;
-  bool second = page >= firstSteps;
-  strlcpy(out.competition, second ? "La Liga" : "Premier League", sizeof(out.competition));
-  size_t firstRow = min((page % firstSteps) * RANKING_ROWS, size_t(14));
-  size_t first = (second ? 20 : 0) + firstRow;
-  out.firstPosition = firstRow + 1;
-  size_t last = first + RANKING_ROWS;
-  out.count = 0;
-  for (size_t i = first; i < last; i++) {
-    strlcpy(out.teams[out.count], teams[i], sizeof(out.teams[0]));
-    out.points[out.count++] = 63 - (i % 20) * 3;
-  }
-  return true;
-}
-
-void FootballScreens::resetRankings() {
-  _shownRankingPage = SIZE_MAX;
-  rankingPage.valid = previousRankingValid = false;
-}
-
 void FootballScreens::advance(const ScreenInputs &in) {
   now = in.now;
   showRankings = in.showRankings;
@@ -75,8 +48,7 @@ void FootballScreens::advance(const ScreenInputs &in) {
       bool hadPage = rankingPage.valid;
       previousRankingValid = hadPage && advance;
       if (previousRankingValid) previousRankingPage = rankingPage;
-      rankingPage.valid = in.simRankings ? simulatedStandings(page, rankingPage)
-                         : standingsPage(snapshot, page, rankingPage);
+      rankingPage.valid = standingsPage(snapshot, page, rankingPage);
       if (previousRankingValid && strcmp(rankingPage.competition, previousRankingPage.competition) == 0 &&
           rankingPage.firstPosition == previousRankingPage.firstPosition) previousRankingValid = false;
       if (firstPage || advance || (!hadPage && rankingPage.valid)) {

@@ -23,6 +23,4 @@ class Clockface: public IClockface {
     // practice, results, Q2, Q3, chequered flag), then back to the real data
     const char *simulate();
     const char *simulateNext();
-    void testGoal() {}
-    void testIncident(char) {}
 };

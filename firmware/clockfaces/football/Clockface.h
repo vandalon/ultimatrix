@@ -19,13 +19,6 @@ class Clockface: public IClockface {
     void setup(ClockTime *dateTime);
     void update();
     void invalidate();
-    // Telnet S and N: the simulator is gone, these only say so
-    const char *simulate();
-    const char *simulateNext();
-    // Telnet G: celebrate a made-up goal
-    void testGoal();
-    // Telnet Y, D and W: a made-up yellow card, red card ('y', 'r') or substitution ('s')
-    void testIncident(char kind);
     // A goal or incident animation is playing (one frame per update): the preview tool steps it
     bool animating() const;
 };

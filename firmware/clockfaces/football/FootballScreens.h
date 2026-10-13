@@ -42,7 +42,7 @@ struct ScreenInputs {
   int hour, minute, second;
   unsigned long now;
   uint32_t version;  // of the ticker's data
-  bool showRankings, simRankings;
+  bool showRankings;
   FootballTicker::Status status;
 };
 
@@ -52,8 +52,6 @@ class FootballScreens {
   void advance(const ScreenInputs &in);
   // Then, after any goal or incident animation: the score tiles, and the Frame
   void finish();
-  // The ranking pages start over (setting or simulation changed)
-  void resetRankings();
   void resetRankingPage() { _shownRankingPage = SIZE_MAX; }
 
   const Frame &frame() const { return _frame; }

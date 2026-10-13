@@ -209,10 +209,7 @@ static void startMdns() {
   consoleLog("mDNS: ultimatrix.local %s\n", mdnsStarted ? "up" : "FAILED");
 }
 
-#ifdef UM_FOOTBALL_ONLY
-#define UM_TELNET_HELP "  goal    a made-up goal (g)\r\n  yellow  a yellow card (y)\r\n  red     a red card (d)\r\n  sub     a substitution (w)\r\n" \
-                       "  sim     next simulated screen (s)\r\n  next    the same (n)\r\n"
-#elif defined(UM_F1)
+#if defined(UM_F1)
 #define UM_TELNET_HELP "  sim     next simulated screen, then back to real data (s)\r\n  next    the same (n)\r\n"
 #else
 #define UM_TELNET_HELP ""
@@ -252,17 +249,11 @@ static bool telnetCommand(const char *c, Print &out) {
     FirmwareUpdate::Status status; firmwareUpdate.status(status);
     out.printf("%s (%lu/%lu bytes)\r\n", status.message, (unsigned long)status.received, (unsigned long)status.total); return true;
   }
-#if defined(UM_FOOTBALL_ONLY) || defined(UM_F1)
+#ifdef UM_F1
   if (!face) { out.print("Not ready yet.\r\n"); return true; }
   auto is = [&](const char *a, const char *b) { return !strcasecmp(c, a) || !strcasecmp(c, b); };
   if (is("sim", "s")) { out.printf("%s\r\n", face->simulate()); return true; }
   if (is("next", "n")) { out.printf("%s\r\n", face->simulateNext()); return true; }
-#ifdef UM_FOOTBALL_ONLY
-  if (is("goal", "g")) { face->testGoal(); out.print("Goal.\r\n"); return true; }
-  if (is("yellow", "y")) { face->testIncident('y'); out.print("Yellow card.\r\n"); return true; }
-  if (is("red", "d")) { face->testIncident('r'); out.print("Red card.\r\n"); return true; }
-  if (is("sub", "w")) { face->testIncident('s'); out.print("Substitution.\r\n"); return true; }
-#endif
 #endif
   return false;
 }

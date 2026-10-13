@@ -80,67 +80,6 @@ static void showResultsLive(Overview &o, unsigned long now) {
   resultsOnTop = true;
 }
 
-// ---- Telnet tests: G a goal, Y a yellow card, D a red card, W a substitution ----
-
-static bool testGoalDue = false;
-static char testIncidentDue = 0;
-static bool simRankings = false, simChanged = false;
-
-void Clockface::testGoal() { testGoalDue = true; }
-void Clockface::testIncident(char kind) { testIncidentDue = kind; }
-const char *Clockface::simulate() {
-  simRankings = !simRankings;
-  simChanged = true;
-  screens.resetRankings();
-  haveFrame = false;
-  return simRankings ? "upcoming games and club standings (S or N to stop)" : "off, showing real matches";
-}
-const char *Clockface::simulateNext() { return simulate(); }
-
-static TeamKit testKit(const char *team) {
-  TeamKit kit = {0xFFFF, 0xFFFF, 0};
-  lookupTeamKit(team, "ned.1", kit);
-  return kit;
-}
-
-static void simulatedUpcoming(football::Snapshot &out, time_t now) {
-  out = football::Snapshot();
-  const char *const teams[] = {"FEY", "AJA", "PSV", "AZ"};
-  for (int i = 0; i < 2; i++) {
-    football::FixtureRow &match = out.fixtures[out.fixtureCount++];
-    strlcpy(match.home.code, teams[i * 2], sizeof(match.home.code));
-    strlcpy(match.away.code, teams[i * 2 + 1], sizeof(match.away.code));
-    match.home.kit = testKit(teams[i * 2]);
-    match.away.kit = testKit(teams[i * 2 + 1]);
-    match.kickoff = now + (i + 1) * 86400;
-    match.color = DATE;
-  }
-}
-
-// The test goal or incident, as the ticker would hand it out
-static bool takeTestGoal(FootballTicker::Goal &goal) {
-  if (!testGoalDue) return false;
-  testGoalDue = false;
-  goal = {"FEY", "AJA", 2, 1, true, testKit("FEY"), testKit("AJA"), millis()};
-  return true;
-}
-static bool takeTestIncident(FootballTicker::Incident &incident) {
-  if (!testIncidentDue) return false;
-  incident.kind = testIncidentDue;
-  incident.home = "FEY";
-  incident.away = "AJA";
-  incident.homeKit = testKit("FEY");
-  incident.awayKit = testKit("AJA");
-  incident.homeTeam = true;
-  incident.minute = 86;
-  strcpy(incident.name, testIncidentDue == 's' ? "" : "NDIAYE");
-  incident.number = 10;
-  incident.numberOn = 9;
-  incident.detectedAt = millis();
-  testIncidentDue = 0;
-  return true;
-}
-
 Clockface::Clockface(MatrixPanel_I2S_DMA* display) {
   _display = display;
   Locator::provide(display);  // the startup logo and status screens draw through the Locator
@@ -189,7 +128,7 @@ void Clockface::update() {
     haveFrame = false;
   }
   static int shownRankings = -1;
-  bool showRankings = simRankings || Settings::getInstance()->showRankings;
+  bool showRankings = Settings::getInstance()->showRankings;
   if (showRankings != (shownRankings != 0)) {
     shownRankings = showRankings;
     screens.resetRankingPage();
@@ -198,24 +137,22 @@ void Clockface::update() {
 
   footballTicker.setResultWindow(resultWindowSecs());
   uint32_t version = footballTicker.version();
-  if (simChanged || version != overviewVersion) {
-    if (simRankings) simulatedUpcoming(snapshot, time(nullptr));
-    else footballTicker.snapshot(snapshot);
+  if (version != overviewVersion) {
+    footballTicker.snapshot(snapshot);
     overview.live.clear();
     for (size_t i = 0; i < snapshot.liveCount; i++) overview.live.push_back(liveMatch(snapshot.live[i]));
     overviewVersion = version;
     overviewRevision++;
-    simChanged = false;
     resultsOnTop = false;
   }
   showResultsLive(overview, now);
 
   FootballTicker::Status status = footballTicker.status();
-  screens.advance({_dateTime, hour, minute, second, now, version, showRankings, simRankings, status});
+  screens.advance({_dateTime, hour, minute, second, now, version, showRankings, status});
 
   // A goal: the net cam animation with GOAL! and the new score, then the clock again
   FootballTicker::Goal goal;
-  if (takeTestGoal(goal) || (!simRankings && footballTicker.nextGoal(goal))) {
+  if (footballTicker.nextGoal(goal)) {
     if (animation.goal.begin(_display, goal.home.c_str(), goal.away.c_str(), goal.homeScore, goal.awayScore, goal.homeScored,
                              goal.homeKit, goal.awayKit)) {
       animation.kind = animation.Goal;
@@ -230,7 +167,7 @@ void Clockface::update() {
 
   // A card or a substitution: the full screen animation, then the clock again
   FootballTicker::Incident incident;
-  if (takeTestIncident(incident) || (!simRankings && footballTicker.nextIncident(incident))) {
+  if (footballTicker.nextIncident(incident)) {
     animation.incident = incident;
     animation.kind = animation.Incident;
     animation.total = incidentFrames(incident);
