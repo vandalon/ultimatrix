@@ -148,30 +148,11 @@ void layOut(Layout &l, const WordPhrase &phrase) {
   }
 }
 
-// ---- Colours: they follow the time of day, slowly ----
+// ---- Colours: the football and F1 scheme (off-white hours, green minutes), the same all day ----
 
 struct Theme { uint16_t big, small, faint; };
-// 6:00 morning, 12:00 midday, 18:00 evening, 22:00 night
-const Theme kThemes[4] = {
-  {rgb(255, 196, 96), rgb(120, 214, 190), rgb(90, 80, 70)},
-  {rgb(250, 246, 232), rgb(110, 186, 255), rgb(80, 90, 110)},
-  {rgb(255, 136, 118), rgb(255, 206, 140), rgb(100, 70, 80)},
-  {rgb(150, 164, 255), rgb(104, 214, 232), rgb(60, 66, 110)},
-};
-const int kThemeAt[4] = {360, 720, 1080, 1320};
-
-Theme themeAt(int minuteOfDay) {
-  int from = 3, to = 0;
-  for (int i = 0; i < 4; i++) if (minuteOfDay >= kThemeAt[i]) { from = i; to = (i + 1) % 4; }
-  const int start = kThemeAt[from];
-  int end = kThemeAt[to];
-  int now = minuteOfDay;
-  if (end <= start) end += 1440;
-  if (now < start) now += 1440;
-  const int t = 255 * (now - start) / (end - start);
-  const Theme &a = kThemes[from], &b = kThemes[to];
-  return {mix(a.big, b.big, t), mix(a.small, b.small, t), mix(a.faint, b.faint, t)};
-}
+const Theme kTheme = {rgb(238, 246, 240), rgb(190, 235, 150), rgb(80, 90, 110)};
+Theme themeAt(int) { return kTheme; }
 
 // ---- State ----
 

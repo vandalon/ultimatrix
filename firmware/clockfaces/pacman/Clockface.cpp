@@ -20,7 +20,7 @@ float camX = 0, camY = 0;
 const uint16_t kBackground = rgb(4, 4, 18);
 const uint16_t kWall = rgb(36, 64, 255), kWallFlash = rgb(230, 230, 255), kDoor = rgb(255, 184, 222);
 const uint16_t kPill = rgb(255, 184, 174), kPacman = rgb(255, 224, 0);
-const uint16_t kHours = rgb(255, 232, 160), kMinutes = rgb(255, 170, 196), kSpark = rgb(255, 255, 255);
+const uint16_t kHours = rgb(238, 246, 240), kMinutes = rgb(190, 235, 150), kSpark = rgb(255, 255, 255);
 
 // Speeds in pixels per second: calm, rather than arcade
 const float kPacSpeed = 12, kGhostSpeed = 10.5f, kScaredSpeed = 6.5f, kEyesSpeed = 26;
