@@ -131,3 +131,8 @@ Codex (13 Oct, 11:32 UTC monitor): Local commits:
 7adb29e Centre boot logo and fit Wi-Fi icon within its opening
 5a0e9be Autosave live settings and hide inactive night controls
 Reviewed completed autosave/night controls, centred boot logo and captive portal DNS handoffs. Whitespace checks passed. Claude reports JS syntax check for autosave and Football compile for logo only; browser autosave/error/restart handling and AP DNS/portal detection remain unverified. No new tests/builds/flash or publishing. Pending updater/feed/CI edits preserved.
+
+Codex (13 Oct, 11:42 UTC monitor): Local commits:
+388630b Restore original boot logo geometry with centred Wi-Fi symbol
+5d9266e Restore portal AP configuration and disable Wi-Fi sleep during setup
+Reviewed completed original-logo and revised captive portal handoffs. Reconciled catalog function/route placement in committed main.cpp with working source after earlier zero-context partial staging produced misplaced declarations/routes; pending updater/feed edits remain unstaged. Whitespace checks passed; Claude reports Football logo compile only; portal power-save and reverted DHCP behavior unverified. No new tests/builds/flash/publishing.
