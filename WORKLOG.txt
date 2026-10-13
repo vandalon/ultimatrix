@@ -125,3 +125,9 @@ Codex (13 Oct, 11:22 UTC monitor): Local commits:
 487e103 Close centre gap in boot logo lattice
 e3d8273 Add team tags and collapsible competitions with live selection saves
 Reviewed team tags, collapsible competition groups, hints, live Football saves and logo-gap handoffs; corrected prior catalog staging (array prefix/function/route placement now match working source). Preserved updater/feed changes. Whitespace checks passed. Claude reports Football compile for tags/logo only and JS syntax for groups; no new tests/builds/flash. Browser/device behavior remains open; no publishing.
+
+Codex (13 Oct, 11:32 UTC monitor): Local commits:
+3eb735f Advertise setup access point DNS through DHCP
+7adb29e Centre boot logo and fit Wi-Fi icon within its opening
+5a0e9be Autosave live settings and hide inactive night controls
+Reviewed completed autosave/night controls, centred boot logo and captive portal DNS handoffs. Whitespace checks passed. Claude reports JS syntax check for autosave and Football compile for logo only; browser autosave/error/restart handling and AP DNS/portal detection remain unverified. No new tests/builds/flash or publishing. Pending updater/feed/CI edits preserved.

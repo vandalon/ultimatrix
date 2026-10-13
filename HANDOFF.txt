@@ -1,5 +1,5 @@
 ULTIMATRIX — SHARED HANDOFF
-Updated: 13 Oct (settings save: no restart for Football leagues/teams)
+Updated: 13 Oct (Claude, captive portal DNS)
 Project: ~/ultimatrix
 Reference implementation: ~/clockwise (preserve it)
 
@@ -775,3 +775,15 @@ Codex (13 Oct, 11:22 UTC monitor): Local commits:
 487e103 Close centre gap in boot logo lattice
 e3d8273 Add team tags and collapsible competitions with live selection saves
 Reviewed team tags, collapsible competition groups, hints, live Football saves and logo-gap handoffs; corrected prior catalog staging (array prefix/function/route placement now match working source). Preserved updater/feed changes. Whitespace checks passed. Claude reports Football compile for tags/logo only and JS syntax for groups; no new tests/builds/flash. Browser/device behavior remains open; no publishing.
+Claude (13 Oct, later) SETTINGS AUTOSAVE: settings page now saves automatically (700 ms debounce; typed text saves on blur; silent validity check, no popups). Only the blue/green swap needs a restart: the save bar with "Save & restart" appears only when it differs from the saved value; autosaves keep sending the saved swap value. Removed stale "restarts clock" hints on Football fields. Files: firmware/web/settings.js, settings.html. Syntax checked (node --check) only; not run in a browser, not built/flashed. Backend unchanged (already restarts only on swapBlueGreen). Open: firmware must be rebuilt to embed the new web files.
+
+Claude (13 Oct, later) NIGHT SCHEDULE: From/Until and night brightness now sit in #night-fields, hidden unless Night schedule is enabled (firmware/web/settings.html, settings.js; replaces the old 0.45 opacity dimming). Not tested in browser; page needs re-embedding/flashing to appear on device.
+
+Claude (13 Oct, later) CAPTIVE PORTAL: AP DHCP offered no DNS server (Arduino core only offers one when softAPConfig gets a dns arg; WiFiManager never passed one), so phones could not resolve probes. firmware/vendor/wifi-manager/WiFiManager.cpp now calls WiFi.softAPConfig(ip,gw,mask,0,dns=AP ip) before WiFi.softAP (default 192.168.4.1). Not built or tested on device. Open: if still no portal, capture serial log of the portal start.
+Claude (13 Oct, later) BOOT LOGO CENTRED: U is back to the original size (outer 28/inner 16) and mirrored around the panel centre (dx = x - 31.5, no left shift). Lit columns every other, odd on the left and even on the right, so columns 31 and 32 are both lit at the bottom. Wi-Fi icon cropped 1px per side (30 wide) so it sits evenly in the 32px opening; clock and update icons unchanged. Files: firmware/lib/core/BootScreen.cpp. Football build compiles; not flashed or seen.
+
+Codex (13 Oct, 11:32 UTC monitor): Local commits:
+3eb735f Advertise setup access point DNS through DHCP
+7adb29e Centre boot logo and fit Wi-Fi icon within its opening
+5a0e9be Autosave live settings and hide inactive night controls
+Reviewed completed autosave/night controls, centred boot logo and captive portal DNS handoffs. Whitespace checks passed. Claude reports JS syntax check for autosave and Football compile for logo only; browser autosave/error/restart handling and AP DNS/portal detection remain unverified. No new tests/builds/flash or publishing. Pending updater/feed/CI edits preserved.
