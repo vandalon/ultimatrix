@@ -344,11 +344,11 @@ static void selectionCatalog() {
   server.sendContent("");
   return;
 #endif
-  bool first = true;
   server.sendContent("[");
+  bool first = true;
 #ifdef UM_FOOTBALL_ONLY
-#elif defined(UM_MOTOGP)
   (void)first;
+#elif defined(UM_MOTOGP)
   for (const auto &rider : MOTOGP_RIDERS) {
     if (!first) server.sendContent(",");
     first = false;
@@ -373,7 +373,6 @@ static void selectionCatalog() {
   server.sendContent("");
 }
 
-static void timezones() {
 #ifdef UM_FOOTBALL_ONLY
 static void footballTeams() {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
@@ -383,6 +382,7 @@ static void footballTeams() {
 }
 #endif
 
+static void timezones() {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(200, "application/json", "");
   server.sendContent("[");
@@ -663,6 +663,7 @@ void setup() {
   drawBoot(boot::Kind::Logo);
   WiFi.setHostname("ultimatrix");
   WiFi.setAutoReconnect(true);
+  WiFi.setSleep(false);  // as Clockwise does, before any mode change; the STA event handler below re-applies it
   // Modem power saving (the default) delays packets by up to a beacon interval; disable it on every (re)connect.
   WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) {
     WiFi.setSleep(false);
@@ -704,6 +705,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
     char address[16];
     snprintf(address, sizeof(address), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
     bootScreen.setAccessPoint(kApName, nullptr, address);
+    WiFi.setSleep(false);  // no modem power saving while the setup AP is up
     portalActive = true;
     if (!setupRefresh) {  // the portal came up late (saved network gone): restart into the fast display for the QR code
       Preferences prefs;
@@ -746,6 +748,9 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/api/settings", HTTP_GET, settingsState);
   server.on("/api/settings", HTTP_POST, saveSettings);
   server.on("/api/catalog", HTTP_GET, selectionCatalog);
+#ifdef UM_FOOTBALL_ONLY
+  server.on("/api/teams", HTTP_GET, footballTeams);
+#endif
   server.on("/api/timezones", HTTP_GET, timezones);
   server.on("/api/wifi/setup", HTTP_POST, openWifiSetup);
   server.on("/api/firmware", HTTP_GET, firmwareStatus);
@@ -755,9 +760,6 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   if (s.telnet) telnet.begin(telnetCommand, "  update  download signed application update\r\n  update-status  show update progress\r\n" UM_TELNET_HELP);
   backgroundWork() = background;
 }
-#ifdef UM_FOOTBALL_ONLY
-  server.on("/api/teams", HTTP_GET, footballTeams);
-#endif
 
 void loop() {
   background();
