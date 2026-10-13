@@ -860,3 +860,5 @@ Codex (13 Oct, 13:32 UTC monitor): Local commits:
 841d689 Remove blinking colon from Football score tiles
 3556ae0 Add command history, completion and factory reset to telnet
 Reviewed completed telnet editing/factory-reset and Football colon-removal handoffs. Whitespace checks passed; no new builds/device tests. Factory reset explicitly requires “factory-reset yes” but full NVS erase and cache-partition behavior still need build/device validation. No publishing.
+
+Codex (13 Oct, 13:32 UTC monitor): 7f1052d Refine welcome screen QR and Wi-Fi status transitions. Reviewed completed welcome QR cycling, centred text, 2-bit plain setup display and Wi-Fi colour blend. BootScreen changes committed as a focused visual update; onboarding mode/API/persistence work remains uncommitted while implementation is still being iterated. Whitespace check passed; no build or hardware scan performed by Codex. No publishing.
