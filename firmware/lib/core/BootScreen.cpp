@@ -68,7 +68,7 @@ unsigned backdropLevel(int x, int y, unsigned glow = 0) {
   bool outer = y <= kCentreY ? fabsf(dx) <= kOuterX : (dx * dx) / (kOuterX * kOuterX) + (dy * dy) / (kOuterY * kOuterY) <= 1;
   bool inner = y <= kCentreY ? fabsf(dx) <= kInnerX : (dx * dx) / (kInnerX * kInnerX) + (dy * dy) / (kInnerY * kInnerY) <= 1;
   if (!(outer && !inner)) return 10;
-  unsigned dim = 150 - 130 * y / kSize, bright = 255 - 190 * y / kSize;
+  unsigned dim = 150 - 100 * y / kSize, bright = 255 - 160 * y / kSize;
   return dim + (bright - dim) * glow / 255;
 }
 

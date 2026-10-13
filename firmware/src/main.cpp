@@ -99,7 +99,7 @@ static bool updateAvailable() {
 // The boot screens run the panel at no less than kBootPanelBrightness: the driver sets brightness as whole pixel
 // clocks per bit plane, so at a low setting the dim end of the logo's gradient has only a few levels. Colours are
 // scaled back down in linear light (through the brightness curve) so the screen looks as it would at the setting.
-static const uint8_t kBootPanelBrightness = 128;
+static const uint8_t kBootPanelBrightness = 255;
 static unsigned bootScale = 0;  // the user's brightness over the panel's, 8.8 fixed point
 static uint8_t bootMap[256];  // a level at full scale -> the input that looks like it at bootScale
 static uint8_t bootInverse[256];  // output level -> smallest input that gives at least it
@@ -126,11 +126,12 @@ static uint8_t panelBrightness(uint8_t userBrightness) {
   return panel;
 }
 
-// The logo's gradient: the wanted output level is kept fractional and ordered-dithered across the lattice (4x4 Bayer),
+// The logo's gradient: the wanted output level is kept fractional and ordered-dithered across the lattice (8x8 Bayer),
 // then mapped back to the input that gives it, for gradient steps finer than the panel's whole levels.
 static void plotDithered(Adafruit_GFX &gfx, int x, int y, uint16_t r, uint16_t g, uint16_t b) {
-  static const uint8_t bayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
-  unsigned threshold = bayer[((y >> 1) & 3) * 4 + ((x >> 1) & 3)] * 16;  // 0..240 of a level's 256
+  unsigned lx = x >> 1, ly = y >> 1, lxy = lx ^ ly;  // lattice coordinates; 8x8 Bayer index 0..63 by bit interleave
+  unsigned index = ((ly & 1) << 5) | ((lxy & 1) << 4) | (((ly >> 1) & 1) << 3) | (((lxy >> 1) & 1) << 2) | (((ly >> 2) & 1) << 1) | ((lxy >> 2) & 1);
+  unsigned threshold = index * 4;  // 0..252 of a level's 256
   auto channel = [&](uint16_t in) -> uint8_t {
     unsigned i = in >> 8, f = in & 255;
     if (i > 255) i = 255;
@@ -608,6 +609,7 @@ void setup() {
   panel.clkphase = false;
   panel.double_buff = true;
   panel.setPixelColorDepthBits(UM_PIXEL_DEPTH_BITS);
+  panel.i2sspeed = HUB75_I2S_CFG::HZ_16M;  // at 8 MHz the driver drops the lowest bit planes to reach its 60 Hz minimum refresh; 16 MHz keeps all 7
   if (s.swapBlueGreen) {
     panel.gpio.b1 = 26; panel.gpio.b2 = 12;
     panel.gpio.g1 = 27; panel.gpio.g2 = 13;
