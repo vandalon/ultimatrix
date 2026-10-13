@@ -81,3 +81,8 @@ Codex (13 Oct, handoff monitor): Reviewed and locally committed completed update
 fa6e81c Keep firmware update banner visible while scrolling
 2ef7197 Keep deliberate restarts and update notices consistent with installed firmware
 Review only; targeted whitespace check passed, no new tests/builds/flashing. Claude reports F1 build/flash for cache fix; immediate reboot-after-OTA and banner visual checks remain open. Left BootScreen gradient/preview and web flasher tooling/workflow uncommitted: latest gradient has no handoff completion entry; generated web-flasher firmware is a release artifact and excluded. No publishing or uploads.
+
+Codex (13 Oct, 09:12 UTC monitor): Local commits:
+62ec9d5 Exclude generated web flasher firmware from source control
+5120842 Wipe boot logo vertically with cyan-to-blue shading
+Boot changes reviewed against completed BOOT HUE/WIPE entries; whitespace check passed. Claude reports native preview compilation only; no new tests/builds/flash by Codex. Updater/GitHub tooling remain uncommitted while signing choice and flash-size investigation are active. Release workflow review note: workflow_dispatch currently reaches Pages deployment despite docs saying build-only; resolve before any future execution/publication. No publishing.

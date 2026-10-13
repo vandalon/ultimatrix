@@ -1,5 +1,5 @@
 ULTIMATRIX — SHARED HANDOFF
-Updated: 13 October 2026 (Europe/Amsterdam)
+Updated: 13 October 2026 (Europe/Amsterdam, GitHub updates)
 Project: ~/ultimatrix
 Reference implementation: ~/clockwise (preserve it)
 
@@ -657,3 +657,19 @@ Codex (13 Oct, handoff monitor): Reviewed and locally committed completed update
 fa6e81c Keep firmware update banner visible while scrolling
 2ef7197 Keep deliberate restarts and update notices consistent with installed firmware
 Review only; targeted whitespace check passed, no new tests/builds/flashing. Claude reports F1 build/flash for cache fix; immediate reboot-after-OTA and banner visual checks remain open. Left BootScreen gradient/preview and web flasher tooling/workflow uncommitted: latest gradient has no handoff completion entry; generated web-flasher firmware is a release artifact and excluded. No publishing or uploads.
+Claude (13 Oct, later) UPDATES VIA GITHUB + PRIVATE SERVER OPTION. No commit, no push, nothing published, no flash. football build PASS (0x1bd200, only 7% of the app partition free); other modes not rebuilt; CI workflow never run.
+ - Firmware (lib/core/FirmwareUpdate.cpp/.h, UpdateTrust.h): default source = GitHub release assets https://github.com/<kUpdateRepo>/releases/latest/download/<mode>-<file> (flat names, HTTPS with the cert bundle, redirects followed by hand in HttpFile::open(), HTTPS only). A private server base URL saved in NVS (um-updates/"server") switches to <base>/<mode>/<file>. Replay history key gets "-p" for the private source. TLS needs: task stacks 8192 -> 12288, min free block 28 KB (16 KB for plain http). setServer()/server() added; saving clears the cached check.
+ - kUpdateRepo is the PLACEHOLDER "OWNER/ultimatrix": set the real repo before the first release (there is no git remote yet).
+ - API/UI: GET /api/firmware has "server"; POST /api/firmware/server (url=); Advanced section of the settings page has "Update server (optional)" + save (web/settings.{html,js}; node --check only). main/CMakeLists.txt requires esp-tls.
+ - Build: CMakeLists.txt takes -DULTIMATRIX_VERSION (default 0.2.0); version = <it>-<mode>.
+ - CI: .github/workflows/release.yml (tag v* or manual): matrix build of all 8 faces in the esp-idf-ci-action container (v5.5.5), merged web-flasher images, then signs with secret UPDATE_SIGNING_KEY (package-firmware.py --flat), creates the release, deploys web-flasher/ to Pages with the fresh merged images. Replaces pages.yml (deleted); web-flasher/firmware/ is now gitignored (no committed binaries). Needs: secret set (gh secret set UPDATE_SIGNING_KEY < .tools/update-signing.pem), Pages source = GitHub Actions, repo created. Joris's "no publishing" rule still applies: none of this was pushed.
+ - Docs: docs/UPDATES.md. publish-firmware.sh unchanged (private server layout).
+ - Open: first CI run will probably need tweaks (container paths, managed components, esptool in the action image); on-device test of an HTTPS update (heap at TLS time, 12 KB task stack, GitHub redirect header size, buffer 3072); flash headroom is now 7% on football.
+Claude (13 Oct, later) BOOT WIPE: logo fade-in is now a wipe from top to bottom (soft edge 0.3 of the height) via per-row fade in backdrop(), BootScreen.cpp; fade timing unchanged (1400 ms). Native preview compiles; not built with idf.sh or flashed.
+Claude (13 Oct, later+1) Per Joris: updater uses TLS WITHOUT certificate verification (like the F1/MotoGP feeds' setInsecure); no CA bundle attached by the updater, skip_cert_common_name_check on. sdkconfig.defaults: CONFIG_ESP_TLS_INSECURE=y, CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y. Tried also removing the cert bundle from flash (MBEDTLS_CERTIFICATE_BUNDLE=n + RMAKER lines): fails, unused esp_rainmaker includes esp_crt_bundle.h; reverted (needs rainmaker dropped). Integrity still comes from the signed manifest; the signing key was NOT stored anywhere by me. CI step still expects secret UPDATE_SIGNING_KEY: see open question to Joris about signing in CI vs locally. Football rebuilt; flash cause of 7% free being investigated.
+
+
+Codex (13 Oct, 09:12 UTC monitor): Local commits:
+62ec9d5 Exclude generated web flasher firmware from source control
+5120842 Wipe boot logo vertically with cyan-to-blue shading
+Boot changes reviewed against completed BOOT HUE/WIPE entries; whitespace check passed. Claude reports native preview compilation only; no new tests/builds/flash by Codex. Updater/GitHub tooling remain uncommitted while signing choice and flash-size investigation are active. Release workflow review note: workflow_dispatch currently reaches Pages deployment despite docs saying build-only; resolve before any future execution/publication. No publishing.
