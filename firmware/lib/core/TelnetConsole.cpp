@@ -6,6 +6,9 @@
 #include "FirmwareUpdate.h"
 #include <esp_log.h>
 #include <esp_heap_caps.h>
+#include <esp_partition.h>
+#include <nvs_flash.h>
+#include <ctype.h>
 #include <string.h>
 #include <strings.h>
 
@@ -65,7 +68,7 @@ void TelnetConsole::stop() {
   client_.stop();
   server_.end();
   started_ = false;
-  length_ = iac_ = 0;
+  length_ = iac_ = esc_ = 0;
 }
 
 void TelnetConsole::accept() {
@@ -79,8 +82,12 @@ void TelnetConsole::accept() {
   client_ = incoming;
   client_.setNoDelay(true);
   length_ = 0;
-  iac_ = 0;
+  iac_ = esc_ = 0;
+  historyPos_ = historyCount_;
   lastInput_ = millis();
+  // We echo and read key by key (not line by line), so tab and the arrow keys reach us
+  static const uint8_t kCharacterMode[] = {255, 251, 1, 255, 251, 3, 255, 253, 3};  // IAC WILL ECHO, WILL SGA, DO SGA
+  client_.write(kCharacterMode, sizeof(kCharacterMode));
   client_.printf("Ultimatrix %s console. Type help.\r\n", UM_MODE_NAME);
   prompt();
 }
@@ -111,18 +118,105 @@ void TelnetConsole::poll() {
     if (iac_ == 1) { iac_ = (c >= 251 && c <= 254) ? 2 : 0; continue; }  // IAC command: skip it (and its option byte)
     if (iac_ == 2) { iac_ = 0; continue; }
     if (c == 255) { iac_ = 1; continue; }
+    if (esc_ == 1) { esc_ = (c == '[' || c == 'O') ? 2 : 0; continue; }
+    if (esc_ == 2) {  // parameter bytes are skipped; the final byte says which key
+      if (c >= 0x40 && c <= 0x7e) {
+        esc_ = 0;
+        if (c == 'A') browseHistory(-1);
+        else if (c == 'B') browseHistory(1);
+      }
+      continue;
+    }
+    if (c == 27) { esc_ = 1; continue; }
     if (c == 4 && length_ == 0) { run("quit"); if (!client_) return; continue; }  // Ctrl-D on an empty line, as in a shell
+    if (c == 3) { length_ = 0; historyPos_ = historyCount_; client_.print("^C\r\n"); prompt(); continue; }
+    if (c == 9) { complete(); continue; }
     if (c == '\n' || c == '\r') {
       if (c == '\n' && length_ == 0) continue;  // the LF of a CR LF pair
       line_[length_] = 0;
       length_ = 0;
+      client_.print("\r\n");
+      remember(line_);
       run(line_);
       if (!client_) return;
       continue;
     }
-    if ((c == 8 || c == 127) && length_) { --length_; continue; }
-    if (c >= 32 && c < 127 && length_ < sizeof(line_) - 1) line_[length_++] = (char)c;
+    if ((c == 8 || c == 127) && length_) { --length_; client_.print("\b \b"); continue; }
+    if (c >= 32 && c < 127 && length_ < sizeof(line_) - 1) { line_[length_++] = (char)c; client_.write((uint8_t)c); }
   }
+}
+
+void TelnetConsole::redraw() {
+  client_.print("\r\x1b[K> ");
+  client_.write((const uint8_t *)line_, length_);
+}
+
+void TelnetConsole::remember(const char *line) {
+  if (!*line || (historyCount_ && !strcmp(history_[historyCount_ - 1], line))) { historyPos_ = historyCount_; return; }
+  if (historyCount_ == kHistory) {
+    memmove(history_[0], history_[1], sizeof(history_[0]) * (kHistory - 1));
+    --historyCount_;
+  }
+  strlcpy(history_[historyCount_++], line, sizeof(history_[0]));
+  historyPos_ = historyCount_;
+}
+
+// direction -1: older, +1: newer; past the newest command comes back the line that was being typed
+void TelnetConsole::browseHistory(int direction) {
+  if (direction < 0) {
+    if (!historyPos_) return;
+    if (historyPos_ == historyCount_) { line_[length_] = 0; strlcpy(draft_, line_, sizeof(draft_)); }
+    --historyPos_;
+  } else {
+    if (historyPos_ >= historyCount_) return;
+    ++historyPos_;
+  }
+  strlcpy(line_, historyPos_ == historyCount_ ? draft_ : history_[historyPos_], sizeof(line_));
+  length_ = strlen(line_);
+  redraw();
+}
+
+// Command names for tab completion: the built-ins plus the first word of each line of the mode help
+struct CommandName { const char *text; uint8_t length; };
+
+static size_t commandNames(const char *modeHelp, CommandName *out, size_t max) {
+  static const char *const kBuiltIn[] = {"help", "status", "heap", "log", "reboot", "factory-reset", "quit"};
+  size_t count = 0;
+  for (const char *name : kBuiltIn) out[count++] = {name, (uint8_t)strlen(name)};
+  for (const char *p = modeHelp; *p && count < max;) {
+    while (*p == ' ') ++p;
+    const char *start = p;
+    while (*p && *p != ' ' && *p != '\r' && *p != '\n') ++p;
+    if (p > start) out[count++] = {start, (uint8_t)(p - start)};
+    while (*p && *p != '\n') ++p;  // rest of the help line
+    if (*p) ++p;
+  }
+  return count;
+}
+
+void TelnetConsole::complete() {
+  for (uint8_t i = 0; i < length_; ++i) if (line_[i] == ' ') return;  // only the command word completes
+  CommandName names[24], match[24];
+  size_t total = commandNames(modeHelp_, names, 24), found = 0;
+  for (size_t i = 0; i < total; ++i)
+    if (names[i].length >= length_ && !strncasecmp(names[i].text, line_, length_)) match[found++] = names[i];
+  if (!found) { client_.write((uint8_t)7); return; }
+  size_t common = match[0].length;
+  for (size_t i = 1; i < found; ++i) {
+    size_t k = 0;
+    while (k < common && k < match[i].length && tolower(match[i].text[k]) == tolower(match[0].text[k])) ++k;
+    common = k;
+  }
+  if (common > sizeof(line_) - 2) common = sizeof(line_) - 2;
+  bool extended = common > length_;
+  if (extended) { memcpy(line_, match[0].text, common); length_ = common; }
+  if (found == 1 && length_ < sizeof(line_) - 1) { line_[length_++] = ' '; extended = true; }
+  if (!extended) {  // ambiguous and nothing more to add: list the choices
+    client_.print("\r\n");
+    for (size_t i = 0; i < found; ++i) { client_.write((const uint8_t *)match[i].text, match[i].length); client_.print("  "); }
+    client_.print("\r\n");
+  }
+  redraw();
 }
 
 static void printUptime(Print &out) {
@@ -147,7 +241,7 @@ void TelnetConsole::run(const char *line) {
   if (!strcasecmp(command, "help") || !strcmp(command, "?")) {
     client_.print("  help    this list\r\n  status  uptime, address, signal, mode, heap\r\n  heap    free, minimum and largest block\r\n"
                   "  log     log on / log off: show the serial log here\r\n"
-                  "  reboot  restart the clock\r\n  quit    close the console (q or Ctrl-D)\r\n");
+                  "  reboot  restart the clock\r\n  factory-reset  erase Wi-Fi, settings and cached data\r\n  quit    close the console (q or Ctrl-D)\r\n");
     client_.print(modeHelp_);
   } else if (!strcasecmp(command, "status")) {
     client_.printf("mode    %s\r\nuptime  ", UM_MODE_NAME);
@@ -168,6 +262,23 @@ void TelnetConsole::run(const char *line) {
     delay(100);
     FirmwareUpdate::confirmBeforeRestart();
     ESP.restart();
+  } else if (!strncasecmp(command, "factory-reset", 13) && (!command[13] || command[13] == ' ')) {
+    const char *arg = command + 13;
+    while (*arg == ' ') ++arg;
+    if (strcasecmp(arg, "yes")) {
+      client_.print("This erases Wi-Fi, settings and all cached data, then restarts into setup.\r\nType factory-reset yes to continue.\r\n");
+    } else {
+      client_.print("Erasing.\r\n");
+      client_.flush();
+      setLogging(false);
+      const esp_partition_t *cache = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "spiffs");
+      bool cacheOk = !cache || esp_partition_erase_range(cache, 0, cache->size) == ESP_OK;  // blank flash is re-created as an empty cache on boot
+      bool settingsOk = nvs_flash_erase() == ESP_OK;  // Wi-Fi credentials, settings, caches and update history
+      client_.printf("%s\r\nRestarting.\r\n", cacheOk && settingsOk ? "Done." : "Erase incomplete.");
+      client_.flush();
+      delay(100);
+      ESP.restart();
+    }
   } else if (!strcasecmp(command, "quit") || !strcasecmp(command, "q") || !strcasecmp(command, "exit")) {
     client_.print("Bye.\r\n");
     setLogging(false);

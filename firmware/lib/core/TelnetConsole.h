@@ -31,6 +31,10 @@ class TelnetConsole {
   void run(const char *line);
   void prompt() { client_.print("> "); }
   void setLogging(bool on);
+  void redraw();
+  void complete();
+  void browseHistory(int direction);
+  void remember(const char *line);
 
   WiFiServer server_{23, 1};
   WiFiClient client_;
@@ -41,6 +45,12 @@ class TelnetConsole {
   bool logging_ = false;  // "log on": mirror the serial log to this session
   char line_[48] = {};
   uint8_t length_ = 0;
+  uint8_t esc_ = 0;  // 0 text, 1 after ESC, 2 inside ESC [ / ESC O waiting for the final byte (arrow keys)
+  static constexpr uint8_t kHistory = 8;
+  char history_[kHistory][48] = {};  // previous commands, oldest first
+  char draft_[48] = {};              // the line being typed while browsing history
+  uint8_t historyCount_ = 0;
+  uint8_t historyPos_ = 0;           // == historyCount_ when not browsing
   uint8_t iac_ = 0;  // 0 text, 1 after IAC, 2 inside an option (WILL/WONT/DO/DONT) waiting for its byte
   uint32_t lastInput_ = 0;
 };
