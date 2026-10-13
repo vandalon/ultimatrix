@@ -63,13 +63,21 @@ unsigned backdropLevel(int x, int y, unsigned glow = 0) {
   bool outer = y <= kCentreY ? fabsf(dx) <= kOuterX : (dx * dx) / (kOuterX * kOuterX) + (dy * dy) / (kOuterY * kOuterY) <= 1;
   bool inner = y <= kCentreY ? fabsf(dx) <= kInnerX : (dx * dx) / (kInnerX * kInnerX) + (dy * dy) / (kInnerY * kInnerY) <= 1;
   if (!(outer && !inner)) return 10;
-  unsigned dim = 95 - 50 * y / kSize, bright = 255 - 105 * y / kSize;
+  unsigned dim = 150 - 130 * y / kSize, bright = 255 - 190 * y / kSize;
   return dim + (bright - dim) * glow / 255;
 }
 
-void backdrop(Adafruit_GFX &gfx, unsigned glow = 0, unsigned fade = 255) {  // fade 0..255 for the logo's fade-in
-  for (int y = 1; y < kSize; y += 2)
-    for (int x = 1; x < kSize; x += 2) gfx.drawPixel(x, y, shade(kCyan, backdropLevel(x, y, glow) * fade / 255));
+void backdrop(Adafruit_GFX &gfx, unsigned glow = 0, unsigned fade = 255) {  // fade 0..255: the logo's fade-in, a wipe down from the top
+  for (int y = 1; y < kSize; y += 2) {
+    int edge = (int)(fade * 13 / 10) - y * 255 / kSize;  // the wipe's soft edge is 76 (0.3 of the height) wide
+    unsigned rowFade = edge <= 0 ? 0 : edge >= 76 ? 255 : edge * 255 / 76;
+    for (int x = 1; x < kSize; x += 2) {
+      int t = 255 * y / kSize;  // cyan at the top to blue at the bottom, lit or dimmed
+      Rgb c{(uint8_t)(kCyan.r + (kBlue.r - kCyan.r) * t / 255), (uint8_t)(kCyan.g + (kBlue.g - kCyan.g) * t / 255),
+            (uint8_t)(kCyan.b + (kBlue.b - kCyan.b) * t / 255)};
+      gfx.drawPixel(x, y, shade(c, backdropLevel(x, y, glow) * rowFade / 255));
+    }
+  }
 }
 
 // The icons are 32-wide pixel art at their original size: the Wi-Fi symbol
