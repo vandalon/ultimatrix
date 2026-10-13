@@ -4,10 +4,17 @@ const controls = document.querySelector('#controls');
 const save = document.querySelector('#save');
 const saveBar = document.querySelector('.save-bar');
 const notice = document.querySelector('#notice');
-let initial = '', busy = false;
+let initial = '', busy = false, saving = false, savedSwap = false, saveTimer = 0, noticeTimer = 0;
 const field = name => form.elements.namedItem(name);
 const encoded = () => new URLSearchParams(new FormData(form));
-function message(text, error = false) { notice.textContent = text; notice.classList.toggle('error', error); notice.hidden = false; }
+// Everything applies live except the panel colour swap, which only takes effect after a restart:
+// automatic saves keep sending the last saved value for it.
+function payload(withRestart) {
+  const params = encoded();
+  if (!withRestart) { if (savedSwap) params.set('swapBlueGreen', 'on'); else params.delete('swapBlueGreen'); }
+  return params;
+}
+function message(text, error = false) { clearTimeout(noticeTimer); notice.textContent = text; notice.classList.toggle('error', error); notice.hidden = false; }
 function brightness(event) {
   const high = field('brightness'), low = field('minimumBrightness'), auto = field('autoBrightness').checked;
   if (auto) {
@@ -21,7 +28,7 @@ function brightness(event) {
   dual.style.setProperty('--lo', auto ? (Number(low.value) - 1) / 254 : 0);
   dual.style.setProperty('--hi', (Number(high.value) - 1) / 254);
   const nightOn = field('nightEnabled').checked;
-  ['nightStart', 'nightEnd'].forEach(name => { field(name).closest('.field').style.opacity = nightOn ? 1 : 0.45; });
+  document.querySelector('#night-fields').hidden = !nightOn;
   const night = field('nightBrightness');
   document.querySelector('#night-dual').style.setProperty('--hi', (Number(night.value) - 1) / 254);
   document.querySelector('#night-value').textContent = pct(night);
@@ -45,7 +52,29 @@ function timezoneMode() {
   field('timezone').disabled = auto; document.querySelector('#device-timezone').disabled = auto;
   document.querySelector('#timezone-field').style.opacity = auto ? 0.45 : 1;
 }
-function dirty() { if (busy) return; const clean = encoded().toString() === initial; document.querySelector('#save-status').textContent = 'You have unsaved changes'; save.hidden = clean; saveBar.hidden = clean; }
+function dirty() {
+  if (busy) return;
+  const pending = field('swapBlueGreen').checked !== savedSwap;
+  document.querySelector('#save-status').textContent = 'Restart needed to apply the colour swap';
+  save.hidden = !pending; saveBar.hidden = !pending;
+  if (payload(false).toString() !== initial) { clearTimeout(saveTimer); saveTimer = setTimeout(autosave, 700); }
+}
+async function autosave() {
+  if (busy || controls.disabled) return;
+  if (saving) { saveTimer = setTimeout(autosave, 300); return; }
+  if (!form.checkValidity()) return;  // wait until the field is valid; no popups while typing
+  const body = payload(false), sent = body.toString();
+  if (sent === initial) return;
+  saving = true;
+  try {
+    const response = await fetch('/api/settings', { method: 'POST', body });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message || 'The clock could not save your settings.');
+    initial = sent; message('Saved'); noticeTimer = setTimeout(() => { notice.hidden = true; }, 2000);
+    if (payload(false).toString() !== initial) saveTimer = setTimeout(autosave, 300);
+  } catch (error) { message(error.message, true); }
+  saving = false;
+}
 function section(selector, show) { document.querySelectorAll(selector).forEach(node => { node.hidden = !show; node.querySelectorAll('input,select').forEach(input => input.disabled = !show); }); }
 function choices(id, name, entries, values) {
   const selected = new Set((values || '').split(','));
@@ -148,11 +177,11 @@ async function load() {
         select.value = data.settings.wordLanguage;
       } else choices('#drivers', 'f1Drivers', catalog, data.settings.f1Drivers);
     }
-    controls.disabled = false; save.disabled = false; brightness(); sensor(); timezoneMode(); countLeagues(); initial = encoded().toString(); dirty();
+    controls.disabled = false; save.disabled = false; savedSwap = field('swapBlueGreen').checked; brightness(); sensor(); timezoneMode(); countLeagues(); initial = payload(false).toString(); dirty();
     if (sessionStorage.getItem('ultimatrix-saved')) { sessionStorage.removeItem('ultimatrix-saved'); message('Settings saved. Your clock is ready.'); }
   } catch (error) { message(error.message, true); document.querySelector('#save-status').textContent = 'Settings could not load'; saveBar.hidden = false; }
 }
-form.addEventListener('input', event => { brightness(event); sensor(event); timezoneMode(); dirty(); });
+form.addEventListener('input', event => { brightness(event); sensor(event); timezoneMode(); if (!/^(text|search|url)$/.test(event.target.type)) dirty(); });  // typed text saves on change (blur)
 for (const [id, name] of [['#set-dark', 'ldrDark'], ['#set-light', 'ldrLight']]) {
   document.querySelector(id).addEventListener('click', () => { if (lightNow < 0) return; field(name).value = lightNow; sensor({ target: field(name) }); dirty(); });
 }
@@ -192,7 +221,7 @@ document.querySelector('#device-timezone').addEventListener('click', () => {
   if (!zone) { message('Device timezone unavailable. Choose a timezone manually.', true); return; }
   field('timezone').value = zone;
   dirty();
-  message('Device timezone selected: ' + zone + '. Save settings to apply it.');
+  message('Device timezone selected: ' + zone + '.');
 });
 let zonesLoaded = false;
 field('timezone').addEventListener('focus', async () => {
@@ -206,16 +235,17 @@ field('timezone').addEventListener('focus', async () => {
 });
 form.addEventListener('submit', async event => {
   event.preventDefault(); if (busy || !form.reportValidity()) return;
-  const body = encoded(); busy = true; save.disabled = true; save.textContent = 'Saving…';
+  clearTimeout(saveTimer); while (saving) await new Promise(resolve => setTimeout(resolve, 100));
+  const body = payload(true); busy = true; save.disabled = true; save.textContent = 'Saving…';
   try {
     const response = await fetch('/api/settings', { method: 'POST', body });
     const result = await response.json();
     if (!response.ok) throw new Error(result.message || 'The clock could not save your settings.');
-    if (!result.restart) { busy = false; save.disabled = false; save.textContent = 'Save settings'; initial = encoded().toString(); dirty(); message(result.message); return; }
+    if (!result.restart) { busy = false; save.disabled = false; save.textContent = 'Save & restart'; savedSwap = field('swapBlueGreen').checked; initial = payload(false).toString(); dirty(); message(result.message); return; }
     controls.disabled = true; save.textContent = 'Restarting…'; document.querySelector('#save-status').textContent = 'Settings saved'; saveBar.hidden = false; message('Saved. Your clock is restarting. This page will reconnect automatically.');
     sessionStorage.setItem('ultimatrix-saved', '1');
     setTimeout(reconnect, 2500);
-  } catch (error) { busy = false; save.disabled = false; save.textContent = 'Save settings'; message(error.message, true); dirty(); }
+  } catch (error) { busy = false; save.disabled = false; save.textContent = 'Save & restart'; message(error.message, true); dirty(); }
 });
 async function reconnect() {
   const deadline = Date.now() + 45000;
