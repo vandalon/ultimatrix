@@ -212,9 +212,11 @@ document.querySelector('#firmware-check').addEventListener('click', async () => 
   try { const response = await fetch('/api/firmware/check', {method:'POST'}); const result = await response.json(); document.querySelector('#firmware-status').textContent = result.message; } catch (_) {}
   setTimeout(refreshFirmware, 1200);
 });
-document.querySelector('#face-switch').addEventListener('click', () => {
-  const face = document.querySelector('#face'); const name = face.options[face.selectedIndex].text;
-  if (face.value === currentFace) { message('This clock is already showing ' + name + '.', true); return; }
-  startUpdate('Switch to the ' + name + ' clock face? Your clock will restart. Unsaved settings will be discarded.', face.value);
+function markFace() { document.querySelectorAll('.face').forEach(b => { const on = b.dataset.face === currentFace; b.classList.toggle('current', on); b.setAttribute('aria-pressed', on); }); }
+document.querySelector('#faces').addEventListener('click', event => {
+  const button = event.target.closest('.face'); if (!button) return;
+  const name = button.querySelector('b').textContent;
+  if (button.dataset.face === currentFace) { message('This clock is already showing ' + name + '.', true); return; }
+  startUpdate('Switch to the ' + name + ' clock face? Your clock will restart. Unsaved settings will be discarded.', button.dataset.face);
 });
 refreshFirmware();

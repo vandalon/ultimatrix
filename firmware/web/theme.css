@@ -37,7 +37,7 @@ body.ultimatrix-portal{background:var(--paper)!important;color:var(--ink)!import
 .settings-app .hint{margin-top:5px;line-height:1.5}
 .settings-app .network-action{margin-top:14px;padding-top:14px}
 .settings-app .sync-note{margin-top:12px;padding:9px 12px}
-.settings-app .fw-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:0}.settings-app .fw-row .hint{margin:0}
+.settings-app .fw-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:32px}.settings-app .fw-row .hint{margin:0}
 @media(max-width:800px){.settings-app .main{padding:18px 14px}.settings-app .card{padding:16px}}
 
 /* Modern look */
