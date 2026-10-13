@@ -33,7 +33,7 @@ void playGoalCelebration(Adafruit_GFX *display, const char *home, const char *aw
 // Only one can play at a time.
 class GoalAnimation {
  public:
-  static const int FRAME_MS = 20;  // 50 fps; the animation takes the same time as before
+  static const int FRAME_MS = 40;  // 25 fps; the panel could not keep up with 50
   ~GoalAnimation() { end(); }
   // false when there is no memory for it: then skip the celebration
   bool begin(Adafruit_GFX *display, const char *home, const char *away, int homeScore, int awayScore, bool homeScored,

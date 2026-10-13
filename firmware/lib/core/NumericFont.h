@@ -37,8 +37,12 @@ inline uint8_t pixel(int digit, int x, int y, int w, int h) {
   int stroke = (dw + 2) / 4, middle = (h - stroke) / 2;
   if (digit == 1) {
     int stem = (dw - stroke + 1) / 2;
-    bool flag = (y > 0 && y < stroke && x >= stem - y && x < stem) ||
-                (y >= stroke && y < 2 * stroke - 1 && x >= stem - stroke && x < stem - 1 - (y - stroke));
+    // The flag is a diagonal two pixels thick: the one pixel diagonal plus the pixel under each of its pixels
+    auto flagAt = [&](int fy) {
+      return (fy > 0 && fy < stroke && x >= stem - fy && x < stem) ||
+             (fy >= stroke && fy < 2 * stroke - 1 && x >= stem - stroke && x < stem - 1 - (fy - stroke));
+    };
+    bool flag = flagAt(y) || flagAt(y - 1);
     bool lit = (x >= stem && x < stem + stroke) || (y >= h - stroke && x >= 1) || flag;
     return lit ? 32 : 0;
   }

@@ -38,7 +38,7 @@ static const uint16_t STRIP_LINE = rgb(90, 170, 110);
 static const uint16_t TRACK = rgb(30, 32, 38);
 static const uint16_t PLAYED = rgb(50, 200, 90);
 static const uint16_t DIVIDER = rgb(40, 44, 52);
-static const uint16_t MAIN_DIVIDER = rgb(12, 14, 16);
+static const uint16_t MAIN_DIVIDER = rgb(24, 20, 24);  // both dividers in the upcoming games and rankings views; green kept low, the panel shows it brighter than red and blue
 static const uint16_t PANEL = rgb(20, 22, 28);  // behind the upcoming games
 static const uint16_t SECONDS_TRACK = rgb(28, 30, 38);
 static const uint16_t POSITION = rgb(170, 172, 180);  // places in the table, the same for every competition
@@ -1154,7 +1154,7 @@ void drawMain(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, int hour, int minute,
       }
     }
   }
-  fill(d, CLOCK_RIGHT, 0, 1, 64, DIVIDER);
+  fill(d, CLOCK_RIGHT, 0, 1, 64, MAIN_DIVIDER);
 }
 
 // A single LED in the very top right corner, in every view: how the downloads are going. Amber pulsing until the

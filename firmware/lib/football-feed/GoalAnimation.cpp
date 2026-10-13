@@ -374,7 +374,7 @@ static void ballFlight(float t, float &x, float &y, float &radius) {
 
 // The animation is drawn at SUBSTEPS frames per original 40 ms step, so it moves smoothly; timings below are written in
 // those original steps (ft) and the discrete flashes and flickers keep their original rate (fi)
-static const int SUBSTEPS = 2;
+static const int SUBSTEPS = 1;
 static const int APPROACH_FRAMES = 34 * SUBSTEPS, FLASH_FRAMES = 2 * SUBSTEPS, IMPACT_FRAMES = 16 * SUBSTEPS;
 
 static void drawApproachFrame(int f, const TeamKit &kit, Adafruit_GFX *d, bool show) {
