@@ -50,13 +50,44 @@ function section(selector, show) { document.querySelectorAll(selector).forEach(n
 function choices(id, name, entries, values) {
   const selected = new Set((values || '').split(','));
   const target = document.querySelector(id);
+  const grouped = entries.some(entry => entry.group);
   target.replaceChildren();
-  [...entries].sort((a, b) => selected.has(b.value) - selected.has(a.value)).forEach(entry => {
+  let group = null;
+  (grouped ? entries : [...entries].sort((a, b) => selected.has(b.value) - selected.has(a.value))).forEach(entry => {
+    if (grouped && entry.group !== group) { group = entry.group; const heading = document.createElement('div'); heading.className = 'choice-group'; heading.textContent = group; target.append(heading); }
     const label = document.createElement('label'); label.className = 'choice';
     const input = document.createElement('input'); input.type = 'checkbox'; input.name = name; input.value = entry.value; input.checked = selected.has(entry.value);
     const text = document.createElement('span'); text.textContent = entry.label;
+    label.dataset.search = (entry.label + ' ' + (entry.group || '')).toLowerCase();
     label.append(input, text); target.append(label);
   });
+}
+const TEAM_LIMIT = 8;
+let teamCatalog = [], favourites = [];
+const parseTeams = text => (text || '').split(',').filter(Boolean).map(item => { const [id, abbr, kind] = [item.slice(0, item.indexOf(':')), item.slice(item.indexOf(':') + 1, item.lastIndexOf(':')), item.slice(item.lastIndexOf(':') + 1)]; return { id, abbr, kind }; });
+function teamName(team) { const known = teamCatalog.find(entry => String(entry[0]) === team.id); return known ? known[2] : team.abbr; }
+function renderTeams() {
+  const query = document.querySelector('#team-search').value.trim().toLowerCase(), target = document.querySelector('#teams');
+  const chosen = new Set(favourites.map(team => team.id));
+  const matches = query ? teamCatalog.filter(entry => !chosen.has(String(entry[0])) && (entry[2].toLowerCase().includes(query) || entry[1].toLowerCase() === query)).slice(0, 40) : [];
+  const rows = [...favourites.map(team => ({ id: team.id, abbr: team.abbr, kind: team.kind, name: teamName(team), on: true })), ...matches.map(entry => ({ id: String(entry[0]), abbr: entry[1], kind: entry[3], name: entry[2], on: false }))];
+  target.replaceChildren();
+  rows.forEach(row => {
+    const label = document.createElement('label'); label.className = 'choice';
+    const input = document.createElement('input'); input.type = 'checkbox'; input.checked = row.on;
+    input.addEventListener('change', () => toggleTeam(row, input));
+    const text = document.createElement('span'); text.textContent = row.name + (row.kind === 'n' ? ' (national team)' : '');
+    label.append(input, text); target.append(label);
+  });
+  if (!rows.length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = query ? 'No team found.' : 'No favourites yet. Search to add one.'; target.append(empty); }
+  document.querySelector('#team-count').textContent = favourites.length + ' of ' + TEAM_LIMIT + ' selected';
+}
+function toggleTeam(row, input) {
+  if (!input.checked) favourites = favourites.filter(team => team.id !== row.id);
+  else if (favourites.length >= TEAM_LIMIT) { input.checked = false; message('Choose up to ' + TEAM_LIMIT + ' teams. Unselect one to add another.', true); return; }
+  else favourites.push({ id: row.id, abbr: row.abbr, kind: row.kind });
+  field('fbTeams').value = favourites.map(team => team.id + ':' + team.abbr + ':' + team.kind).join(',');
+  renderTeams(); dirty();
 }
 function countLeagues() { const count = form.querySelectorAll('[name=fbLeagues]:checked').length; document.querySelector('#league-count').textContent = count + ' of 10 selected'; }
 async function load() {
@@ -82,7 +113,12 @@ async function load() {
       const catalogResponse = await fetch('/api/catalog');
       if (!catalogResponse.ok) throw new Error('The selection list could not load. Reload this page before saving.');
       const catalog = await catalogResponse.json();
-      if (data.mode === 'Football') choices('#leagues', 'fbLeagues', catalog, data.settings.fbLeagues);
+      if (data.mode === 'Football') {
+        choices('#leagues', 'fbLeagues', catalog.map(([value, , label, group]) => ({ value, label, group })), data.settings.fbLeagues);
+        const teamResponse = await fetch('/api/teams');
+        if (!teamResponse.ok) throw new Error('The team list could not load. Reload this page before saving.');
+        teamCatalog = await teamResponse.json(); favourites = parseTeams(data.settings.fbTeams); renderTeams();
+      }
       else if (data.mode === 'Words') {
         const select = field('wordLanguage');
         select.replaceChildren(...catalog.map(entry => new Option(entry.label, entry.value)));
@@ -108,7 +144,16 @@ form.addEventListener('change', event => {
   }
   dirty();
 });
-document.querySelector('#league-search').addEventListener('input', event => { const query = event.target.value.toLowerCase(); document.querySelectorAll('#leagues .choice').forEach(label => label.hidden = !label.textContent.toLowerCase().includes(query)); });
+document.querySelector('#league-search').addEventListener('input', event => {
+  const query = event.target.value.toLowerCase(); let heading = null, shown = 0;
+  const finish = () => { if (heading) heading.hidden = !shown; };
+  document.querySelectorAll('#leagues > *').forEach(node => {
+    if (node.classList.contains('choice-group')) { finish(); heading = node; shown = 0; return; }
+    node.hidden = !node.dataset.search.includes(query); if (!node.hidden) shown++;
+  });
+  finish();
+});
+document.querySelector('#team-search').addEventListener('input', renderTeams);
 document.querySelector('#device-timezone').addEventListener('click', () => {
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (!zone) { message('Device timezone unavailable. Choose a timezone manually.', true); return; }

@@ -340,13 +340,13 @@ static void selectionCatalog() {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(200, "application/json", "");
   server.sendContent("[");
+#ifdef UM_FOOTBALL_ONLY
+  server.sendContent_P(FOOTBALL_LEAGUES_JSON);  // [code, label, name, group]
+  server.sendContent("");
+  return;
+#endif
   bool first = true;
 #ifdef UM_FOOTBALL_ONLY
-  for (size_t i = 0; i < sizeof(FOOTBALL_LEAGUES) / sizeof(FOOTBALL_LEAGUES[0]); ++i) {
-    if (!first) server.sendContent(",");
-    first = false;
-    server.sendContent("{\"value\":" + jsonText(FOOTBALL_LEAGUES[i].code) + ",\"label\":" + jsonText(FOOTBALL_LEAGUE_NAMES[i]) + "}");
-  }
 #elif defined(UM_MOTOGP)
   for (const auto &rider : MOTOGP_RIDERS) {
     if (!first) server.sendContent(",");
@@ -757,6 +757,9 @@ void loop() {
     auto &s = *Settings::getInstance();
     String zone;  // unless a zone was typed in on the settings page, the network's location decides; the page shows the result
     if (!s.manualTimezone && ultime::detectZone(zone) && zone != s.timezone) { s.timezone = zone; s.save(); }
+#ifdef UM_FOOTBALL_ONLY
+  server.on("/api/teams", HTTP_GET, footballTeams);
+#endif
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
     face = new Clockface(display);
     face->setup(&clockTime);

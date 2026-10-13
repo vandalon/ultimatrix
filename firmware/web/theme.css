@@ -73,3 +73,5 @@ body.settings-app{background:radial-gradient(1200px 500px at 70% -10%,#dff4fc 0,
 .led img{display:block;width:100%;height:100%;image-rendering:pixelated}
 .led::after{content:"";position:absolute;inset:0;background:radial-gradient(circle closest-side,#0000 55%,#000 88%) 0 0/1.5625% 1.5625%}
 @media(max-width:450px){.face-grid{grid-template-columns:repeat(2,1fr)}}
+
+.choice-group{font-size:10px;font-weight:750;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);padding:14px 10px 4px}
