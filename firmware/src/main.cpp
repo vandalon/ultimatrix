@@ -82,6 +82,9 @@ static const uint32_t kSyncGiveUpMs = 45000;
 static const uint32_t kUpdateCheckWaitMs = 6000;  // longest the boot waits for its own update check
 static const uint32_t kUpdateNoticeMs = 10000;  // extra time on the boot screen to announce an available update
 
+static bool welcomeDue = false;
+static uint32_t welcomeAt = 0;
+
 static uint32_t noticeAt = 0;  // when the update notice was first drawn; it runs on its own clock because the face's setup can stall the loop
 
 // The Connected screen stays kConnectedMs; an update check still running holds it a little longer, and an
@@ -89,6 +92,7 @@ static uint32_t noticeAt = 0;  // when the update notice was first drawn; it run
 static bool bootHoldOver(uint32_t now) {
   FirmwareUpdate::Latest latest; firmwareUpdate.latest(latest);
   uint32_t since = now - syncedAt;
+  if (welcomeDue) return false;  // first run: the boot waits until somebody has opened the settings page
   if (latest.checking && since < kConnectedMs + kUpdateCheckWaitMs) return false;
   if (since < kConnectedMs || now - connectedAt < kAddressMinMs) return false;
   return !latest.available || (noticeAt && now - noticeAt >= kUpdateNoticeMs);
@@ -175,6 +179,15 @@ static void bootTick() {
   // on every screen from here on
   if (!connected) drawBoot(portalActive ? boot::Kind::Setup : boot::Kind::Connecting);
   else if (!synced) drawBoot(now - connectedAt > kSyncGiveUpMs ? boot::Kind::Error : boot::Kind::Syncing, ipText);
+  else if (welcomeDue && now - syncedAt >= kConnectedMs) {
+    if (!welcomeAt) {
+      welcomeAt = now ? now : 1;
+      char url[32];
+      snprintf(url, sizeof(url), "HTTP://%s/", ipText);
+      bootScreen.setSettingsUrl(url);
+    }
+    drawBoot(boot::Kind::Welcome);
+  }
   else if (noticeAt && now - noticeAt >= kUpdateNoticeMs) return;  // notice over: leave the panel to the face
   else if (now - syncedAt >= kConnectedMs && now - connectedAt >= kAddressMinMs && updateAvailable()) {
     if (!noticeAt) noticeAt = now ? now : 1;
@@ -299,7 +312,13 @@ static String selectedValues(const char *name) {
   return result;
 }
 
-static void settingsPage() { server.send_P(200, "text/html; charset=utf-8", settingsHtml); }
+static void settingsPage() {
+  if (welcomeDue) {  // the first visit ends the welcome screens for good
+    welcomeDue = false;
+    Preferences prefs;
+    if (prefs.begin("ultimatrix", false)) { prefs.remove("welcomePending"); prefs.putBool("onboarded", true); prefs.end(); }
+  }
+  server.send_P(200, "text/html; charset=utf-8", settingsHtml); }
 
 static String minuteText(unsigned minute) {
   char text[6];
@@ -638,6 +657,7 @@ void setup() {
     if (refreshPrefs.begin("ultimatrix", false)) {
       asked = refreshPrefs.getBool("setupWifi", false);
       setupRefreshRestart = refreshPrefs.getBool("setupRefresh", false);
+      welcomeDue = refreshPrefs.getBool("welcomePending", false);  // stays set (every start) until the settings page is first opened
       if (setupRefreshRestart) refreshPrefs.remove("setupRefresh");
       refreshPrefs.end();
     }
@@ -696,6 +716,8 @@ void setup() {
   wifi.setClass("ultimatrix-portal");
   wifi.setDisableConfigPortal(false);
   wifi.setSaveConfigCallback([]() {
+    Preferences first;  // the first setup ever: the next start shows the settings-page QR code once
+    if (first.begin("ultimatrix", false)) { if (!first.getBool("onboarded", false)) first.putBool("welcomePending", true); first.end(); }
     if (WiFi.status() == WL_CONNECTED) portalCloseAt = millis() + 10000;
   });
   wifi.setCustomHeadElement(R"HTML(<link rel='stylesheet' href='/theme.css'>
@@ -705,7 +727,7 @@ addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a
 addEventListener('pageshow',function(){var b=document.getElementById('busy');if(b)b.remove()})</script>
 <script>addEventListener('DOMContentLoaded',function(){document.querySelectorAll('.msg').forEach(function(m){
 if(!/Saving Credentials/.test(m.textContent))return;
-function link(u){return '<a href="'+u+'">'+u+'</a> (<a href="#" data-copy="'+u+'">copy</a>)'}
+function link(u){return '<a href="'+u+'" target="_blank" rel="noopener">'+u+'</a> (<a href="#" data-copy="'+u+'">copy</a>)'}
 function show(ip){m.innerHTML='<b>Wi-Fi saved.</b><br>Reconnect to your normal Wi-Fi, then open '+link('http://ultimatrix.local/')+(ip?' or '+link('http://'+ip+'/'):'')+'.'}
 show('');m.addEventListener('click',function(e){var u=e.target.getAttribute('data-copy');if(!u)return;e.preventDefault();var t=document.createElement('textarea');t.value=u;document.body.appendChild(t);t.select();try{if(document.execCommand('copy'))e.target.textContent='copied'}catch(_){}t.remove()});
 var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(timer);return}fetch('/setup-ip',{cache:'no-store'}).then(function(r){return r.text()}).then(function(ip){if(!/^\d+\.\d+\.\d+\.\d+$/.test(ip))return;show(ip);clearInterval(timer)}).catch(function(){})},1000)

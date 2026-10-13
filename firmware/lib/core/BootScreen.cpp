@@ -23,6 +23,7 @@ const uint8_t kPulse[64] = {
 
 constexpr int kSize = 64;
 constexpr uint32_t kInvertMs = 5000;     // the access point code flips between normal and inverted
+constexpr uint32_t kWelcomeTextMs = 10000, kWelcomeQrMs = 5000;  // the Welcome screen alternates instructions (long enough to read the scrolling address) and the QR code
 constexpr uint32_t kFadeMs = 1400;       // the logo's fade-in
 constexpr uint32_t kDimMs = 900;         // the U dimming down once the Wi-Fi symbol comes in
 constexpr uint32_t kLabelPeriodMs = 1800;
@@ -291,6 +292,13 @@ void Screen::setAccessPoint(const char *ssid, const char *password, const char *
   drawn_ = false;
 }
 
+void Screen::setSettingsUrl(const char *url) {
+  snprintf(url_, sizeof(url_), "%s", url);
+  uint8_t temp[qrcodegen_BUFFER_LEN_FOR_VERSION(3)];
+  urlQrReady_ = qrcodegen_encodeText(url, temp, urlQr_, qrcodegen_Ecc_LOW, 1, 3, qrcodegen_Mask_AUTO, false);
+  drawn_ = false;
+}
+
 bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *text) {
   // One pulse clock runs across Connecting/Syncing/Error, so the next screen carries on from the phase
   bool pulsing = kind == Kind::Connecting || kind == Kind::Syncing || kind == Kind::Error;
@@ -318,6 +326,20 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
     case Kind::Joined:
       now.level = 31;
       break;
+    case Kind::Welcome: {
+      uint32_t phase = since % (kWelcomeTextMs + kWelcomeQrMs);
+      now.page = phase >= kWelcomeTextMs;  // 0: instructions (first), 1: QR code
+      if (!now.page) {  // the address is wider than the panel: it glides to the end and back, resting a moment at each end
+        int overflow = (int)strlen(url_) * 6 - kSize;
+        if (overflow > 0) {
+          uint32_t half = kWelcomeTextMs / 2, leg = phase < half ? phase : kWelcomeTextMs - phase;  // 0..half..0
+          uint32_t rest = half / 6, travel = half - 2 * rest;
+          uint32_t moved = leg < rest ? 0 : leg - rest > travel ? travel : leg - rest;
+          now.level = (uint8_t)((uint32_t)overflow * moved / travel);
+        }
+      }
+      break;
+    }
     case Kind::Setup:
       now.page = (since / kInvertMs) & 1;  // 0: white modules on black (the first), 1: black on white
       break;
@@ -368,6 +390,33 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
       joinedIcon(gfx, shade(kGreen, 255));
       blockText(gfx, address_, 54, kAddress);
       break;
+    case Kind::Welcome: {  // dark modules on a white block with a quiet zone: the usual form every camera reads
+      if (now.page == 0 || !urlQrReady_) {
+        gfx.fillScreen(0);
+        centredSmall(gfx, "SCAN THE QR CODE", 8, shade(kWhite, 255));
+        centredSmall(gfx, "OR GO TO THIS", 19, shade(kWhite, 255));
+        centredSmall(gfx, "ADDRESS IN YOUR", 26, shade(kWhite, 255));
+        centredSmall(gfx, "BROWSER", 33, shade(kWhite, 255));
+        {  // the full address with its scheme (browsers may try https first); wider than the panel, so it scrolls
+          int width = (int)strlen(url_) * 6 - 1;
+          int x = width <= kSize ? (kSize - width) / 2 : -(int)now.level;
+          gfx.setFont(nullptr);
+          gfx.setTextColor(shade(kCyan, 255));
+          gfx.setCursor(x, 44);
+          gfx.print(url_);
+        }
+        break;
+      }
+      int size = qrcodegen_getSize(urlQr_), border = size <= 21 ? 2 : 1, block = (size + 2 * border) * 2, x0 = (kSize - block) / 2;
+      gfx.fillScreen(0);
+      gfx.fillRect(x0, 0, block, block, shade(kWhite, 255));
+      for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size; ++x)
+          if (qrcodegen_getModule(urlQr_, x, y)) gfx.fillRect(x0 + (x + border) * 2, (y + border) * 2, 2, 2, 0);
+      if (block <= 50) centredSmall(gfx, "SCAN FOR", 56, shade(kWhite, 255));
+      centredSmall(gfx, "SETTINGS", block <= 50 ? 63 : 62, shade(kWhite, 255));
+      break;
+    }
     case Kind::Setup: {
       int size = qrReady_ ? qrcodegen_getSize(qr_) : 0;
       if (size) {

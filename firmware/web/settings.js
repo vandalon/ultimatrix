@@ -82,7 +82,10 @@ function choices(id, name, entries, values) {
   const grouped = entries.some(entry => entry.group);
   target.replaceChildren();
   let group = null;
-  (grouped ? entries : [...entries].sort((a, b) => selected.has(b.value) - selected.has(a.value))).forEach(entry => {
+  // Europe and national teams stay on top, then countries with a selection, then A-Z (stable sort keeps league order)
+  const pinned = ['Europe', 'National teams'];
+  const rank = group => pinned.includes(group) ? pinned.indexOf(group) - 2 : entries.some(entry => entry.group === group && selected.has(entry.value)) ? 0 : 1;
+  (grouped ? [...entries].sort((a, b) => a.group === b.group ? 0 : rank(a.group) - rank(b.group) || a.group.localeCompare(b.group)) : [...entries].sort((a, b) => selected.has(b.value) - selected.has(a.value))).forEach(entry => {
     if (grouped && entry.group !== group) {
       group = entry.group; const heading = document.createElement('div'); heading.className = 'choice-group'; heading.dataset.group = group; heading.textContent = group;
       heading.setAttribute('role', 'button'); heading.tabIndex = 0;
@@ -159,6 +162,7 @@ async function load() {
     document.querySelector('#network-name').textContent = data.network.ssid || 'Not connected';
     document.querySelector('#network-ip').textContent = data.network.ip || '—';
     document.querySelector('#sidebar-ip').textContent = data.network.ip || 'Offline';
+    { const link = document.querySelector('#welcome-ip'); const url = data.network.ip ? 'http://' + data.network.ip + '/' : ''; link.textContent = url || '—'; link.href = url || '#'; }
     lightNow = data.lightReading;
     document.querySelector('#time-status').textContent = data.timeSynced ? 'Time is synced automatically' : 'Waiting for the first time sync';
     if (sporty || data.mode === 'Words') {

@@ -10,10 +10,11 @@
 
 #include <stdint.h>
 #include <Adafruit_GFX.h>
+#include "qrcodegen.h"
 
 namespace boot {
 
-enum class Kind : uint8_t { Logo, Connecting, Setup, Connected, Syncing, Error, Joined, Update };  // Joined: someone is on the access point
+enum class Kind : uint8_t { Logo, Connecting, Setup, Connected, Syncing, Error, Joined, Update, Welcome };  // Joined: someone is on the access point; Welcome: first-run QR for the settings page
 
 // The panel runs the boot screens at a higher brightness than the user's setting (its brightness is whole pixel
 // clocks per bit plane, so a low setting leaves the dim end only a few levels deep). The caller compensates:
@@ -44,6 +45,8 @@ class Screen {
  public:
   // The network a phone should join. An empty password gives the open-network QR code.
   void setAccessPoint(const char *ssid, const char *password, const char *address);
+  // The address the Welcome screen's QR code opens (e.g. "HTTP://192.168.1.20/"; capitals keep it in the small alphanumeric mode)
+  void setSettingsUrl(const char *url);
   // since: ms since the state began (the pulses and the logo's fade-in start from it).
   // Returns true when it drew: the caller flips the buffer.
   bool update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *text = "");
@@ -60,6 +63,9 @@ class Screen {
   char address_[16] = "";
   uint8_t qr_[(6 * 4 + 17) * (6 * 4 + 17) / 8 + 2] = {};  // up to version 6 (the open network is version 1 or 2)
   bool qrReady_ = false;
+  uint8_t urlQr_[qrcodegen_BUFFER_LEN_FOR_VERSION(3)] = {};
+  bool urlQrReady_ = false;
+  char url_[32] = "";
   IconCache icon_;
 };
 
