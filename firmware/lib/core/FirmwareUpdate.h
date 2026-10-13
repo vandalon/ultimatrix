@@ -23,6 +23,8 @@ public:
   static bool knownMode(const char *mode);
   void status(Status &out);
   void confirmBoot(bool healthy, uint32_t now, uint32_t failures);
+  // Call before a deliberate restart: a running image that is still pending verification is kept instead of rolled back.
+  static void confirmBeforeRestart();
   const char *version() const;
 private:
   static void task(void *self);

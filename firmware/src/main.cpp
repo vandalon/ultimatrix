@@ -547,7 +547,7 @@ static void background() {
   reportMemory();
   telnet.poll();
   if (mdnsDue) { mdnsDue = false; startMdns(); }
-  if (restartAt && (int32_t)(millis() - restartAt) >= 0) ESP.restart();
+  if (restartAt && (int32_t)(millis() - restartAt) >= 0) { FirmwareUpdate::confirmBeforeRestart(); ESP.restart(); }
 }
 
 void setup() {

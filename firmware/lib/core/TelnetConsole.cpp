@@ -3,6 +3,7 @@
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #include "TelnetConsole.h"
 #include "Console.h"
+#include "FirmwareUpdate.h"
 #include <esp_log.h>
 #include <esp_heap_caps.h>
 #include <string.h>
@@ -164,6 +165,7 @@ void TelnetConsole::run(const char *line) {
     client_.print("Restarting.\r\n");
     client_.flush();
     delay(100);
+    FirmwareUpdate::confirmBeforeRestart();
     ESP.restart();
   } else if (!strcasecmp(command, "quit") || !strcasecmp(command, "exit")) {
     client_.print("Bye.\r\n");

@@ -3,6 +3,7 @@
 #include "Console.h"
 #include "NetworkBudget.h"
 #include <esp_http_client.h>
+#include <esp_crt_bundle.h>
 #include <esp_ota_ops.h>
 #include <esp_app_format.h>
 #include <esp_app_desc.h>
@@ -17,22 +18,57 @@ extern volatile bool firmwareUpdating;
 extern "C" bool verifyRollbackLater() { return true; }
 
 namespace {
-constexpr char kServer[] = "http://192.168.7.77/ultiMatrix";
 constexpr char kMode[] = UM_MODE_ID;
 constexpr size_t kMinFreeBlock = 16 * 1024;  // estimate for the HTTP client and hashing; tune from device logs
+constexpr size_t kMinFreeBlockTls = 28 * 1024;  // GitHub is HTTPS: one TLS session at a time
+constexpr uint32_t kTaskStack = 12288;  // TLS handshake plus certificate checks need more than plain HTTP
+constexpr int kMaxRedirects = 4;
+
+// Where updates come from: the project's GitHub release (default) or a private server saved in NVS.
+// GitHub release assets are flat, so a file is named "<mode>-<name>"; a private server uses "<mode>/<name>".
+bool customServer(char *out, size_t size) {
+  Preferences prefs; out[0] = 0;
+  if (!prefs.begin("um-updates", true)) return false;
+  strlcpy(out, prefs.getString("server", "").c_str(), size); prefs.end();
+  return out[0] != 0;
+}
+void fileUrl(char *url, size_t size, const char *mode, const char *name) {
+  char server[kServerMax];
+  if (customServer(server, sizeof(server))) snprintf(url, size, "%s/%s/%s", server, mode, name);
+  else snprintf(url, size, "https://github.com/%s/releases/latest/download/%s-%s", kUpdateRepo, mode, name);
+}
+// Replay history is kept per source, so test releases on a private server do not block the GitHub ones.
+void historyKey(char *key, size_t size, const char *mode) {
+  char server[kServerMax];
+  snprintf(key, size, customServer(server, sizeof(server)) ? "%s-p" : "%s", mode);
+}
 struct HttpFile {
   esp_http_client_handle_t handle = nullptr;
+  bool tls = false;
   HttpFile(const char *mode, const char *name) {
-    char url[256]; snprintf(url, sizeof(url), "%s/%s/%s", kServer, mode, name);
+    char url[256]; fileUrl(url, sizeof(url), mode, name);
+    tls = !strncmp(url, "https://", 8);
     esp_http_client_config_t config{};
-    config.url = url; config.timeout_ms = 10000; config.buffer_size = 1024; config.buffer_size_tx = 512;
-    config.disable_auto_redirect = true;
+    config.url = url; config.timeout_ms = 10000; config.buffer_size = tls ? 3072 : 1024; config.buffer_size_tx = 512;
+    config.disable_auto_redirect = true;  // followed by hand in open(), HTTPS only
+    if (tls) config.crt_bundle_attach = esp_crt_bundle_attach;
     handle = esp_http_client_init(&config);
     if (handle) esp_http_client_set_header(handle, "Accept-Encoding", "identity");
   }
   bool open() {
-    return handle && esp_http_client_open(handle, 0) == ESP_OK && esp_http_client_fetch_headers(handle) >= 0 &&
-        esp_http_client_get_status_code(handle) == 200;
+    if (!handle) return false;
+    for (int hop = 0; hop <= kMaxRedirects; ++hop) {
+      if (esp_http_client_open(handle, 0) != ESP_OK || esp_http_client_fetch_headers(handle) < 0) return false;
+      int code = esp_http_client_get_status_code(handle);
+      if (code == 200) return true;
+      bool redirect = code == 301 || code == 302 || code == 303 || code == 307 || code == 308;
+      if (!tls || !redirect || esp_http_client_set_redirection(handle) != ESP_OK) return false;
+      char next[8] = "";  // a redirect must stay on HTTPS
+      esp_http_client_get_url(handle, next, sizeof(next));
+      esp_http_client_close(handle);
+      if (strncmp(next, "https://", 8)) return false;
+    }
+    return false;
   }
   int read(uint8_t *bytes, size_t size) { return esp_http_client_read(handle, reinterpret_cast<char *>(bytes), size); }
   ~HttpFile() { if (handle) esp_http_client_cleanup(handle); }
@@ -244,6 +280,9 @@ void FirmwareUpdate::run() {
     if (!recorded) { message("Cannot save update history.", true); return; }
   }
   if (result != ESP_OK || esp_ota_set_boot_partition(partition) != ESP_OK) { message("Firmware validation failed. Current image retained.", true); return; }
+  if (history.begin("um-updates", false)) {  // the cached "update available" is about the build that was just replaced
+    history.remove("availElf"); history.remove("availVer"); history.remove("chk"); history.end();
+  }
   message(strcmp(_target, kMode) ? "Clock face installed. Restarting Ultimatrix." : "Firmware verified. Restarting Ultimatrix.");
   std::lock_guard<std::mutex> guard(_lock); _status.ready = true;
 }
@@ -260,6 +299,8 @@ void FirmwareUpdate::begin() {
   Preferences prefs;
   if (!prefs.begin("um-updates", true)) return;
   std::lock_guard<std::mutex> guard(_lock);
+  // The cache belongs to the clock mode that wrote it; another mode's result (after a face switch or a reflash) is ignored
+  if (strcmp(prefs.getString("chkMode", "").c_str(), kMode)) { prefs.end(); return; }
   _latest.checkedAt = prefs.getUInt("chk", 0);
   uint8_t elf[32];
   if (prefs.getBytes("availElf", elf, sizeof(elf)) == sizeof(elf) && memcmp(elf, esp_app_get_description()->app_elf_sha256, sizeof(elf))) {
@@ -327,6 +368,7 @@ void FirmwareUpdate::check() {
   if (ok) {
     Preferences prefs;
     if (prefs.begin("um-updates", false)) {
+      prefs.putString("chkMode", kMode);
       if (epoch >= kValidEpoch) prefs.putUInt("chk", (uint32_t)epoch);
       if (available) { prefs.putBytes("availElf", info.elfSha256, sizeof(info.elfSha256)); prefs.putString("availVer", info.version); }
       else { prefs.remove("availElf"); prefs.remove("availVer"); }
@@ -342,6 +384,10 @@ void FirmwareUpdate::check() {
   strlcpy(_latest.version, available ? info.version : "", sizeof(_latest.version));
   if (epoch >= kValidEpoch) _latest.checkedAt = (uint32_t)epoch;
   if (available) consoleLog("[Firmware] Update available: %s\n", info.version);
+}
+
+void FirmwareUpdate::confirmBeforeRestart() {
+  esp_ota_mark_app_valid_cancel_rollback();  // no-op error when the image is already valid
 }
 
 void FirmwareUpdate::confirmBoot(bool healthy, uint32_t now, uint32_t failures) {
