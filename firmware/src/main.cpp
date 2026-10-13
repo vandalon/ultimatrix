@@ -570,6 +570,7 @@ void setup() {
   display = new MatrixPanel_I2S_DMA(panel);
   if (!display->begin()) { consoleLog("Display allocation failed\n"); return; }
   displayReady = true;
+  boot::setPlot888([](Adafruit_GFX &gfx, int x, int y, uint8_t r, uint8_t g, uint8_t b) { ((MatrixPanel_I2S_DMA &)gfx).drawPixelRGB888(x, y, r, g, b); });
   display->setBrightness8(s.brightness);
   display->setRotation(s.rotation);
   bootAt = millis();

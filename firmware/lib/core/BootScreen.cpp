@@ -67,6 +67,8 @@ unsigned backdropLevel(int x, int y, unsigned glow = 0) {
   return dim + (bright - dim) * glow / 255;
 }
 
+Plot888 plot888 = nullptr;
+
 void backdrop(Adafruit_GFX &gfx, unsigned glow = 0, unsigned fade = 255) {  // fade 0..255: the logo's fade-in, a wipe down from the top
   for (int y = 1; y < kSize; y += 2) {
     int edge = (int)(fade * 13 / 10) - y * 255 / kSize;  // the wipe's soft edge is 76 (0.3 of the height) wide
@@ -75,7 +77,9 @@ void backdrop(Adafruit_GFX &gfx, unsigned glow = 0, unsigned fade = 255) {  // f
       int t = 255 * y / kSize;  // cyan at the top to blue at the bottom, lit or dimmed
       Rgb c{(uint8_t)(kCyan.r + (kBlue.r - kCyan.r) * t / 255), (uint8_t)(kCyan.g + (kBlue.g - kCyan.g) * t / 255),
             (uint8_t)(kCyan.b + (kBlue.b - kCyan.b) * t / 255)};
-      gfx.drawPixel(x, y, shade(c, backdropLevel(x, y, glow) * rowFade / 255));
+      unsigned level = backdropLevel(x, y, glow) * rowFade / 255;
+      if (plot888) plot888(gfx, x, y, c.r * level, c.g * level, c.b * level);
+      else gfx.drawPixel(x, y, shade(c, level));
     }
   }
 }
@@ -249,6 +253,8 @@ void append(char *out, size_t size, const char *text) {
 }
 
 }  // namespace
+
+void setPlot888(Plot888 plot) { plot888 = plot; }
 
 uint8_t pulse(uint32_t ms, uint32_t period, uint32_t offset) {
   if (!period) return 255;

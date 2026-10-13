@@ -15,6 +15,12 @@ namespace boot {
 
 enum class Kind : uint8_t { Logo, Connecting, Setup, Connected, Syncing, Error, Joined, Update };  // Joined: someone is on the access point
 
+// Full-precision pixel plot for the logo gradient. r, g and b are 8.8 fixed point (0..65280 = level 0..255) so the
+// plot can dither between two panel levels; main.cpp feeds the panel's drawPixelRGB888. Without one the logo falls
+// back to RGB565, which is all the Adafruit_GFX interface carries and leaves a gradient only a few levels deep.
+using Plot888 = void (*)(Adafruit_GFX &gfx, int x, int y, uint16_t r, uint16_t g, uint16_t b);
+void setPlot888(Plot888 plot);
+
 // 0..255 raised cosine: 0 at the start of each period, 255 in the middle. offset shifts the phase (ms).
 uint8_t pulse(uint32_t ms, uint32_t period, uint32_t offset = 0);
 
