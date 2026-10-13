@@ -652,6 +652,7 @@ void setup() {
   if (setupRefresh) {
     panel.i2sspeed = HUB75_I2S_CFG::HZ_20M;
     panel.min_refresh_rate = 255;
+    panel.setPixelColorDepthBits(2);  // the setup QR is white on black: fewer bit planes give the fastest refresh, so cameras see no stripes (the library's minimum)
   }
   if (s.swapBlueGreen) {
     panel.gpio.b1 = 26; panel.gpio.b2 = 12;

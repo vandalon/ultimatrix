@@ -22,6 +22,7 @@ const uint8_t kPulse[64] = {
     128, 115, 103, 90,  79,  67,  57,  47,  37,  29,  21,  15,  10,  5,   2,   1};
 
 constexpr int kSize = 64;
+constexpr uint32_t kInvertMs = 5000;     // the access point code flips between normal and inverted
 constexpr uint32_t kFadeMs = 1400;       // the logo's fade-in
 constexpr uint32_t kDimMs = 900;         // the U dimming down once the Wi-Fi symbol comes in
 constexpr uint32_t kLabelPeriodMs = 1800;
@@ -318,7 +319,7 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
       now.level = 31;
       break;
     case Kind::Setup:
-      now.page = 0;  // white modules on black only, as Clockwise: the inverted page was hard for some cameras and a full white panel at full brightness can sag the supply
+      now.page = (since / kInvertMs) & 1;  // 0: white modules on black (the first), 1: black on white
       break;
     case Kind::Connected:
       if (settling_ && clock_ < settleAt_) now.level = pulse(clock_, kLabelPeriodMs) >> 3;
