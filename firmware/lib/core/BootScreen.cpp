@@ -23,8 +23,9 @@ const uint8_t kPulse[64] = {
 
 constexpr int kSize = 64;
 constexpr uint32_t kInvertMs = 5000;     // the access point code flips between normal and inverted
-constexpr uint32_t kWelcomeTextMs = 10000, kWelcomeQrMs = 5000;  // the Welcome screen alternates instructions (long enough to read the scrolling address) and the QR code
+constexpr uint32_t kWelcomeTextMs = 10000, kWelcomeQrMs = 5000;  // the Welcome screen cycles instructions (long enough to read the scrolling address), the QR code, and the QR code inverted
 constexpr uint32_t kFadeMs = 1400;       // the logo's fade-in
+constexpr uint32_t kMixMs = 900;         // the Wi-Fi symbol turning from blue to green once linked
 constexpr uint32_t kDimMs = 900;         // the U dimming down once the Wi-Fi symbol comes in
 constexpr uint32_t kLabelPeriodMs = 1800;
 constexpr uint32_t kPulsePeriodHalf(uint32_t period) { return period / 2; }  // the peak
@@ -51,8 +52,11 @@ Rgb tint(Rgb c, float t) {
 
 // Picopixel's cursor is the baseline and its advance is 4 px
 void centredSmall(Adafruit_GFX &gfx, const char *text, int baseline, uint16_t color) {
-  int x = (kSize - 4 * (int)strlen(text)) / 2;
   gfx.setFont(&Picopixel);
+  int16_t bx, by;
+  uint16_t bw, bh;
+  gfx.getTextBounds(text, 0, baseline, &bx, &by, &bw, &bh);  // the font's glyphs differ in width (spaces are narrow): centre the ink itself
+  int x = (kSize - (int)bw) / 2 - bx;
   gfx.setCursor(x < 0 ? 0 : x, baseline);
   gfx.setTextColor(color);
   gfx.print(text);
@@ -183,6 +187,11 @@ const char *const kUpdateArt[] = {
     "..############################..",
 };
 
+// Blend a towards b; t 0..31
+Rgb mixRgb(Rgb a, Rgb b, unsigned t) {
+  return {(uint8_t)(a.r + (b.r - a.r) * (int)t / 31), (uint8_t)(a.g + (b.g - a.g) * (int)t / 31), (uint8_t)(a.b + (b.b - a.b) * (int)t / 31)};
+}
+
 // Works out which panel pixels the icon covers (once per icon) and the rows it spans
 void buildIcon(IconCache &cache, Icon icon) {
   const char *const *art = icon == kWifi ? kWifiArt : icon == kNoTime ? kNoTimeArt : kUpdateArt;
@@ -201,8 +210,15 @@ void buildIcon(IconCache &cache, Icon icon) {
 
 // Draws an icon in colour c over the backdrop; level 0..255 is how far it has faded in. The colour runs from
 // lighter at the top to deeper at the bottom.
-void drawIcon(Adafruit_GFX &gfx, IconCache &cache, Icon icon, Rgb c, unsigned level, unsigned glow) {
+void drawIcon(Adafruit_GFX &gfx, IconCache &cache, Icon icon, Rgb c, unsigned level, unsigned glow, bool plain = false) {
   if (cache.icon != icon) buildIcon(cache, icon);
+  if (plain) {  // the setup display (2 bit): solid white, no gradient or backdrop, so it never shows stray colours
+    if (level < 128) return;  // no fade: the in-between greys quantise to different R/G/B steps and show as colours
+    for (int y = cache.top; y <= cache.bottom; ++y)
+      for (int x = 0; x < kSize; ++x)
+        if (cache.cover[y * kSize + x]) gfx.drawPixel(x, y, 0xFFFF);
+    return;
+  }
   for (int y = cache.top; y <= cache.bottom; ++y) {
     Rgb g = tint(c, (float)(y - cache.top) / (cache.bottom - cache.top));
     for (int x = 0; x < kSize; ++x) {
@@ -327,10 +343,12 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
       now.level = 31;
       break;
     case Kind::Welcome: {
-      uint32_t phase = since % (kWelcomeTextMs + kWelcomeQrMs);
-      now.page = phase >= kWelcomeTextMs;  // 0: instructions (first), 1: QR code
+      uint32_t phase = welcomeVisited_ ? since % kWelcomeTextMs : since % (kWelcomeTextMs + 2 * kWelcomeQrMs);
+      now.page = welcomeVisited_ || phase < kWelcomeTextMs ? 0 : phase < kWelcomeTextMs + kWelcomeQrMs ? 1 : 2;
+      now.text[0] = welcomeVisited_ ? 'V' : 0;  // part of the frame, so the redraw happens when the page is first opened
+      now.text[1] = welcomeVisited_ || phase >= kWelcomeTextMs ? 0 : (char)((kWelcomeTextMs - phase + 999) / 1000);  // seconds until the QR code: a change redraws
       if (!now.page) {  // the address is wider than the panel: it glides to the end and back, resting a moment at each end
-        int overflow = (int)strlen(url_) * 6 - kSize;
+        int overflow = (int)strlen(url_) * 4 - kSize;  // Picopixel advances 4 px
         if (overflow > 0) {
           uint32_t half = kWelcomeTextMs / 2, leg = phase < half ? phase : kWelcomeTextMs - phase;  // 0..half..0
           uint32_t rest = half / 6, travel = half - 2 * rest;
@@ -346,9 +364,11 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
     case Kind::Connected:
       if (settling_ && clock_ < settleAt_) now.level = pulse(clock_, kLabelPeriodMs) >> 3;
       else { settling_ = false; now.level = 31; }  // steady green
+      now.mix = 31;
       break;
     default:
       now.level = pulse(pulsing ? clock_ : since, kLabelPeriodMs) >> 3;
+      if (kind == Kind::Syncing) now.mix = since < kMixMs ? 31 * since / kMixMs : 31;  // blue melts into green
       if (kind == Kind::Connecting && since < kDimMs) now.glow = 31 - 31 * since / kDimMs;  // the logo's U dims as the symbol comes in
       break;
   }
@@ -362,19 +382,19 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
   gfx.setTextSize(1);
   gfx.setFont(nullptr);
   unsigned glow = now.glow * 255 / 31;
-  if (kind != Kind::Setup) backdrop(gfx, glow, kind == Kind::Logo ? level : 255);
+  if (kind != Kind::Setup && (kind == Kind::Logo || !plain_)) backdrop(gfx, glow, kind == Kind::Logo ? level : 255);
   switch (kind) {
     case Kind::Logo:  // just the U, faded in
       break;
     case Kind::Connecting:  // blue and pulsing until the network is up
-      drawIcon(gfx, icon_, kWifi, kBlue, level, glow);
+      drawIcon(gfx, icon_, kWifi, kBlue, level, glow, plain_);
       break;
-    case Kind::Syncing:  // linked, waiting for the time: green and pulsing
-      drawIcon(gfx, icon_, kWifi, kGreen, level, glow);
+    case Kind::Syncing:  // linked, waiting for the time: blue fading to green, pulsing
+      drawIcon(gfx, icon_, kWifi, mixRgb(kBlue, kGreen, now.mix), level, glow, plain_);
       blockText(gfx, now.text, 54, kAddress);
       break;
     case Kind::Connected:  // linked and time synced: green
-      drawIcon(gfx, icon_, kWifi, kGreen, level, glow);
+      drawIcon(gfx, icon_, kWifi, kGreen, level, glow, plain_);
       blockText(gfx, now.text, 54, kAddress);
       break;
     case Kind::Error:  // linked, but no time: the settings page is reachable at the address
@@ -387,34 +407,45 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
       centredSmall(gfx, "AVAILABLE", 50, shade(kViolet, 255));
       break;
     case Kind::Joined:
-      joinedIcon(gfx, shade(kGreen, 255));
+      joinedIcon(gfx, shade(plain_ ? kWhite : kGreen, 255));
       blockText(gfx, address_, 54, kAddress);
       break;
     case Kind::Welcome: {  // dark modules on a white block with a quiet zone: the usual form every camera reads
       if (now.page == 0 || !urlQrReady_) {
         gfx.fillScreen(0);
-        centredSmall(gfx, "SCAN THE QR CODE", 8, shade(kWhite, 255));
-        centredSmall(gfx, "OR GO TO THIS", 19, shade(kWhite, 255));
-        centredSmall(gfx, "ADDRESS IN YOUR", 26, shade(kWhite, 255));
-        centredSmall(gfx, "BROWSER", 33, shade(kWhite, 255));
+        centredSmall(gfx, "QR CODE COMES UP", 8, shade(kWhite, 255));
+        centredSmall(gfx, "SCAN IT OR GO TO", 19, shade(kWhite, 255));
+        centredSmall(gfx, "THIS ADDRESS IN", 26, shade(kWhite, 255));
+        centredSmall(gfx, "YOUR BROWSER", 33, shade(kWhite, 255));
+        if (!welcomeVisited_ && now.text[1]) {
+          char left[16];
+          snprintf(left, sizeof(left), "QR CODE IN %d", now.text[1]);
+          centredSmall(gfx, left, 62, shade(kWhite, 255));
+        }
+        if (welcomeVisited_) {
+          centredSmall(gfx, "TAP START CLOCK", 56, shade(kWhite, 255));
+          centredSmall(gfx, "IN SETTINGS", 63, shade(kWhite, 255));
+        }
         {  // the full address with its scheme (browsers may try https first); wider than the panel, so it scrolls
-          int width = (int)strlen(url_) * 6 - 1;
+          int width = (int)strlen(url_) * 4 - 1;
           int x = width <= kSize ? (kSize - width) / 2 : -(int)now.level;
-          gfx.setFont(nullptr);
+          gfx.setFont(&Picopixel);
           gfx.setTextColor(shade(kCyan, 255));
-          gfx.setCursor(x, 44);
+          gfx.setCursor(x, 47);
           gfx.print(url_);
+          gfx.setFont(nullptr);
         }
         break;
       }
-      int size = qrcodegen_getSize(urlQr_), border = size <= 21 ? 2 : 1, block = (size + 2 * border) * 2, x0 = (kSize - block) / 2;
-      gfx.fillScreen(0);
-      gfx.fillRect(x0, 0, block, block, shade(kWhite, 255));
+      int size = qrcodegen_getSize(urlQr_), scale = kSize / size;  // full screen, like the setup code: the largest whole-pixel module size
+      if (scale < 1) scale = 1;
+      int margin = (kSize - size * scale) / 2;
+      bool inverted = now.page == 2;
+      uint16_t white = shade(kWhite, 255), background = inverted ? white : 0, module = inverted ? 0 : white;
+      gfx.fillScreen(background);
       for (int y = 0; y < size; ++y)
         for (int x = 0; x < size; ++x)
-          if (qrcodegen_getModule(urlQr_, x, y)) gfx.fillRect(x0 + (x + border) * 2, (y + border) * 2, 2, 2, 0);
-      if (block <= 50) centredSmall(gfx, "SCAN FOR", 56, shade(kWhite, 255));
-      centredSmall(gfx, "SETTINGS", block <= 50 ? 63 : 62, shade(kWhite, 255));
+          if (qrcodegen_getModule(urlQr_, x, y)) gfx.fillRect(margin + x * scale, margin + y * scale, scale, scale, module);
       break;
     }
     case Kind::Setup: {

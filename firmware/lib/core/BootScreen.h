@@ -37,7 +37,7 @@ struct IconCache {
 };
 
 struct Frame {
-  uint8_t kind, level, page, glow;  // glow: how far the U is lit up as the logo (31) or dimmed to the backdrop (0)
+  uint8_t kind, level, page, glow, mix;  // glow: how far the U is lit up as the logo (31) or dimmed to the backdrop (0); mix: Wi-Fi symbol blue (0) to green (31)
   char text[16];
 };
 
@@ -50,12 +50,18 @@ class Screen {
   // since: ms since the state began (the pulses and the logo's fade-in start from it).
   // Returns true when it drew: the caller flips the buffer.
   bool update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *text = "");
+  // Without the dim U behind the icons (the 2-bit setup display shows it as a coarse blotch). The logo screen still draws the U.
+  void setPlainBackdrop(bool plain) { plain_ = plain; drawn_ = false; }
+  // Welcome: once the settings page has been opened the QR pages stop and only the instructions remain
+  void setWelcomeVisited(bool visited) { if (visited != welcomeVisited_) { welcomeVisited_ = visited; drawn_ = false; } }
   // Forget what was drawn (after anything else used the panel).
   void invalidate() { drawn_ = false; }
 
  private:
   Frame last_{};
   bool drawn_ = false;
+  bool plain_ = false;
+  bool welcomeVisited_ = false;
   Kind lastKind_ = Kind::Logo;
   uint32_t lastSince_ = 0, clock_ = 0, settleAt_ = 0;  // clock_: the pulse clock, kept across pulsing screens
   bool settling_ = false;  // Connected, still pulsing up to the peak
