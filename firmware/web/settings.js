@@ -70,7 +70,7 @@ async function load() {
     if (sporty || data.mode === 'Words') { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
     if (data.mode === 'MotoGP') document.querySelector('[data-f1] .field > label').textContent = 'Favourite riders';
     if (racing) form.querySelector('[name=timeStyle] option[value="0"]').remove();
-    Object.entries(data.settings).forEach(([name, value]) => { const input = field(name); if (!input) return; if (input.type === 'checkbox') input.checked = Boolean(value); else input.value = name === 'use24h' ? (value ? '1' : '0') : name === 'timeStyle' && racing && Number(value) === 0 ? 2 : value; });
+    Object.entries(data.settings).forEach(([name, value]) => { const input = field(name); if (!input) return; if (input.tagName === 'SELECT' && ![...input.options].some(o => o.value === String(value))) input.add(new Option(value, value)); if (input.type === 'checkbox') input.checked = Boolean(value); else input.value = name === 'use24h' ? (value ? '1' : '0') : name === 'timeStyle' && racing && Number(value) === 0 ? 2 : value; });
     document.querySelector('#mode-name').textContent = data.mode; currentFace = data.modeId; document.querySelector('#face').value = data.modeId;
     document.querySelector('#sport-heading').textContent = data.mode + ' preferences';
     document.querySelector('#network-name').textContent = data.network.ssid || 'Not connected';

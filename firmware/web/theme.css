@@ -21,3 +21,21 @@ body.ultimatrix-portal{background:var(--paper)!important;color:var(--ink)!import
 @keyframes update-ping{70%{box-shadow:0 0 0 8px #46d2ff00}100%{box-shadow:0 0 0 0 #46d2ff00}}
 @media(prefers-reduced-motion:reduce){.update-banner,.update-banner::after,.update-icon,.nav-dot{animation:none}}
 @media(max-width:450px){.update-banner{flex-wrap:wrap}.update-banner button{width:100%}}
+
+/* Compact settings layout */
+.settings-app .main{padding:28px 5vw 20px}
+.settings-app .page-heading{justify-content:flex-end;margin-bottom:14px}
+.settings-app .sidebar{padding:28px 22px}.settings-app .sidebar nav{margin-top:24px;gap:4px}.settings-app .sidebar nav a{padding:10px 12px}
+.settings-app .card{padding:18px 22px;margin-bottom:14px}
+.settings-app .section-heading{margin-bottom:12px}.settings-app h2{margin:0;font-size:16px}
+.settings-app .field{margin-top:14px}.settings-app .field label,.settings-app .brightness-row label{margin-bottom:6px}
+.settings-app .field-grid{gap:14px}
+.settings-app .toggle{padding:11px 0}.settings-app .toggle small{margin-top:2px}
+.settings-app input,.settings-app select{padding:9px 12px}.settings-app .input-unit span{top:11px}
+.settings-app button{padding:10px 16px}
+.settings-app .extra{margin-top:12px;padding:10px 14px}.settings-app .extra .field{margin-top:10px}
+.settings-app .hint{margin-top:5px;line-height:1.5}
+.settings-app .network-action{margin-top:14px;padding-top:14px}
+.settings-app .sync-note{margin-top:12px;padding:9px 12px}
+.settings-app .fw-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:0}.settings-app .fw-row .hint{margin:0}
+@media(max-width:800px){.settings-app .main{padding:18px 14px}.settings-app .card{padding:16px}}
