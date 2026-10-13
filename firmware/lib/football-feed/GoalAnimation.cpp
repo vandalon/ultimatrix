@@ -337,7 +337,7 @@ static float hitY, hitRadius;  // where the ball ends up and how big it gets: ab
 
 // The net covers the whole screen. After a hit a ripple spreads from (cx, cy), age frames old.
 // Every LED looks up which spot of the undisturbed net is shifted onto it, so there are no holes.
-static void drawNet(Adafruit_GFX *d, float cx, float cy, int age, float strength, uint16_t color) {
+static void drawNet(Adafruit_GFX *d, float cx, float cy, float age, float strength, uint16_t color) {
   for (int y = 0; y < panelH; y++) {
     for (int x = 0; x < 64; x++) {
       float dx = x - cx, dy = y - cy, dist = sqrtf(dx * dx + dy * dy) + 0.01f, wave = 0;
@@ -372,13 +372,16 @@ static void ballFlight(float t, float &x, float &y, float &radius) {
   radius = 1 + (hitRadius - 1) * t * t * t;
 }
 
-static const int APPROACH_FRAMES = 34, FLASH_FRAMES = 2, IMPACT_FRAMES = 16;
+// The animation is drawn at SUBSTEPS frames per original 40 ms step, so it moves smoothly; timings below are written in
+// those original steps (ft) and the discrete flashes and flickers keep their original rate (fi)
+static const int SUBSTEPS = 2;
+static const int APPROACH_FRAMES = 34 * SUBSTEPS, FLASH_FRAMES = 2 * SUBSTEPS, IMPACT_FRAMES = 16 * SUBSTEPS;
 
 static void drawApproachFrame(int f, const TeamKit &kit, Adafruit_GFX *d, bool show) {
   View v = {32, 1, panelH - 32};
   float t = f / (float)(APPROACH_FRAMES - 1), bx, by, br;
   scene->fillScreen(0);
-  drawStadium(scene, v, kit.shirt, false, f);
+  drawStadium(scene, v, kit.shirt, false, f / SUBSTEPS);
   drawPitch(scene, v);
   // A few fading copies behind the ball: motion blur
   for (int k = 3; k >= 1; k--) {
@@ -387,35 +390,36 @@ static void drawApproachFrame(int f, const TeamKit &kit, Adafruit_GFX *d, bool s
     scene->fillCircle((int)roundf(tx), (int)roundf(ty), (int)roundf(tr * 0.85f), dim(WHITE, 0.3f / k));
   }
   ballFlight(t, bx, by, br);
-  drawBall(scene, bx, by, br, f * 0.5f);
+  drawBall(scene, bx, by, br, f * 0.5f / SUBSTEPS);
   drawNet(scene, 0, 0, 0, 0, NET);
   if (show) present(d, 0, 0);
 }
 
 // The hit: two flashes, then the net ripples and the ball drops behind it
 static void drawFlashFrame(int f, const TeamKit &kit, Adafruit_GFX *d, bool show) {
-  scene->fillScreen(f == 0 ? WHITE : kit.shirt);
+  scene->fillScreen(f < SUBSTEPS ? WHITE : kit.shirt);
   if (show) present(d, 0, 0);
 }
 
 static void drawImpactFrame(int f, const TeamKit &kit, Adafruit_GFX *d, bool show) {
-  const int FRAMES = IMPACT_FRAMES;
+  const float ft = f / (float)SUBSTEPS;
+  const int fi = f / SUBSTEPS;
   View v = {32, 1, panelH - 32};
-  float u = fminf(1, fmaxf(0, (f - 5) / 10.0f));  // the ball drops from frame 5
+  float u = fminf(1, fmaxf(0, (ft - 5) / 10.0f));  // the ball drops from step 5
   scene->fillScreen(0);
-  drawStadium(scene, v, kit.shirt, true, f);
+  drawStadium(scene, v, kit.shirt, true, fi);
   drawPitch(scene, v);
-  drawBall(scene, HIT_X, hitY + (panelH - 6 - hitY) * u * u, hitRadius * (1 - 0.6f * u), f * 0.3f);
-  drawNet(scene, HIT_X, hitY, f, 3.0f * (1 - f / (float)FRAMES), f < 6 && f % 2 ? kit.shirt : NET);
-  if (f < 7) scene->drawCircle((int)HIT_X, (int)hitY, 4 + f * 5, f % 2 ? WHITE : kit.shirt);
-  int amount = shakeAmount(f);
-  if (show) present(d, shakeX(f, amount), shakeY(f, amount));
+  drawBall(scene, HIT_X, hitY + (panelH - 6 - hitY) * u * u, hitRadius * (1 - 0.6f * u), ft * 0.3f);
+  drawNet(scene, HIT_X, hitY, ft, 3.0f * (1 - ft / (float)(IMPACT_FRAMES / SUBSTEPS)), fi < 6 && fi % 2 ? kit.shirt : NET);
+  if (ft < 7) scene->drawCircle((int)HIT_X, (int)hitY, 4 + (int)(ft * 5), fi % 2 ? WHITE : kit.shirt);
+  int amount = shakeAmount(fi);
+  if (show) present(d, shakeX(fi, amount), shakeY(fi, amount));
 }
 
 // Fireworks: short-lived sparks that fly out from a point, slow down and fall
 struct Spark {
   float x, y, vx, vy;
-  int life, maxLife;
+  float life, maxLife;
   uint16_t color;
 };
 static const int SPARKS = 96;
@@ -434,15 +438,16 @@ static void burst(float x, float y, const uint16_t *colors, int colorCount) {
 }
 
 static void updateSparks(Adafruit_GFX *d) {
+  const float damping = powf(0.94f, 1.0f / SUBSTEPS);
   for (Spark &s : sparks) {
     if (s.life <= 0) continue;
-    s.x += s.vx;
-    s.y += s.vy;
-    s.vx *= 0.94f;
-    s.vy = s.vy * 0.94f + 0.06f;
-    float k = s.life / (float)s.maxLife;
+    s.x += s.vx / SUBSTEPS;
+    s.y += s.vy / SUBSTEPS;
+    s.vx *= damping;
+    s.vy = s.vy * damping + 0.06f / SUBSTEPS;
+    float k = s.life / s.maxLife;
     d->drawPixel((int)roundf(s.x), (int)roundf(s.y), dim(s.color, k < 0.5f ? k * 2 : 1));
-    s.life--;
+    s.life -= 1.0f / SUBSTEPS;
   }
 }
 
@@ -466,36 +471,37 @@ static void drawScaledText(Adafruit_GFX *d, GFXcanvas1 &text, int centerY, float
   }
 }
 
-static const int FINALE_FRAMES = 72, SLAM = 8, SCORE = SLAM + 6;
+static const int FINALE_FRAMES = 72 * SUBSTEPS, SLAM = 8, SCORE = SLAM + 6;  // SLAM and SCORE in original steps
 
 static void drawFinaleFrame(int f, int &nextBurst, GFXcanvas1 &text, const char *home, const char *away, int homeScore, int awayScore,
                             bool homeScored, const TeamKit &homeKit, const TeamKit &awayKit, Adafruit_GFX *d, bool show) {
   const TeamKit &kit = homeScored ? homeKit : awayKit;
-  const int FRAMES = FINALE_FRAMES;
+  const float ft = f / (float)SUBSTEPS;
+  const int fi = f / SUBSTEPS;
   const int textTop = panelH >= 64 ? 6 : 1, textMid = textTop + 7;  // GOAL! sits here when it has landed
   View v = {32, 1, panelH - 32};
   const uint16_t palette[] = {kit.shirt, kit.second ? kit.second : (uint16_t)0xF81F, WHITE, YELLOW};
 
   scene->fillScreen(0);
-  drawStadium(scene, v, kit.shirt, true, f);
+  drawStadium(scene, v, kit.shirt, true, fi);
   drawPitch(scene, v);
 
   if (f == nextBurst) {
-    if (f == SLAM) burst(32, textMid, palette, 4);
+    if (f == SLAM * SUBSTEPS) burst(32, textMid, palette, 4);
     else burst(8 + randomFloat() * 48, 3 + randomFloat() * (panelH * 0.45f), palette, 4);
-    nextBurst = f + 7 + (int)(randomFloat() * 5);
+    nextBurst = f + (7 + (int)(randomFloat() * 5)) * SUBSTEPS;
   }
-  if (f >= FRAMES - 22) nextBurst = FRAMES;  // no new fireworks near the end
+  if (f >= FINALE_FRAMES - 22 * SUBSTEPS) nextBurst = FINALE_FRAMES;  // no new fireworks near the end
   updateSparks(scene);
 
   // A shockwave from the letters as they land
-  int since = f - SLAM;
-  if (since >= 0 && since < 6) scene->drawCircle(32, textMid, 6 + since * 5, since % 2 ? WHITE : kit.shirt);
+  float since = ft - SLAM;
+  if (since >= 0 && since < 6) scene->drawCircle(32, textMid, 6 + (int)(since * 5), (int)since % 2 ? WHITE : kit.shirt);
 
   // GOAL! comes in from the camera: big, then shrinking onto its place
-  float p = fminf(1, f / (float)SLAM), scale = 1 + 3 * (1 - p) * (1 - p);
+  float p = fminf(1, ft / (float)SLAM), scale = 1 + 3 * (1 - p) * (1 - p);
   uint16_t colors[5];
-  for (int i = 0; i < 5; i++) colors[i] = since >= 6 && (f / 3 + i) % 2 ? YELLOW : WHITE;
+  for (int i = 0; i < 5; i++) colors[i] = since >= 6 && (fi / 3 + i) % 2 ? YELLOW : WHITE;
   drawScaledText(scene, text, textMid, scale, colors);
 
   // A stripe in the club's colours opens up under it
@@ -506,14 +512,14 @@ static void drawFinaleFrame(int f, int &nextBurst, GFXcanvas1 &text, const char 
     scene->fillRect(32 - half, textTop + 17, 2 * half, 1, kit.second ? kit.second : DIM_WHITE);
   }
 
-  if (f >= SCORE) {
-    float rise = powf(1 - fminf(1, (f - SCORE) / 8.0f), 2);
-    if (panelH >= 64) drawScoreBlock(scene, (int)roundf(40 * rise), home, away, homeScore, awayScore, homeScored, homeKit, awayKit, (f / 4) % 2);
-    else drawScoreLine(scene, 23 + (int)roundf(9 * rise), home, away, homeScore, awayScore, homeScored, homeKit, awayKit, (f / 4) % 2);
+  if (ft >= SCORE) {
+    float rise = powf(1 - fminf(1, (ft - SCORE) / 8.0f), 2);
+    if (panelH >= 64) drawScoreBlock(scene, (int)roundf(40 * rise), home, away, homeScore, awayScore, homeScored, homeKit, awayKit, (fi / 4) % 2);
+    else drawScoreLine(scene, 23 + (int)roundf(9 * rise), home, away, homeScore, awayScore, homeScored, homeKit, awayKit, (fi / 4) % 2);
   }
 
-  int amount = since >= 0 ? shakeAmount(since) : 0;
-  if (show) present(d, shakeX(f, amount), shakeY(f, amount));
+  int amount = since >= 0 ? shakeAmount((int)since) : 0;
+  if (show) present(d, shakeX(fi, amount), shakeY(fi, amount));
 }
 
 bool GoalAnimation::begin(Adafruit_GFX *display, const char *home, const char *away, int homeScore, int awayScore,
@@ -536,7 +542,7 @@ bool GoalAnimation::begin(Adafruit_GFX *display, const char *home, const char *a
   for (int pass = 0; pass < 2; pass++)
     for (int i = 0; i < 5; i++) _text->drawChar(i * 12 + pass, pass, "GOAL!"[i], 1, 0, 2);
   memset(sparks, 0, sizeof(sparks));
-  _nextBurst = SLAM;
+  _nextBurst = SLAM * SUBSTEPS;
   _display = display;
   strlcpy(_home, home, sizeof(_home));
   strlcpy(_away, away, sizeof(_away));

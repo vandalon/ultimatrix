@@ -1154,7 +1154,7 @@ void drawMain(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, int hour, int minute,
       }
     }
   }
-  fill(d, CLOCK_RIGHT, 0, 1, 64, MAIN_DIVIDER);
+  fill(d, CLOCK_RIGHT, 0, 1, 64, DIVIDER);
 }
 
 // A single LED in the very top right corner, in every view: how the downloads are going. Amber pulsing until the
