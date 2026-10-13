@@ -64,6 +64,8 @@ static boot::Kind bootKind = boot::Kind::Logo;
 static uint32_t bootSince = 0, bootAt = 0, connectedAt = 0, syncedAt = 0;
 static bool portalActive = false;
 static uint32_t portalCloseAt = 0;
+static bool setupRefreshRestart = false;  // this start is the restart into the fast display: no point trying the saved network again
+static bool setupRefresh = false;  // the panel runs fast (20 MHz, high minimum refresh) for the setup QR code only: a phone camera sees no stripes, but it costs colour depth
 static bool portalIpServed = false;
 static bool bootDone = false;  // the face has taken over from the boot screens
 static char ipText[16] = "";
@@ -73,6 +75,7 @@ static uint32_t reconnectAt = 0, reconnectDelay = 5000, mdnsRetryAt = 0;
 static TelnetConsole telnet;
 
 static const uint32_t kConnectedMs = 2500;  // how long the address stays up before the clock starts
+static const uint32_t kAddressMinMs = 3000;  // the address is in view at least this long from the moment the link is up
 static const uint32_t kLogoFadeMs = 1400;  // matches boot's kFadeMs
 static const uint32_t kLogoMs = 1800;  // the U logo on its own before the Wi-Fi symbol comes in
 static const uint32_t kSyncGiveUpMs = 45000;
@@ -87,7 +90,7 @@ static bool bootHoldOver(uint32_t now) {
   FirmwareUpdate::Latest latest; firmwareUpdate.latest(latest);
   uint32_t since = now - syncedAt;
   if (latest.checking && since < kConnectedMs + kUpdateCheckWaitMs) return false;
-  if (since < kConnectedMs) return false;
+  if (since < kConnectedMs || now - connectedAt < kAddressMinMs) return false;
   return !latest.available || (noticeAt && now - noticeAt >= kUpdateNoticeMs);
 }
 
@@ -121,6 +124,7 @@ static void setBootScale(unsigned scale) {
 // The panel brightness for a user setting, rescaling the boot screens to match
 static uint8_t panelBrightness(uint8_t userBrightness) {
   if (bootDone) { setBootScale(256); return userBrightness; }
+  if (portalActive) { setBootScale(256); return kBootPanelBrightness; }  // the setup QR is shown at full brightness whatever the setting, so phones scan it reliably
   uint8_t panel = userBrightness > kBootPanelBrightness ? userBrightness : kBootPanelBrightness;
   setBootScale(userBrightness * 256u / panel);
   return panel;
@@ -172,7 +176,7 @@ static void bootTick() {
   if (!connected) drawBoot(portalActive ? boot::Kind::Setup : boot::Kind::Connecting);
   else if (!synced) drawBoot(now - connectedAt > kSyncGiveUpMs ? boot::Kind::Error : boot::Kind::Syncing, ipText);
   else if (noticeAt && now - noticeAt >= kUpdateNoticeMs) return;  // notice over: leave the panel to the face
-  else if (now - syncedAt >= kConnectedMs && updateAvailable()) {
+  else if (now - syncedAt >= kConnectedMs && now - connectedAt >= kAddressMinMs && updateAvailable()) {
     if (!noticeAt) noticeAt = now ? now : 1;
     drawBoot(boot::Kind::Update);
   }
@@ -566,6 +570,7 @@ static void background() {
     portalCloseAt = 0;
   }
   bool portalNow = wifi.getConfigPortalActive();
+  if (setupRefresh && !portalNow && !restartAt) restartAt = millis() + 1000;  // setup is over: restart out of the fast display (the face needs the memory and colour depth)
   if (portalActive && !portalNow && WiFi.status() != WL_CONNECTED) WiFi.begin();
   portalActive = portalNow;
   if (!settingsServerStarted && WiFi.status() == WL_CONNECTED && !wifi.getConfigPortalActive()) {
@@ -604,12 +609,27 @@ void setup() {
   auto &s = *Settings::getInstance();
   s.load();
   firmwareUpdate.begin();  // the cached "update available" result, so the boot screen can mention it
+  {  // The fast display is only for the Wi-Fi setup QR: when setup was asked for. A start that needs the setup late restarts into it (setupRefresh flag)
+    Preferences refreshPrefs;
+    bool asked = false;
+    if (refreshPrefs.begin("ultimatrix", false)) {
+      asked = refreshPrefs.getBool("setupWifi", false);
+      setupRefreshRestart = refreshPrefs.getBool("setupRefresh", false);
+      if (setupRefreshRestart) refreshPrefs.remove("setupRefresh");
+      refreshPrefs.end();
+    }
+    setupRefresh = asked || setupRefreshRestart;  // no saved network: the portal comes up late and restarts into it (the saved SSID can't be read before Wi-Fi is initialised)
+  }
   HUB75_I2S_CFG panel(layout::width, layout::height, 1);
   panel.gpio.e = 18;
   panel.clkphase = false;
   panel.double_buff = true;
   panel.setPixelColorDepthBits(UM_PIXEL_DEPTH_BITS);
-  panel.i2sspeed = HUB75_I2S_CFG::HZ_16M;  // at 8 MHz the driver drops the lowest bit planes to reach its 60 Hz minimum refresh; 16 MHz keeps all 7
+  panel.i2sspeed = HUB75_I2S_CFG::HZ_16M;  // the driver drops low bit planes (lsbMsbTransitionBit) to reach 60 Hz, and each plane kept halves the DMA descriptor memory: 8 bit at 20 MHz needs 4096 descriptors per buffer and ran out of heap
+  if (setupRefresh) {
+    panel.i2sspeed = HUB75_I2S_CFG::HZ_20M;
+    panel.min_refresh_rate = 255;
+  }
   if (s.swapBlueGreen) {
     panel.gpio.b1 = 26; panel.gpio.b2 = 12;
     panel.gpio.g1 = 27; panel.gpio.g2 = 13;
@@ -669,6 +689,13 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
     snprintf(address, sizeof(address), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
     bootScreen.setAccessPoint(kApName, nullptr, address);
     portalActive = true;
+    if (!setupRefresh) {  // the portal came up late (saved network gone): restart into the fast display for the QR code
+      Preferences prefs;
+      if (prefs.begin("ultimatrix", false)) { prefs.putBool("setupRefresh", true); prefs.end(); }
+      consoleLog("[WiFi] Restarting into the fast display mode for the setup QR code\n");
+      FirmwareUpdate::confirmBeforeRestart();
+      ESP.restart();
+    }
   });
   wifi.setWaitCallback(bootTick);  // keep the connecting pulse going while a saved network is tried
   wifi.setConnectTimeout(60);  // seconds, as the core's own wait: without a timeout the wait does not call bootTick, so the pulse froze
@@ -679,7 +706,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
     if (forceSetup) setupPrefs.putBool("setupWifi", false);
     setupPrefs.end();
   }
-  if (forceSetup) wifi.startConfigPortal(kApName);
+  if (forceSetup || setupRefreshRestart) wifi.startConfigPortal(kApName);  // after the restart for the fast display, go straight to the portal
   else wifi.autoConnect(kApName);
   server.on("/", HTTP_GET, settingsPage);
   server.on("/settings", HTTP_POST, saveSettings);

@@ -53,6 +53,9 @@ class Screen {
  private:
   Frame last_{};
   bool drawn_ = false;
+  Kind lastKind_ = Kind::Logo;
+  uint32_t lastSince_ = 0, clock_ = 0, settleAt_ = 0;  // clock_: the pulse clock, kept across pulsing screens
+  bool settling_ = false;  // Connected, still pulsing up to the peak
   char ssid_[33] = "";
   char address_[16] = "";
   uint8_t qr_[(6 * 4 + 17) * (6 * 4 + 17) / 8 + 2] = {};  // up to version 6 (the open network is version 1 or 2)

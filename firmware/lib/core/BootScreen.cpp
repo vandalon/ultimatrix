@@ -25,10 +25,12 @@ constexpr int kSize = 64;
 constexpr uint32_t kFadeMs = 1400;       // the logo's fade-in
 constexpr uint32_t kDimMs = 900;         // the U dimming down once the Wi-Fi symbol comes in
 constexpr uint32_t kLabelPeriodMs = 1800;
+constexpr uint32_t kPulsePeriodHalf(uint32_t period) { return period / 2; }  // the peak
 constexpr uint32_t kInvertMs = 5000;     // the access point code flips between normal and inverted
 
 struct Rgb { uint8_t r, g, b; };
 constexpr Rgb kCyan{70, 210, 255}, kBlue{40, 110, 255}, kGreen{80, 220, 120}, kOrange{255, 130, 30}, kViolet{190, 120, 255}, kWhite{255, 255, 255};
+constexpr Rgb kAddress{165, 180, 215};  // the address digits: one flat, slightly dimmed and blue-tinted white, apart from the blue/cyan logo and icons
 
 const uint8_t *levelMap = nullptr;
 unsigned mapped(unsigned v) { return levelMap ? levelMap[v > 255 ? 255 : v] : v; }
@@ -68,7 +70,7 @@ unsigned backdropLevel(int x, int y, unsigned glow = 0) {
   bool outer = y <= kCentreY ? fabsf(dx) <= kOuterX : (dx * dx) / (kOuterX * kOuterX) + (dy * dy) / (kOuterY * kOuterY) <= 1;
   bool inner = y <= kCentreY ? fabsf(dx) <= kInnerX : (dx * dx) / (kInnerX * kInnerX) + (dy * dy) / (kInnerY * kInnerY) <= 1;
   if (!(outer && !inner)) return 10;
-  unsigned dim = 150 - 100 * y / kSize, bright = 255 - 160 * y / kSize;
+  unsigned dim = 70, bright = 255 - 190 * y / kSize;  // the dimmed U is one flat level, only the lit logo has the gradient
   return dim + (bright - dim) * glow / 255;
 }
 
@@ -79,7 +81,7 @@ void backdrop(Adafruit_GFX &gfx, unsigned glow = 0, unsigned fade = 255) {  // f
     int edge = (int)(fade * 13 / 10) - y * 255 / kSize;  // the wipe's soft edge is 76 (0.3 of the height) wide
     unsigned rowFade = edge <= 0 ? 0 : edge >= 76 ? 255 : edge * 255 / 76;
     for (int x = 1; x < kSize; x += 2) {
-      int t = 255 * y / kSize;  // cyan at the top to blue at the bottom, lit or dimmed
+      int t = 255 * y / kSize * (int)glow / 255;  // cyan at the top to blue at the bottom when lit; the dimmed U is plain cyan
       Rgb c{(uint8_t)(kCyan.r + (kBlue.r - kCyan.r) * t / 255), (uint8_t)(kCyan.g + (kBlue.g - kCyan.g) * t / 255),
             (uint8_t)(kCyan.b + (kBlue.b - kCyan.b) * t / 255)};
       unsigned level = backdropLevel(x, y, glow) * rowFade / 255;
@@ -238,10 +240,10 @@ void blockText(Adafruit_GFX &gfx, const char *text, int top, Rgb color) {
     if (isDigit(*c)) {
       for (int j = 0; j < 7; ++j)
         for (int i = 0; i < 4; ++i)
-          if (numericfont::smallPixel(*c - '0', i, j)) gfx.drawPixel(x + i, top + j, shade(tint(color, j / 6.0f), 255));
+          if (numericfont::smallPixel(*c - '0', i, j)) gfx.drawPixel(x + i, top + j, shade(color, 255));
       x += 5;
     } else {
-      for (int j = 5; j < 7; ++j) gfx.fillRect(x, top + j, dotWidth, 1, shade(tint(color, j / 6.0f), 255));
+      for (int j = 5; j < 7; ++j) gfx.fillRect(x, top + j, dotWidth, 1, shade(color, 255));
       x += dotWidth + (dotWidth > 1 ? 1 : 0);
     }
   }
@@ -288,6 +290,20 @@ void Screen::setAccessPoint(const char *ssid, const char *password, const char *
 }
 
 bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *text) {
+  // One pulse clock runs across Connecting/Syncing/Error, so the next screen carries on from the phase
+  bool pulsing = kind == Kind::Connecting || kind == Kind::Syncing || kind == Kind::Error;
+  bool wasPulsing = lastKind_ == Kind::Connecting || lastKind_ == Kind::Syncing || lastKind_ == Kind::Error;
+  if (kind != lastKind_) {
+    if (!(pulsing && wasPulsing)) clock_ = since;
+    // Entering Connected from a pulse: keep pulsing until the next peak, then hold it
+    settling_ = kind == Kind::Connected && wasPulsing;
+    if (settling_) settleAt_ = clock_ + (kPulsePeriodHalf(kLabelPeriodMs) + kLabelPeriodMs - clock_ % kLabelPeriodMs) % kLabelPeriodMs;
+    lastKind_ = kind;
+  } else if (since >= lastSince_) {
+    clock_ += since - lastSince_;
+  }
+  lastSince_ = since;
+
   Frame now;
   memset(&now, 0, sizeof(now));
   now.kind = (uint8_t)kind;
@@ -304,10 +320,11 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
       now.page = (since / kInvertMs) & 1;  // 0: white modules on black (the first), 1: black on white
       break;
     case Kind::Connected:
-      now.level = 31;  // steady green
+      if (settling_ && clock_ < settleAt_) now.level = pulse(clock_, kLabelPeriodMs) >> 3;
+      else { settling_ = false; now.level = 31; }  // steady green
       break;
     default:
-      now.level = pulse(since, kLabelPeriodMs) >> 3;
+      now.level = pulse(pulsing ? clock_ : since, kLabelPeriodMs) >> 3;
       if (kind == Kind::Connecting && since < kDimMs) now.glow = 31 - 31 * since / kDimMs;  // the logo's U dims as the symbol comes in
       break;
   }
@@ -330,15 +347,15 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
       break;
     case Kind::Syncing:  // linked, waiting for the time: green and pulsing
       drawIcon(gfx, icon_, kWifi, kGreen, level, glow);
-      blockText(gfx, now.text, 54, kCyan);
+      blockText(gfx, now.text, 54, kAddress);
       break;
     case Kind::Connected:  // linked and time synced: green
-      drawIcon(gfx, icon_, kWifi, kGreen, 255, glow);
-      blockText(gfx, now.text, 54, kCyan);
+      drawIcon(gfx, icon_, kWifi, kGreen, level, glow);
+      blockText(gfx, now.text, 54, kAddress);
       break;
     case Kind::Error:  // linked, but no time: the settings page is reachable at the address
       drawIcon(gfx, icon_, kNoTime, kOrange, level, glow);
-      blockText(gfx, now.text, 54, kCyan);
+      blockText(gfx, now.text, 54, kAddress);
       break;
     case Kind::Update:  // a newer signed firmware is on the server: violet and pulsing
       drawIcon(gfx, icon_, kUpdate, kViolet, level, glow);
@@ -347,7 +364,7 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
       break;
     case Kind::Joined:
       joinedIcon(gfx, shade(kGreen, 255));
-      blockText(gfx, address_, 54, kCyan);
+      blockText(gfx, address_, 54, kAddress);
       break;
     case Kind::Setup: {
       int size = qrReady_ ? qrcodegen_getSize(qr_) : 0;
