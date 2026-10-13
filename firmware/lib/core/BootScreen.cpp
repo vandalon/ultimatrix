@@ -30,8 +30,13 @@ constexpr uint32_t kInvertMs = 5000;     // the access point code flips between 
 struct Rgb { uint8_t r, g, b; };
 constexpr Rgb kCyan{70, 210, 255}, kBlue{40, 110, 255}, kGreen{80, 220, 120}, kOrange{255, 130, 30}, kViolet{190, 120, 255}, kWhite{255, 255, 255};
 
+const uint8_t *levelMap = nullptr;
+unsigned mapped(unsigned v) { return levelMap ? levelMap[v > 255 ? 255 : v] : v; }
+
+uint16_t pack(unsigned r, unsigned g, unsigned b) { return (uint16_t)(((mapped(r) >> 3) << 11) | ((mapped(g) >> 2) << 5) | (mapped(b) >> 3)); }
+
 uint16_t shade(Rgb c, unsigned level) {  // level 0..255
-  return (uint16_t)((((c.r * level / 255) >> 3) << 11) | (((c.g * level / 255) >> 2) << 5) | ((c.b * level / 255) >> 3));
+  return pack(c.r * level / 255, c.g * level / 255, c.b * level / 255);
 }
 
 // The icons' gradient: t 0 (top) to 1 (bottom) runs from a lighter to a deeper shade of the colour
@@ -202,7 +207,7 @@ void drawIcon(Adafruit_GFX &gfx, IconCache &cache, Icon icon, Rgb c, unsigned le
       unsigned r = ((kCyan.r * back / 255) * (255 - w) + g.r * w) / 255;
       unsigned gr = ((kCyan.g * back / 255) * (255 - w) + g.g * w) / 255;
       unsigned b = ((kCyan.b * back / 255) * (255 - w) + g.b * w) / 255;
-      gfx.drawPixel(x, y, (uint16_t)(((r >> 3) << 11) | ((gr >> 2) << 5) | (b >> 3)));
+      gfx.drawPixel(x, y, pack(r, gr, b));
     }
   }
 }
@@ -255,6 +260,7 @@ void append(char *out, size_t size, const char *text) {
 }  // namespace
 
 void setPlot888(Plot888 plot) { plot888 = plot; }
+void setLevelMap(const uint8_t *map) { levelMap = map; }
 
 uint8_t pulse(uint32_t ms, uint32_t period, uint32_t offset) {
   if (!period) return 255;
@@ -350,7 +356,7 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
         int scale = kSize / size;
         if (scale < 1) scale = 1;
         int margin = (kSize - size * scale) / 2;
-        uint16_t background = now.page ? 0xFFFF : 0, module = now.page ? 0 : 0xFFFF;  // page 0: white on black
+        uint16_t white = shade(kWhite, 255), background = now.page ? white : 0, module = now.page ? 0 : white;  // page 0: white on black
         gfx.fillScreen(background);
         for (int y = 0; y < size; ++y)
           for (int x = 0; x < size; ++x)

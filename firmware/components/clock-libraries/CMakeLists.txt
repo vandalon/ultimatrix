@@ -10,4 +10,4 @@ idf_component_register(SRCS
     "${vendor}/wifi-manager/WiFiManager.cpp"
     INCLUDE_DIRS "${vendor}/gfx" "${vendor}/busio" "${vendor}/hub75/src" "${vendor}/wifi-manager"
     REQUIRES espressif__arduino-esp32 esp_wifi esp_netif esp_event espressif__network_provisioning)
-target_compile_definitions(${COMPONENT_LIB} PUBLIC PIXEL_COLOR_DEPTH_BITS=7)
+target_compile_definitions(${COMPONENT_LIB} PUBLIC PIXEL_COLOR_DEPTH_BITS=8)

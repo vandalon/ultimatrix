@@ -96,6 +96,51 @@ static bool updateAvailable() {
   return latest.available;
 }
 
+// The boot screens run the panel at no less than kBootPanelBrightness: the driver sets brightness as whole pixel
+// clocks per bit plane, so at a low setting the dim end of the logo's gradient has only a few levels. Colours are
+// scaled back down in linear light (through the brightness curve) so the screen looks as it would at the setting.
+static const uint8_t kBootPanelBrightness = 128;
+static unsigned bootScale = 0;  // the user's brightness over the panel's, 8.8 fixed point
+static uint8_t bootMap[256];  // a level at full scale -> the input that looks like it at bootScale
+static uint8_t bootInverse[256];  // output level -> smallest input that gives at least it
+
+static void setBootScale(unsigned scale) {
+  if (scale == bootScale) return;
+  if (!bootScale) {
+    for (int o = 0; o < 256; o++) {
+      int v = 255;
+      for (int i = 0; i < 256; i++) if (lumConvTab[i] >= o) { v = i; break; }
+      bootInverse[o] = (uint8_t)v;
+    }
+  }
+  bootScale = scale;
+  for (int v = 0; v < 256; v++) bootMap[v] = bootInverse[(lumConvTab[v] * scale + 128) >> 8];
+  bootScreen.invalidate();
+}
+
+// The panel brightness for a user setting, rescaling the boot screens to match
+static uint8_t panelBrightness(uint8_t userBrightness) {
+  if (bootDone) { setBootScale(256); return userBrightness; }
+  uint8_t panel = userBrightness > kBootPanelBrightness ? userBrightness : kBootPanelBrightness;
+  setBootScale(userBrightness * 256u / panel);
+  return panel;
+}
+
+// The logo's gradient: the wanted output level is kept fractional and ordered-dithered across the lattice (4x4 Bayer),
+// then mapped back to the input that gives it, for gradient steps finer than the panel's whole levels.
+static void plotDithered(Adafruit_GFX &gfx, int x, int y, uint16_t r, uint16_t g, uint16_t b) {
+  static const uint8_t bayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
+  unsigned threshold = bayer[((y >> 1) & 3) * 4 + ((x >> 1) & 3)] * 16;  // 0..240 of a level's 256
+  auto channel = [&](uint16_t in) -> uint8_t {
+    unsigned i = in >> 8, f = in & 255;
+    if (i > 255) i = 255;
+    unsigned next = i < 255 ? lumConvTab[i + 1] : lumConvTab[i];
+    unsigned out = (((lumConvTab[i] * 256 + (next - lumConvTab[i]) * f) * bootScale >> 8) + threshold) >> 8;
+    return bootInverse[out > 255 ? 255 : out];
+  };
+  ((MatrixPanel_I2S_DMA &)gfx).drawPixelRGB888(x, y, channel(r), channel(g), channel(b));
+}
+
 static void drawBoot(boot::Kind kind, const char *text = "") {
   uint32_t now = millis();
   if (kind != bootKind) { bootKind = kind; bootSince = now; consoleLog("[Boot] screen %u at %u ms\n", (unsigned)kind, (unsigned)now); }
@@ -570,8 +615,10 @@ void setup() {
   display = new MatrixPanel_I2S_DMA(panel);
   if (!display->begin()) { consoleLog("Display allocation failed\n"); return; }
   displayReady = true;
-  boot::setPlot888([](Adafruit_GFX &gfx, int x, int y, uint8_t r, uint8_t g, uint8_t b) { ((MatrixPanel_I2S_DMA &)gfx).drawPixelRGB888(x, y, r, g, b); });
-  display->setBrightness8(s.brightness);
+  boot::setPlot888(plotDithered);
+  boot::setLevelMap(bootMap);
+  appliedBrightness = panelBrightness(s.brightness);
+  display->setBrightness8(appliedBrightness);
   display->setRotation(s.rotation);
   bootAt = millis();
   while (millis() - bootAt < kLogoFadeMs) { drawBoot(boot::Kind::Logo); delay(10); }  // the fade-in is drawn here: setup below is too busy to tick it
@@ -672,7 +719,8 @@ void loop() {
   if ((int32_t)(now - nextFrame) >= 0) {
     uint8_t brightness = displayControl.update(*Settings::getInstance(), now, ultime::timeStatus() == timeSet,
         clockTime.getHour24() * 60 + clockTime.getMinute(), !bootDone || portalActive);
-    if (brightness != appliedBrightness) { display->setBrightness8(brightness); appliedBrightness = brightness; }
+    uint8_t panel = panelBrightness(brightness);
+    if (panel != appliedBrightness) { display->setBrightness8(panel); appliedBrightness = panel; }
     bootTick();  // before the check below: it stamps connectedAt on the connect
     if (face && !portalActive && !bootDone && syncedAt && bootHoldOver(now)) { bootDone = true; Serial.printf("[Boot] done at %u ms\n", (unsigned)now); }
     if (bootDone) {  // keeps drawing during an update: the feeds are parked, the face shows its last snapshot
