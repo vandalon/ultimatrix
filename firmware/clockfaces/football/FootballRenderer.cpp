@@ -895,14 +895,10 @@ static void drawFlipPair(MatrixPanel_I2S_DMA *d, const GlyphSet &set, int first,
   flipSame = false;
 }
 
-// HH:MM on four tiles with a blinking colon between the pairs; x = the left tile's edge, gap = the pixels between the pairs
+// HH:MM on four tiles, no colon between the pairs; x = the left tile's edge, gap = the pixels between the pairs
 static void drawTileClock(MatrixPanel_I2S_DMA *d, const GlyphSet &set, int x, int y, int w, int h, int gap, int pulse) {
   drawFlipPair(d, set, 0, x, y, w, h, CLOCK, WHITE_SOFT);
   drawFlipPair(d, set, 2, x + 2 * w + 1 + gap, y, w, h, MINUTES, GREEN_SOFT);
-  uint16_t colon = dimmed(238, 246, 240, pulse);  // CLOCK
-  int cx = x + 2 * w + 1 + (gap - 2) / 2;
-  d->fillRect(cx, y + h / 2 - 3, 2, 2, colon);
-  d->fillRect(cx, y + h / 2 + 2, 2, 2, colon);
 }
 
 
