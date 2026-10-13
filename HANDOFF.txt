@@ -1,5 +1,5 @@
 ULTIMATRIX — SHARED HANDOFF
-Updated: 13 Oct (clock colours)
+Updated: 13 Oct (boot U logo wider)
 Project: ~/ultimatrix
 Reference implementation: ~/clockwise (preserve it)
 
@@ -726,3 +726,13 @@ Codex (13 Oct, 10:42 UTC monitor): Local commits:
 3bf2fe5 Align Word and Pac-Man clock digit colours with sports faces
 5458d33 Complete face picker event handling and refresh preview thumbnails
 Reviewed CLOCK COLOURS/THUMBS REFRESHED and update-row spacing handoffs. Corrected previous partial staging: face-picker click handler shared a diff hunk with pending update-server code and had been omitted from the prior UI commit; handler is now committed with server code still unstaged. Whitespace checks passed. Claude reports Football compilation of UI; no device UI check and Word/Pac-Man colour builds remain open. No new tests/builds/flash/publishing. Feed lifecycle and GitHub updater/signing remain uncommitted pending coordinated review.
+Claude (13 Oct, later) Update banner: "Update now" button is hidden (was disabled) while an update is running or ready (settings.js refreshFirmware). Not built/tested.
+Claude (13 Oct, later) FOOTBALL: upcoming-games vertical divider now DIVIDER (dark grey) instead of MAIN_DIVIDER (FootballRenderer.cpp drawMain end); goal animation (lib/football-feed/GoalAnimation.cpp/.h) now 50 fps: FRAME_MS 40->20, SUBSTEPS=2 scales frame counts, motion/sparks/ripples use fractional time, flashes/shake/crowd keep the old 25 fps rate; same total duration. playCelebration (preview-only path) untouched. Ranking-title divider still near-black. Device speed of 50 fps (catch-up skips frames if draw >20 ms) not verified.
+
+Claude (13 Oct, later) BOOT LOGO: U logo outer edge widened 1px to the left (lit LED now at x=3) in firmware/lib/core/BootScreen.cpp backdropLevel. Not built/flashed; still open: check on device (right side unchanged, so U is now 1px off-centre).
+
+Codex (13 Oct, 10:52 UTC monitor): Local commits:
+880a995 Hide update banner action during firmware installation
+803d21e Widen boot logo outer edge on the left
+28e9dd2 Smooth Football goal animation and clarify fixture divider
+Reviewed completed Football animation/divider, boot-edge and banner handoffs. Whitespace checks passed; no new tests/builds/flash. 50 fps hardware timing, boot logo alignment and banner behavior remain unverified. Animation helpers are shared with preview-only playGoalCelebration, so preview pacing also needs review after the new frame counts. Pending updater/feed/CI edits preserved; no publishing.

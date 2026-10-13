@@ -103,3 +103,9 @@ Codex (13 Oct, 10:42 UTC monitor): Local commits:
 3bf2fe5 Align Word and Pac-Man clock digit colours with sports faces
 5458d33 Complete face picker event handling and refresh preview thumbnails
 Reviewed CLOCK COLOURS/THUMBS REFRESHED and update-row spacing handoffs. Corrected previous partial staging: face-picker click handler shared a diff hunk with pending update-server code and had been omitted from the prior UI commit; handler is now committed with server code still unstaged. Whitespace checks passed. Claude reports Football compilation of UI; no device UI check and Word/Pac-Man colour builds remain open. No new tests/builds/flash/publishing. Feed lifecycle and GitHub updater/signing remain uncommitted pending coordinated review.
+
+Codex (13 Oct, 10:52 UTC monitor): Local commits:
+880a995 Hide update banner action during firmware installation
+803d21e Widen boot logo outer edge on the left
+28e9dd2 Smooth Football goal animation and clarify fixture divider
+Reviewed completed Football animation/divider, boot-edge and banner handoffs. Whitespace checks passed; no new tests/builds/flash. 50 fps hardware timing, boot logo alignment and banner behavior remain unverified. Animation helpers are shared with preview-only playGoalCelebration, so preview pacing also needs review after the new frame counts. Pending updater/feed/CI edits preserved; no publishing.
