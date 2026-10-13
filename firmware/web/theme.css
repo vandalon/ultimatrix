@@ -7,7 +7,7 @@ body.ultimatrix-portal{background:var(--paper)!important;color:var(--ink)!import
 #night-value{display:block;font-size:12px;color:var(--muted);margin-top:4px}
 .extra .field-grid{margin-bottom:22px}
 
-.update-banner{position:relative;overflow:hidden;display:flex;align-items:center;gap:16px;margin-bottom:20px;padding:16px 20px;border-radius:16px;color:#e8f8ff;background:linear-gradient(120deg,#050809,#0b2a36 55%,#0d3d52);box-shadow:0 6px 22px #0b2a3640;animation:update-in .45s cubic-bezier(.2,.8,.2,1)}
+.update-banner{position:sticky;top:12px;z-index:20;overflow:hidden;display:flex;align-items:center;gap:16px;margin-bottom:20px;padding:16px 20px;border-radius:16px;color:#e8f8ff;background:linear-gradient(120deg,#050809,#0b2a36 55%,#0d3d52);box-shadow:0 6px 22px #0b2a3640;animation:update-in .45s cubic-bezier(.2,.8,.2,1)}
 .update-banner::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,#ffffff22 50%,transparent 70%);transform:translateX(-100%);animation:update-shine 3.6s ease-in-out infinite;pointer-events:none}
 .update-banner[hidden]{display:none}
 .update-icon{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:#46d2ff33;color:#9fe6ff;font-size:22px;font-weight:700;animation:update-bob 1.8s ease-in-out infinite}
