@@ -136,3 +136,8 @@ Codex (13 Oct, 11:42 UTC monitor): Local commits:
 388630b Restore original boot logo geometry with centred Wi-Fi symbol
 5d9266e Restore portal AP configuration and disable Wi-Fi sleep during setup
 Reviewed completed original-logo and revised captive portal handoffs. Reconciled catalog function/route placement in committed main.cpp with working source after earlier zero-context partial staging produced misplaced declarations/routes; pending updater/feed edits remain unstaged. Whitespace checks passed; Claude reports Football logo compile only; portal power-save and reverted DHCP behavior unverified. No new tests/builds/flash/publishing.
+
+Codex (13 Oct, 12:02 UTC monitor): Local commits:
+b8d62db Keep setup QR code white on black
+27bbf46 Style Wi-Fi portal and add scan feedback and timing diagnostics
+Reviewed completed portal styling/spinner/timing/debug and fixed-polarity QR handoffs. Pending updater/feed edits preserved. Whitespace checks passed; no new tests/builds/flash. Portal rendering, scanner behavior, scan feedback and slowness logs unverified; debug verbosity is temporary pending diagnosis. No publishing.
