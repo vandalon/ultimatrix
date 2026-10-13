@@ -172,7 +172,7 @@ async function refreshFirmware() {
     const banner = document.querySelector('#update-banner'), install = document.querySelector('#update-banner-install');
     banner.hidden = !(state.available || state.busy) || state.ready;
     document.querySelector('#update-banner-text').textContent = state.busy ? state.message : 'Version ' + state.latest + ' is ready. You are on ' + state.version + '.';
-    install.disabled = state.busy || state.ready;
+    install.hidden = state.busy || state.ready;
     document.querySelector('#nav-update-dot').hidden = !state.available;
     document.querySelector('#firmware-check').disabled = state.busy || state.checking;
     if (state.checking && !updatePolling) setTimeout(refreshFirmware, 1500);
