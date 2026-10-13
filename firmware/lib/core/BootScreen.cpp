@@ -66,12 +66,11 @@ constexpr float kCentreY = 40, kOuterX = 28, kOuterY = 22, kInnerX = 16, kInnerY
 // shown at full brightness as the logo.
 unsigned backdropLevel(int x, int y, unsigned glow = 0) {
   if (!(y & 1)) return 0;
-  float dx = x - 32.0f, dy = y - kCentreY;
-  if (dx < 0) dx += 1;  // the left half is shifted 1px left: the opening is wider, the arm the same
+  float dx = x - 31.5f, dy = y - kCentreY;  // centred on the panel: the U is mirrored around the gap between columns 31 and 32
   bool outer = y <= kCentreY ? fabsf(dx) <= kOuterX : (dx * dx) / (kOuterX * kOuterX) + (dy * dy) / (kOuterY * kOuterY) <= 1;
   bool inner = y <= kCentreY ? fabsf(dx) <= kInnerX : (dx * dx) / (kInnerX * kInnerX) + (dy * dy) / (kInnerY * kInnerY) <= 1;
   if (!(outer && !inner)) return 0;  // no background: only the U is lit
-  if ((x & 1) == (x < 32) && x != 31) return 0;  // the U's left arm is on even x: shifted 1px left off the lattice; x 31 stays lit so the bottom has no 3px gap in the middle
+  if ((x & 1) != (x < 32)) return 0;  // every other column, mirrored: odd on the left, even on the right, so columns 31 and 32 are both lit
   unsigned dim = 70, bright = 255 - 190 * y / kSize;  // the dimmed U is one flat level, only the lit logo has the gradient
   return dim + (bright - dim) * glow / 255;
 }
@@ -188,10 +187,11 @@ void buildIcon(IconCache &cache, Icon icon) {
   const char *const *art = icon == kWifi ? kWifiArt : icon == kNoTime ? kNoTimeArt : kUpdateArt;
   const int rows = icon == kWifi ? sizeof(kWifiArt) / sizeof(*kWifiArt)
       : icon == kNoTime ? sizeof(kNoTimeArt) / sizeof(*kNoTimeArt) : sizeof(kUpdateArt) / sizeof(*kUpdateArt);
+  const int width = icon == kWifi ? 30 : 32, skip = (32 - width) / 2;  // the Wi-Fi symbol is 1px narrower on each side so it sits evenly inside the U's opening
   const int left = (kSize - 32) / 2, top = (icon == kUpdate ? 23 : 26) - rows / 2;  // centred on (32, 26); the update icon sits higher so icon and two-line label centre together
   memset(cache.cover, 0, sizeof(cache.cover));
   for (int y = 0; y < rows; ++y)
-    for (int x = 0; x < 32; ++x)
+    for (int x = skip; x < 32 - skip; ++x)
       if (art[y][x] == '#') cache.cover[(top + y) * kSize + left + x] = 255;
   cache.top = top;
   cache.bottom = top + rows - 1;
