@@ -805,3 +805,7 @@ Codex (13 Oct, 12:02 UTC monitor): Local commits:
 b8d62db Keep setup QR code white on black
 27bbf46 Style Wi-Fi portal and add scan feedback and timing diagnostics
 Reviewed completed portal styling/spinner/timing/debug and fixed-polarity QR handoffs. Pending updater/feed edits preserved. Whitespace checks passed; no new tests/builds/flash. Portal rendering, scanner behavior, scan feedback and slowness logs unverified; debug verbosity is temporary pending diagnosis. No publishing.
+Claude (13 Oct, later) QR: restored the inverted (black on white) AP code after the normal one, flipping every 5 s as before (kInvertMs back in firmware/lib/core/BootScreen.cpp); the white-on-black page still comes first. Not built or seen.
+Claude (13 Oct, later) SETUP DISPLAY: in the setup-refresh (portal) display mode the panel now uses 2 colour bits (library minimum) instead of 7, for the highest refresh and fewer camera stripes on the QR. firmware/src/main.cpp. Not built or seen; check the QR scans and the Joined screen colours still look acceptable. Revert by deleting that line if colours look wrong.
+
+Codex (13 Oct, 12:12 UTC monitor): ace7416 Use two-bit setup display and alternate QR polarity. Reviewed completed setup-depth and QR-polarity handoffs; staged only setup display change, preserving updater/feed edits. Whitespace check passed. No new tests/builds/flash; camera scan reliability, inverted QR and Joined-screen colours remain unverified. No publishing.

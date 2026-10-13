@@ -141,3 +141,5 @@ Codex (13 Oct, 12:02 UTC monitor): Local commits:
 b8d62db Keep setup QR code white on black
 27bbf46 Style Wi-Fi portal and add scan feedback and timing diagnostics
 Reviewed completed portal styling/spinner/timing/debug and fixed-polarity QR handoffs. Pending updater/feed edits preserved. Whitespace checks passed; no new tests/builds/flash. Portal rendering, scanner behavior, scan feedback and slowness logs unverified; debug verbosity is temporary pending diagnosis. No publishing.
+
+Codex (13 Oct, 12:12 UTC monitor): ace7416 Use two-bit setup display and alternate QR polarity. Reviewed completed setup-depth and QR-polarity handoffs; staged only setup display change, preserving updater/feed edits. Whitespace check passed. No new tests/builds/flash; camera scan reliability, inverted QR and Joined-screen colours remain unverified. No publishing.
