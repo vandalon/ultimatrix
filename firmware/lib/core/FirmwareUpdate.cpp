@@ -1,0 +1,359 @@
+#include "FirmwareUpdate.h"
+#include "UpdateTrust.h"
+#include "Console.h"
+#include "NetworkBudget.h"
+#include <esp_http_client.h>
+#include <esp_ota_ops.h>
+#include <esp_app_format.h>
+#include <esp_app_desc.h>
+#include <mbedtls/pk.h>
+#include <mbedtls/sha256.h>
+#include <cJSON.h>
+#include <esp_heap_caps.h>
+#include <memory>
+#include <Preferences.h>
+
+extern volatile bool firmwareUpdating;
+extern "C" bool verifyRollbackLater() { return true; }
+
+namespace {
+constexpr char kServer[] = "http://192.168.7.77/ultiMatrix";
+constexpr char kMode[] = UM_MODE_ID;
+constexpr size_t kMinFreeBlock = 16 * 1024;  // estimate for the HTTP client and hashing; tune from device logs
+struct HttpFile {
+  esp_http_client_handle_t handle = nullptr;
+  HttpFile(const char *mode, const char *name) {
+    char url[256]; snprintf(url, sizeof(url), "%s/%s/%s", kServer, mode, name);
+    esp_http_client_config_t config{};
+    config.url = url; config.timeout_ms = 10000; config.buffer_size = 1024; config.buffer_size_tx = 512;
+    config.disable_auto_redirect = true;
+    handle = esp_http_client_init(&config);
+    if (handle) esp_http_client_set_header(handle, "Accept-Encoding", "identity");
+  }
+  bool open() {
+    return handle && esp_http_client_open(handle, 0) == ESP_OK && esp_http_client_fetch_headers(handle) >= 0 &&
+        esp_http_client_get_status_code(handle) == 200;
+  }
+  int read(uint8_t *bytes, size_t size) { return esp_http_client_read(handle, reinterpret_cast<char *>(bytes), size); }
+  ~HttpFile() { if (handle) esp_http_client_cleanup(handle); }
+};
+int smallFile(const char *mode, const char *name, uint8_t *bytes, size_t capacity) {
+  HttpFile file(mode, name); if (!file.open()) return -1;
+  size_t used = 0;
+  while (used < capacity) {
+    int got = file.read(bytes + used, capacity - used);
+    if (got < 0) return -1;
+    if (!got) return used;
+    used += got;
+  }
+  uint8_t extra;
+  return file.read(&extra, 1) == 0 ? (int)used : -1;
+}
+bool signedManifest(const uint8_t *bytes, size_t size, const uint8_t *signature, size_t signatureSize) {
+  uint8_t hash[32]; mbedtls_sha256(bytes, size, hash, 0);
+  mbedtls_pk_context key; mbedtls_pk_init(&key);
+  bool valid = mbedtls_pk_parse_public_key(&key, reinterpret_cast<const uint8_t *>(kUpdatePublicKey), sizeof(kUpdatePublicKey)) == 0 &&
+      mbedtls_pk_verify(&key, MBEDTLS_MD_SHA256, hash, sizeof(hash), signature, signatureSize) == 0;
+  mbedtls_pk_free(&key); return valid;
+}
+const char *text(cJSON *root, const char *name) {
+  cJSON *item = cJSON_GetObjectItemCaseSensitive(root, name);
+  return cJSON_IsString(item) ? item->valuestring : "";
+}
+bool hashBytes(const char *hex, uint8_t out[32]) {
+  if (strlen(hex) != 64) return false;
+  for (int i = 0; i < 32; ++i) {
+    unsigned value = 0;
+    for (int j = 0; j < 2; ++j) {
+      char c = hex[i * 2 + j];
+      unsigned digit = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : 99;
+      if (digit > 15) return false;
+      value = value * 16 + digit;
+    }
+    out[i] = value;
+  }
+  return true;
+}
+struct ImageWrite {
+  esp_ota_handle_t handle = 0;
+  bool active = false;
+  ~ImageWrite() { if (active) esp_ota_abort(handle); }
+};
+struct Manifest {
+  char image[96], version[32];
+  uint8_t sha256[32], elfSha256[32];
+  uint32_t size, release;
+  bool current, replayed;  // same build as the running one; release not newer than the last installed
+};
+// Downloads and verifies the signed manifest for a mode. Returns null, or the message to show.
+const char *fetchManifest(const char *target, Manifest &out, const esp_partition_t *partition) {
+  uint8_t manifest[769], signature[128];
+  int size = smallFile(target, "manifest.json", manifest, sizeof(manifest) - 1);
+  int signatureSize = size > 0 ? smallFile(target, "manifest.sig", signature, sizeof(signature)) : -1;
+  if (size <= 0 || signatureSize <= 0) return "Could not download the update manifest.";
+  if (!signedManifest(manifest, size, signature, signatureSize)) return "Update signature is invalid. Nothing was flashed.";
+  manifest[size] = 0;
+  std::unique_ptr<cJSON, decltype(&cJSON_Delete)> info(cJSON_Parse(reinterpret_cast<char *>(manifest)), cJSON_Delete);
+  if (!info) return "Update manifest could not be read.";
+  cJSON *schema = cJSON_GetObjectItemCaseSensitive(info.get(), "schema");
+  cJSON *length = cJSON_GetObjectItemCaseSensitive(info.get(), "size");
+  const char *image = text(info.get(), "image");
+  bool filename = strlen(image) > 4 && strlen(image) < sizeof(out.image) && strstr(image, "..") == nullptr;
+  for (const char *p = image; *p; ++p) filename &= isalnum((unsigned char)*p) || *p == '-' || *p == '_' || *p == '.';
+  if (!schema || schema->valueint != 1 || strcmp(text(info.get(), "mode"), target) || !filename || !partition ||
+      !cJSON_IsNumber(length) || length->valuedouble < 288 || length->valuedouble > partition->size ||
+      length->valuedouble != length->valueint || !hashBytes(text(info.get(), "sha256"), out.sha256) ||
+      !hashBytes(text(info.get(), "elfSha256"), out.elfSha256)) return "Update manifest does not match this clock.";
+  out.size = length->valueint;
+  strlcpy(out.image, image, sizeof(out.image));
+  strlcpy(out.version, text(info.get(), "version"), sizeof(out.version));
+  out.current = !memcmp(out.elfSha256, esp_app_get_description()->app_elf_sha256, sizeof(out.elfSha256));
+  cJSON *release = cJSON_GetObjectItemCaseSensitive(info.get(), "release");
+  if (!out.current && (!cJSON_IsNumber(release) || release->valuedouble < 1 || release->valuedouble > UINT32_MAX ||
+      release->valuedouble != (uint32_t)release->valuedouble)) return "Update release identifier is invalid.";
+  out.release = out.current ? 0 : (uint32_t)release->valuedouble;
+  out.replayed = false;
+  if (!out.current) {
+    Preferences history;
+    if (!history.begin("um-updates", false)) return "Cannot open update history.";
+    out.replayed = out.release <= history.getUInt(target, 0);
+    history.end();
+  }
+  return nullptr;
+}
+}
+
+const char *FirmwareUpdate::version() const { return esp_app_get_description()->version; }
+void FirmwareUpdate::status(Status &out) { std::lock_guard<std::mutex> guard(_lock); out = _status; }
+void FirmwareUpdate::message(const char *value, bool failed) {
+  std::lock_guard<std::mutex> guard(_lock);
+  strlcpy(_status.message, value, sizeof(_status.message)); _status.failed = failed;
+}
+void FirmwareUpdate::progress(uint32_t bytes, uint32_t total) {
+  std::lock_guard<std::mutex> guard(_lock); _status.received = bytes; _status.total = total;
+}
+
+bool FirmwareUpdate::knownMode(const char *mode) {
+  static const char *const modes[] = {"football", "f1", "motogp", "tetris", "word", "mario", "luigi", "pacman"};
+  for (const char *known : modes) if (mode && !strcmp(mode, known)) return true;
+  return false;
+}
+
+void FirmwareUpdate::scheduleAfterReboot(const char *mode) {
+  Preferences prefs;
+  if (prefs.begin("um-updates", false)) { prefs.putString("pending", mode && *mode ? mode : kMode); prefs.end(); }
+}
+
+bool FirmwareUpdate::takeScheduled(char *mode, size_t size) {
+  Preferences prefs;
+  if (!prefs.begin("um-updates", false)) return false;
+  String pending = prefs.getString("pending", "");
+  if (pending.length()) prefs.remove("pending");
+  prefs.end();
+  if (!pending.length() || !knownMode(pending.c_str())) return false;
+  strlcpy(mode, pending.c_str(), size);
+  return true;
+}
+
+bool FirmwareUpdate::request(const char *mode) {
+  std::lock_guard<std::mutex> guard(_lock);
+  if (_status.busy || _status.ready) return false;
+  if (_lastAttempt && millis() - _lastAttempt < 30000) { strlcpy(_status.message, "Wait 30 seconds before checking again.", sizeof(_status.message)); return false; }
+  _lastAttempt = millis();
+  strlcpy(_target, mode && *mode ? mode : kMode, sizeof(_target));
+  _status = Status{"Checking signed update manifest.", 0, 0, true, false, false, false};
+  firmwareUpdating = true;  // parks the feeds so their memory comes back
+  if (xTaskCreatePinnedToCore(task, "firmware", 8192, this, 1, nullptr, 0) != pdPASS) {
+    firmwareUpdating = false; _status.busy = false; _status.failed = true; _status.lowMemory = true;
+    strlcpy(_status.message, "Not enough free memory to update while the clock is running. Reboot and update?", sizeof(_status.message)); return false;
+  }
+  return true;
+}
+
+void FirmwareUpdate::task(void *self) {
+  auto &update = *static_cast<FirmwareUpdate *>(self);
+  firmwareUpdating = true;
+  {
+    // Holding the gate means no feed download is in flight; the pause lets the parked feeds hand their memory back.
+    std::unique_lock<std::mutex> gate(networkBudget());
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < kMinFreeBlock) {
+      update.message("Not enough free memory to update while the clock is running. Reboot and update?", true);
+      std::lock_guard<std::mutex> guard(update._lock); update._status.lowMemory = true;
+    } else update.run();
+  }
+  firmwareUpdating = false;
+  { std::lock_guard<std::mutex> guard(update._lock); update._status.busy = false; }
+  vTaskDelete(nullptr);
+}
+
+void FirmwareUpdate::run() {
+  const esp_partition_t *partition = esp_ota_get_next_update_partition(nullptr);
+  Manifest info;
+  if (const char *error = fetchManifest(_target, info, partition)) { message(error, true); return; }
+  if (info.current) { message("Your firmware is already up to date."); return; }
+  if (info.replayed) { message("This update release has already been used or superseded.", true); return; }
+  const uint8_t *expected = info.sha256, *elfHash = info.elfSha256;
+  uint32_t releaseId = info.release;
+  Preferences history;
+  uint32_t total = info.size;
+  progress(0, total); message("Downloading and verifying application firmware.");
+  HttpFile file(_target, info.image);
+  if (!file.open()) { message("Could not open the firmware image.", true); return; }
+  uint8_t buffer[1024];
+  constexpr size_t headerSize = sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t);
+  size_t headerBytes = 0;
+  while (headerBytes < headerSize) {
+    int got = file.read(buffer + headerBytes, headerSize - headerBytes);
+    if (got <= 0) { message("Firmware header is incomplete.", true); return; }
+    headerBytes += got;
+  }
+  esp_image_header_t imageHeader; esp_app_desc_t description;
+  memcpy(&imageHeader, buffer, sizeof(imageHeader));
+  memcpy(&description, buffer + sizeof(imageHeader) + sizeof(esp_image_segment_header_t), sizeof(description));
+  if (imageHeader.magic != ESP_IMAGE_HEADER_MAGIC || imageHeader.chip_id != ESP_CHIP_ID_ESP32 ||
+      description.magic_word != ESP_APP_DESC_MAGIC_WORD || strncmp(description.project_name, "ultimatrix", sizeof(description.project_name)) ||
+      strncmp(description.version, info.version, sizeof(description.version)) || memcmp(description.app_elf_sha256, elfHash, sizeof(info.elfSha256))) {
+    message("This is not a matching Ultimatrix application image.", true); return;
+  }
+  ImageWrite write;
+  if (esp_ota_begin(partition, OTA_WITH_SEQUENTIAL_WRITES, &write.handle) != ESP_OK) { message("Cannot begin update. Startup may still need verification.", true); return; }
+  write.active = true;
+  mbedtls_sha256_context hash; mbedtls_sha256_init(&hash); mbedtls_sha256_starts(&hash, 0);
+  uint32_t received = 0;
+  int got = headerBytes;
+  bool valid = true;
+  while (received < total) {
+    if (got <= 0 || got > (int)(total - received) || esp_ota_write(write.handle, buffer, got) != ESP_OK) { valid = false; break; }
+    mbedtls_sha256_update(&hash, buffer, got); received += got; progress(received, total);
+    if (received < total) got = file.read(buffer, std::min<size_t>(sizeof(buffer), total - received));
+    vTaskDelay(1);
+  }
+  uint8_t actual[32], extra;
+  mbedtls_sha256_finish(&hash, actual); mbedtls_sha256_free(&hash);
+  if (!valid || received != total || memcmp(actual, expected, sizeof(actual)) || file.read(&extra, 1) != 0) {
+    message("Firmware transfer or checksum failed. Current image retained.", true); return;
+  }
+  esp_err_t result = esp_ota_end(write.handle); write.active = false;
+  if (result == ESP_OK) {
+    // Record the authenticated release before activation, rejecting replay of
+    // an older signed release. A failed activation requires a new publication.
+    if (!history.begin("um-updates", false)) { message("Cannot save update history.", true); return; }
+    bool recorded = history.putUInt(_target, releaseId) == sizeof(uint32_t);
+    history.end();
+    if (!recorded) { message("Cannot save update history.", true); return; }
+  }
+  if (result != ESP_OK || esp_ota_set_boot_partition(partition) != ESP_OK) { message("Firmware validation failed. Current image retained.", true); return; }
+  message(strcmp(_target, kMode) ? "Clock face installed. Restarting Ultimatrix." : "Firmware verified. Restarting Ultimatrix.");
+  std::lock_guard<std::mutex> guard(_lock); _status.ready = true;
+}
+
+namespace {
+constexpr uint32_t kCheckEveryMs = 12 * 3600 * 1000UL;  // twice a day
+constexpr uint32_t kRetryMs = 30 * 60 * 1000UL;
+constexpr uint32_t kFirstCheckS = 45;  // after the clock has settled
+constexpr time_t kValidEpoch = 1700000000;
+uint32_t at(uint32_t when) { return when ? when : 1; }  // 0 means "not scheduled"
+}
+
+void FirmwareUpdate::begin() {
+  Preferences prefs;
+  if (!prefs.begin("um-updates", true)) return;
+  std::lock_guard<std::mutex> guard(_lock);
+  _latest.checkedAt = prefs.getUInt("chk", 0);
+  uint8_t elf[32];
+  if (prefs.getBytes("availElf", elf, sizeof(elf)) == sizeof(elf) && memcmp(elf, esp_app_get_description()->app_elf_sha256, sizeof(elf))) {
+    _latest.available = true;
+    strlcpy(_latest.version, prefs.getString("availVer", "").c_str(), sizeof(_latest.version));
+  }
+  prefs.end();
+  consoleLog("[Firmware] Cached: checked=%u available=%d %s\n", (unsigned)_latest.checkedAt, _latest.available, _latest.version);
+}
+
+void FirmwareUpdate::latest(Latest &out) { std::lock_guard<std::mutex> guard(_lock); out = _latest; }
+
+bool FirmwareUpdate::startCheck() {  // _lock held
+  if (_latest.checking || _status.busy || _status.ready) return false;
+  _latest.checking = true;
+  if (xTaskCreatePinnedToCore(checkTask, "fwcheck", 8192, this, 1, nullptr, 0) != pdPASS) {
+    _latest.checking = false; _nextCheck = at(millis() + kRetryMs); return false;
+  }
+  return true;
+}
+
+bool FirmwareUpdate::checkNow() {
+  std::lock_guard<std::mutex> guard(_lock);
+  if (_lastManual && millis() - _lastManual < 30000) return false;
+  _lastManual = at(millis());
+  return startCheck();
+}
+
+bool FirmwareUpdate::checkDue() {
+  time_t epoch = time(nullptr);
+  std::lock_guard<std::mutex> guard(_lock);
+  return epoch >= kValidEpoch && (!_latest.checkedAt || (uint32_t)epoch < _latest.checkedAt || (uint32_t)epoch - _latest.checkedAt >= kCheckEveryMs / 1000);
+}
+
+void FirmwareUpdate::poll(uint32_t now, bool online) {
+  if (!online || time(nullptr) < kValidEpoch || firmwareUpdating) return;
+  std::lock_guard<std::mutex> guard(_lock);
+  if (!_nextCheck) {  // first call: honour the last check so reboots do not cause extra ones
+    uint32_t epoch = time(nullptr), age = _latest.checkedAt && epoch > _latest.checkedAt ? epoch - _latest.checkedAt : UINT32_MAX;
+    uint32_t wait = age < kCheckEveryMs / 1000 ? kCheckEveryMs / 1000 - age : kFirstCheckS;
+    _nextCheck = at(now + wait * 1000);
+  }
+  if ((int32_t)(now - _nextCheck) >= 0) startCheck();
+}
+
+void FirmwareUpdate::checkTask(void *self) {
+  static_cast<FirmwareUpdate *>(self)->check();
+  vTaskDelete(nullptr);
+}
+
+void FirmwareUpdate::check() {
+  bool ok = false, available = false;
+  Manifest info{};
+  const char *error = nullptr;
+  {
+    std::unique_lock<std::mutex> gate(networkBudget());  // never alongside a feed download
+    if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) >= kMinFreeBlock) {
+      error = fetchManifest(kMode, info, esp_ota_get_next_update_partition(nullptr));
+      ok = !error;
+      available = ok && !info.current && !info.replayed;
+    } else error = "Not enough free memory to check right now.";
+    consoleLog("[Firmware] Update check: %s (current=%d replayed=%d)\n", error ? error : available ? "update available" : "up to date", info.current, info.replayed);
+  }
+  time_t epoch = time(nullptr);
+  if (ok) {
+    Preferences prefs;
+    if (prefs.begin("um-updates", false)) {
+      if (epoch >= kValidEpoch) prefs.putUInt("chk", (uint32_t)epoch);
+      if (available) { prefs.putBytes("availElf", info.elfSha256, sizeof(info.elfSha256)); prefs.putString("availVer", info.version); }
+      else { prefs.remove("availElf"); prefs.remove("availVer"); }
+      prefs.end();
+    }
+  }
+  std::lock_guard<std::mutex> guard(_lock);
+  _latest.checking = false;
+  _nextCheck = at(millis() + (ok ? kCheckEveryMs : kRetryMs));
+  strlcpy(_latest.error, error ? error : "", sizeof(_latest.error));
+  if (!ok) return;
+  _latest.available = available;
+  strlcpy(_latest.version, available ? info.version : "", sizeof(_latest.version));
+  if (epoch >= kValidEpoch) _latest.checkedAt = (uint32_t)epoch;
+  if (available) consoleLog("[Firmware] Update available: %s\n", info.version);
+}
+
+void FirmwareUpdate::confirmBoot(bool healthy, uint32_t now, uint32_t failures) {
+  if (!_checkedBoot) {
+    esp_ota_img_states_t state;
+    _pendingBoot = esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) == ESP_OK && state == ESP_OTA_IMG_PENDING_VERIFY;
+    _checkedBoot = true;
+  }
+  if (!_pendingBoot) return;
+  if (!healthy || failures != _lastFailures) { _healthySince = 0; _lastFailures = failures; return; }
+  if (!_healthySince) _healthySince = now;
+  if (now - _healthySince >= 30000 && esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
+    _pendingBoot = false; consoleLog("[Firmware] Healthy startup confirmed.\n");
+  }
+}

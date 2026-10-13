@@ -1,0 +1,636 @@
+ULTIMATRIX — SHARED HANDOFF
+Updated: 13 October 2026 (Europe/Amsterdam)
+Project: ~/ultimatrix
+Reference implementation: ~/clockwise (preserve it)
+
+CURRENT STATUS (Codex takeover, 12 October 2026)
+Latest entries override older in-progress notes below; keep the history for context.
+Codex is the active owner, resumed explicitly by Joris. ESP-IDF migration is complete.
+Football, F1, and Tetris build successfully through firmware/tools/idf.sh.
+Football/F1 snapshot/screens/rendering refactors and shared boot/mDNS/telnet are
+already implemented. Football has had initial device checks; F1 and Tetris have
+not been flashed. Current priority: shared Wi-Fi/settings/time/brightness/update foundation; clockface refactors are paused. The redesigned setup/settings pages compile; device checks remain open.
+No agent is currently delegated work by Codex. No commits or pushes made.
+Update checks (13 Oct 2026): FirmwareUpdate checks the signed manifest only (no download). Schedule: at boot if the cached result is missing or older than 12 h (boot waits up to 6 s for it), then every 12 h via poll() once the face runs; failed checks retry after 30 min. Result cached in NVS (um-updates: chk/availElf/availVer) so the boot screen can announce it; a fresh cache is used as is. Boot: boot::Kind::Update (violet download arrow, "UPDATE" / "AVAILABLE", no version, icon and text centred) shows for 10 s after the Connected screen. It runs on its own timer (noticeAt in main.cpp) because face setup can stall the loop; a hold based on time since sync made it never draw. Settings page: banner with Update now, nav dot on Advanced, always-visible "Check for updates" button (report only; POST /api/firmware/check, 30 s rate limit), "Install update" enabled only when an update is available, and "Last check failed: ..." on errors. Installing is always manual. Verified on device (Football, /dev/cu.usbserial-110, flashed with `tools/idf.sh football -p <port> app-flash`): cache load, boot screen order and 10 s hold in serial log, notice seen on the panel, web UI status. Serial debug lines left in: "[Boot] screen N", "[Boot] done", "[Firmware] Cached", "[Firmware] Update check". The panel keeps reporting an update while it runs a local build that differs from the published one; run tools/publish-firmware.sh to clear it. Not yet built: f1, tetris, others. Also guarded the tzdb custom command and created the generated dir in main/CMakeLists.txt (configure was failing in IDF's requirements pass). If the build fails with "file format not recognized" or an objdump error, delete the zero-size .a in build/<mode>/esp-idf and rebuild (interrupted build).
+
+PURPOSE
+Rebuild the ESP32 HUB75 LED matrix clock under the Ultimatrix identity.
+Start with our Football and F1 clocks. Keep displays and settings familiar.
+No old product branding in UI or active source names. Preserve required legal
+notices and their original URLs for reused code and assets.
+
+USER DECISIONS
+- Product name: Ultimatrix — LED Matrix Clock.
+- Move project to ~/ultimatrix; retain its initialized Git repository.
+- Use direct ESP-IDF for explicit memory tuning; retain Arduino as a component
+  during migration, rather than immediately rewriting every Arduino library.
+- Work autonomously; ask only for genuinely necessary decisions or approvals.
+- Do not add or run unit tests unless requested. Targeted compilation and native
+  preview rendering are allowed. Never commit or push unless requested.
+
+ARCHITECTURE TARGET
+1. Render bounded, stable snapshots; network/parsing/cache work belongs in data services.
+2. Separate Football and F1 services, sharing networking, time, and cache utilities.
+3. Explicit collection limits, disk-backed historical data, serialized TLS peaks.
+4. Explicit screen and animation states with clear transitions and timing.
+5. Hardware and previews use the same drawing code with recorded feed snapshots.
+6. Central layout constants and font assets.
+
+BASELINE ALREADY CREATED
+New runtime, Ultimatrix Wi-Fi setup and local settings page; separate Football
+and F1 builds; ported displays and feeds; shared time/fonts/layout/network gate;
+cache preservation; native previews; named competitions/drivers/clock animations.
+Both original PlatformIO builds compiled. Native previews rendered successfully.
+No hardware flashed and no unit tests run. The deeper rendering/snapshot rewrite
+is incomplete: see docs/ARCHITECTURE.md for specific remaining work.
+
+CURRENT WORK IN PROGRESS
+Codex is migrating the build to ESP-IDF 5.5.5 with Arduino ESP32 3.3.12.
+At this initial handoff, the SDK download and new build configuration are being
+prepared; direct ESP-IDF builds have not yet been verified. Do not interpret the
+previous PlatformIO successes as proof that the new build works.
+Codex will update this file with results before handing off.
+
+COORDINATION
+- Before working, read this file, README.md, docs/ARCHITECTURE.md, and Git status.
+- Record your active scope, files you own, and validation results in this file.
+- If another agent is active, choose a separate scope; never overwrite its files.
+- Preserve uncommitted changes. All project files currently remain uncommitted.
+- Keep changes small and readable. Do not fix unrelated issues silently.
+- Update this file when handing work back, including failures, limitations,
+  exact build commands, and the next useful task.
+
+ACTIVE OWNER / SCOPE
+Codex: ESP-IDF migration, firmware build configuration/dependencies, runtime
+entry point, memory settings, preview dependency paths, and migration docs.
+Suggested independent Claude scope: review snapshot/renderer separation and
+propose a concrete Football migration plan without modifying Codex-owned files.
+Coordinate ownership before implementing overlapping changes.
+
+Claude (12 Oct, 16:15): read-only review of Football snapshot/renderer split.
+Owns docs/FOOTBALL_SNAPSHOT_PLAN.md only; no source or build files changed.
+No builds or previews run. Plan needs two decisions from Joris (live-match cap,
+start before or after ESP-IDF build is verified) and one CMake source-list line
+from Codex before implementation starts.
+Joris decided (16:07): wait until Codex reports the ESP-IDF build verified,
+then Claude implements plan steps 1-3. Live-match cap still unanswered.
+Joris (16:16): Claude takes over the ESP-IDF build task from Codex (Codex
+inactive since 16:01; last configure failed). Claude now owns: firmware/
+CMakeLists.txt, main/, sdkconfig.defaults, partitions.csv, dependencies.lock,
+build/. Codex: do not edit these without coordinating here.
+Finding (16:20): last `idf.py` configure failed in esp_insights/esp_rainmaker
+git_describe() (repo has no commits; both are unused transitive deps of
+arduino-esp32). Added EXCLUDE_COMPONENTS for both in firmware/CMakeLists.txt;
+NOT yet verified. Toolchain in .tools/ is macOS arm64, so builds must run on
+Joris's Mac (Remote Control), not in the cloud VM.
+
+Claude (12 Oct, ~16:45): ESP-IDF 5.5.5 build VERIFIED on the Mac for both modes (no flash, no tests, no commit).
+Commands (run from ~/ultimatrix/firmware; the python_env symlinks to Codex's runtime python 3.12, so put it on PATH):
+  export IDF_TOOLS_PATH=$PWD/../.tools/espressif
+  export PATH=$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin:$PATH
+  source ../.tools/esp-idf/export.sh      # do NOT pipe it (subshell loses PATH)
+  idf.py -B build/football -DULTIMATRIX_MODE=football build   -> ultimatrix.bin 0x157880 (28% of app partition free)
+  idf.py -B build/f1 -DULTIMATRIX_MODE=f1 build               -> ultimatrix.bin 0x153980 (29% free)
+Fixes made (build config only):
+ - CMakeLists.txt: EXCLUDE_COMPONENTS did NOT work (managed components still added). Replaced with a git_describe()
+   stub after including project.cmake (esp_insights/esp_rainmaker call it; fails with no commits). Remove once repo has commits (harmless).
+ - CMakeLists.txt: idf_build_set_property(COMPILE_OPTIONS -Wno-error=format / -Wno-error=format-truncation). IDF's -Werror=all
+   broke on two source warnings (reported, not edited): vendor/wifi-manager/WiFiManager.cpp:3405 (%u vs uint32_t),
+   lib/football-feed/FootballTicker.cpp:1310 (snprintf "%02d" into 11-byte afterDate; day/month are uint8_t, buffer may truncate).
+ - sdkconfig.defaults: added CONFIG_MBEDTLS_PSK_MODES=y and CONFIG_MBEDTLS_KEY_EXCHANGE_PSK=y. Arduino NetworkClientSecure
+   (ssl_client.cpp) compiles to nothing without PSK -> F1 link failed with undefined ssl_client symbols. Football did not hit it.
+   Costs a little flash/RAM; could be revisited. sdkconfig changes need build/*/sdkconfig deleted to re-apply defaults.
+Next: Claude implements FOOTBALL_SNAPSHOT_PLAN steps 1-3 once Joris answers the live-match cap question. Device checks still open.
+
+Claude (12 Oct, ~17:10): Football snapshot plan steps 1-3 DONE (no commit, no flash, no unit tests). Joris approved kLive = 8
+(favourites first; the number can change later: football::kLive in lib/football-feed/FootballSnapshot.h).
+Files I changed/own for this work: lib/football-feed/FootballSnapshot.h (new, header only: no CMake change needed),
+ lib/football-feed/FootballTicker.h/.cpp (snapshot(), buildSnapshot(), fillStandings(), _snapshot/_staging, _standingsDirty),
+ clockfaces/football/Clockface.cpp (reads rows from the snapshot; drawing code untouched), tools/preview/showcase.cpp.
+ No F1 files touched. showcase.py unchanged.
+Design notes:
+ - Snapshot is 4656 bytes (static_assert <= 6144); three copies in RAM (ticker staging + published, display copy).
+ - Standings are held in RAM in the snapshot (12 groups / 160 team rows, extras are logged and left out), built by the data task
+   from the table files only when a table changed; the display pages through them itself. No "prepare next page" protocol needed.
+ - Display path (Clockface::update) now has no file access and no cacheLock; it takes only _lock, briefly, for snapshot()/status().
+ - Results carry their goal/card marks (they take turns on top with a timeline). Team codes are 3 letters (all the display draws).
+ - "Coming today" is decided on the display from the kickoff (as the preview already did), not from a build-time bit mask.
+ - Overview/Entry/finished()/upcoming()/standingsPage() still exist and are still built by the ticker (plan step 7 deletes them);
+   Clockface only keeps Entry objects for the live matches (<= 8) converted from the snapshot.
+ - buildSnapshot calls tablePositions() once per result/fixture (a table-file scan each, data task only): could be served from
+   RAM later.
+Results: python3 firmware/tools/preview/showcase.py --face football: all 2095 frames byte-identical to the pre-change render
+ (diff -rq), GIF byte-identical. ESP-IDF football build OK: ultimatrix.bin 0x157770 (28% free; was 0x157880). F1 build not rerun
+ (no F1 files touched). Two pre-existing warnings remain (see build notes above). Needs PIL: use the Codex runtime python
+ (...codex-primary-runtime/dependencies/python/bin/python3) for showcase.py.
+Next useful task: plan step 4 (extract FootballRenderer, pure move), then 5 (FootballScreens + replace the snprintf change key),
+ 6 (goal/incident animations as frame states), 7 (delete Overview/Entry/finished()/upcoming()/standingsPage()/bad_alloc catches).
+ Open before flashing: live-match cap 8 is untested on a real busy evening; device checks below still open.
+
+REMAINING DEVICE CHECKS
+Wi-Fi provisioning/reconnect, panel operation and pins, live-feed behaviour,
+settings persistence, cache recovery, and runtime peak heap/stack use.
+Build-size RAM reports measure static usage, not TLS/panel/task peak allocation.
+
+Claude (12 Oct, ~18:30): FIRST ON-DEVICE TEST, Football build (no source/config changes, no commit, no erase-flash).
+Port: /dev/cu.usbserial-10 (ESP32 rev v1.1, 4MB). Commands (env as above, from firmware/):
+  idf.py -B build/football -DULTIMATRIX_MODE=football build
+  idf.py -B build/football -p /dev/cu.usbserial-10 flash          -> written + hash verified, 1406832 B app
+  serial capture: python_env/idf5.5_py3.12_env/bin/python with pyserial (RTS reset, 115200); idf.py monitor not used (no TTY).
+Results:
+ - Boots OK (POWERON_RESET), ESP-IDF 5.5.5, Arduino as component, HUB75 64x64 on expected pins, DMA fb 57344 B, 60 Hz needs lsbMsbTransitionBit 1.
+ - Existing NVS kept: Wi-Fi "automation" auto-connected in ~3 s (192.168.0.73, rssi -57). Settings page http://192.168.0.73/. Provisioning portal NOT exercised.
+ - First boot logged [E] NVS NOT_FOUND for f1Drivers, fbLeagues, fbTeams, timezone (defaults used; harmless but noisy).
+ - NTP ok (time.cloudflare.com, Europe/Amsterdam). Following 2 leagues + 1 favourite.
+ - Feed fetches: ned.1 / ned.cup downloaded; several ESPN scoreboard requests return HTTP -11 (read timeout) but others succeed
+   (ned.1 next match, table ned.1 18 teams/3 pages). Feed is plain http://site.api.espn.com. 0 matches today (Monday), nothing live to test.
+ - Heap: after Wi-Fi up free=110740 min=108304 largest=63488; after feeds free=86544 min=71764 largest=45056, stack_free=5044, failures=0.
+   Football task: data free ~84-87k, largest block 45056, stack left 10500.
+ - No panic/abort/reset/brownout in ~75 s capture. One USB serial port drop seen ~7 s after the first boot (pyserial "Device not configured", port
+   returned within seconds, no reset logged); not reproduced in the second capture. Possibly USB/cable/power; watch for it.
+ - Not checked: what is actually shown on the panel (no visual), live-match behaviour, long-run heap, settings save, cache recovery.
+Snapshot plan steps 4-7 remain paused.
+
+Claude (12 Oct, ~17:40): Wi-Fi power save. Finding: nothing set it, so Arduino default WIFI_PS_MIN_MODEM (on).
+Change (firmware/src/main.cpp only, plus #include <esp_wifi.h>): WiFi.onEvent(GOT_IP) -> WiFi.setSleep(false) + logs
+ "Wi-Fi power save: N (0 = off)" with esp_wifi_get_ps, so it applies on every connect/reconnect. Same change applies to F1
+ (shared main.cpp; F1 build compiles, 0x153bf0, not flashed). Football flashed (no erase), no commit.
+Ping 192.168.0.73 x50: before 2.0% loss, min/avg/max/sd 24.7/1433.6/3187.6/988.3 ms;
+ after 0% loss, 5.1/19.2/100.3/23.4 ms. Runtime ps value not read from serial (ping change is the evidence).
+
+Claude (12 Oct, ~19:30): Football snapshot plan steps 4-7 DONE (no commit, no flash, no unit tests, no F1 files touched).
+Each step was checked: python3 firmware/tools/preview/showcase.py --face football (Codex runtime python): all 2095 frames + frames.tsv + GIF
+ byte-identical to the baseline taken before step 4; ESP-IDF football build OK. Binary sizes (0x157770 before step 4):
+ step 4 0x157a60, step 5 0x157990, step 6 0x157980, step 7 0x155870 (29% of the app partition free). F1 build not rerun (no shared file changed).
+New/changed files (all in the football build only; CMake source list in main/CMakeLists.txt got the two new .cpp):
+ - clockfaces/football/FootballRenderer.h/.cpp (new): all drawing, in namespace fbview. Inputs: MatchRow (fixed-size, from the snapshot rows),
+   football::FixtureRow, RankingPage (fixed), plus the view state as extern globals (clip, flip tiles, score tiles, slots, ranking page).
+ - clockfaces/football/FootballScreens.h/.cpp (new): FootballScreens::advance()/finish() = view choice, match turns, ranking paging, flip clock,
+   slot slides, live swap, score tiles; produces a Frame (POD). Clockface redraws when memcmp(Frame, last Frame) differs (the 27-field snprintf key is gone).
+ - clockfaces/football/Clockface.cpp: glue only (settings, snapshot copy, showResultsLive, goal/incident start, draw dispatch, telnet tests/simulation).
+   Goal and incident animations play ONE frame per update() (stepAnimation); serviceWait/BackgroundWait no longer used by Football.
+   Clockface::animating() was added for the preview tool. Frames are 40 ms apart by wall time; main.cpp calls update() every 50 ms
+   (layout::frameMs), so ~1 in 5 goal frames is computed but not shown (GoalAnimation::drawFrame(i, show=false)); timing stays true.
+ - lib/football-feed/GoalAnimation.h/.cpp: class GoalAnimation (begin/frames/drawFrame/end); playGoalAnimation() kept as a wrapper.
+ - lib/football-feed/FootballTicker.h/.cpp: deleted Entry, Upcoming, Overview, overview(), finished(), upcoming(), standingsPage(), current(), draw(),
+   toEntry(), pageAt(), _entries, _overview. buildSnapshot() now reads Match directly. Display cache files and restoreOverview() stay (restart
+   recovery only); the cache metadata's favouriteResults/comingToday are now written as 0 (struct unchanged; clean up with cache versioning).
+ - tools/preview/showcase.cpp/.py: own Game/Coming structs (the removed ticker types), animate() steps update() per frame, new sources compiled.
+Left deliberately: the try/catch(std::exception) around refresh() in the data task (network parse allocations; not the display path).
+ The display-path bad_alloc catches (snapshot copy, ranking page) are gone: nothing on that path allocates now except short-lived Strings in drawing.
+Not done / open: view state is still shared as extern globals between Screens and Renderer (Frame is only the change detector, not yet the
+ renderer's input); drawRoundNumber is unused (pre-existing warning); the other pre-existing warnings remain.
+ Needs an on-device check before trusting: goal/card/substitution animations (now cooperative with the main loop), results/fixtures/standings
+ views, live cap 8, and that settings/telnet answer during an animation.
+
+Claude (12 Oct, autonomous, F1 treatment) step (a) DONE: audit of the F1 display path. No file reads, cache locks or heap-allocating
+ copies in Clockface::update/F1Ticker::snapshot (snapshot is fixed-size memcpy under _lock; F1Live::get locks briefly). One fix:
+ F1Ticker::loadCache read "liveRows" from flash while holding _lock (boot, display thread could wait): now read into a local first.
+ F1 preview byte-identical to baseline (960 frames + GIF); f1 build 0x153c70, football build OK. Needs no on-device check beyond boot.
+
+Claude (12 Oct, autonomous) F1 step (b1) DONE: F1Renderer extracted as a pure move. New clockfaces/f1/F1Renderer.h/.cpp (namespace f1view): all drawing, fonts,
+ backdrop, glide/slide/clock-tile state; Clockface.cpp keeps ctor/setup/simulate/logShown/loading screen/update() (395 lines). Shared consts/state
+ are declared in F1Renderer.h (extern globals as in football). Added to main/CMakeLists.txt (f1) and showcase.py (f1). F1 preview byte-identical (960 frames+GIF);
+ f1 build 0x153d10, football 0x155870 OK. Next: b2 F1Screens + Frame memcmp, then (c).
+
+Claude (12 Oct, autonomous) F1 step (b2) DONE: F1Screens extracted. New clockfaces/f1/F1Screens.h/.cpp: F1Screens::advance() = the former middle of
+ Clockface::update() (session-over timers, view/page choice, tall clock, glide state, redraw decision) moved as is; the 96-char snprintf key and lastKey/lastRight
+ strcmp are replaced by a POD Frame compared with memcmp (zeroed first); the loading screen's key is a Frame too (view -1). Clockface::update() is now
+ time sync, snapshot refresh, advance(), logShown, draw switch. CMake + showcase.py got F1Screens.cpp. F1 preview byte-identical (960 frames+GIF); f1 build
+ 0x153d60, football 0x155870. Not on-device-checked: redraw behaviour should be identical by construction (same inputs compared), check idle/live/results screens once.
+
+Claude (12 Oct, autonomous) F1 step (c) + warnings DONE (no commit, no flash, no unit tests).
+ (c) Nothing to convert: the F1 face has no serviceWait/delay/blocking loops (grep clean); its animations (glide, slides, clock tiles, flag backdrop)
+ are already per-frame state. The only vTaskDelay calls are in the F1 data/live tasks (network), not the display path.
+ Warnings: FootballTicker.cpp afterDate now formats bounded unsigned values; WiFiManager.cpp:3405 casts to unsigned; F1Renderer number[3] -> [12];
+ F1Ticker.cpp three snprintf calls bounded (clock minutes %100, laps behind %100, best-lap minutes %10; lap times >=10 min never occur).
+ -Wno-error=format and -Wno-error=format-truncation REMOVED from firmware/CMakeLists.txt; both builds are clean (no format errors) without them.
+ Final: F1 preview byte-identical to the pre-change baseline (960 frames + GIF); f1 ultimatrix.bin 0x153db0, football 0x155890 (29% free each).
+ Files changed this session: clockfaces/f1/{Clockface.cpp,F1Renderer.h/.cpp,F1Screens.h/.cpp}, lib/f1-feed/F1Ticker.cpp (loadCache lock + 3 snprintf),
+ lib/football-feed/FootballTicker.cpp, vendor/wifi-manager/WiFiManager.cpp, firmware/CMakeLists.txt, main/CMakeLists.txt, tools/preview/showcase.py.
+ Needs on-device check (F1 build not flashed): live/results/between/idle screens redraw and animate as before; loading screen at boot; telnet S/N simulator;
+ F1 boot with cached live rows (loadCache change).
+
+Claude (12 Oct, ~19:50) TETRIS MIGRATION started (Joris via coordinator). No commit, no flash, no serial port, no unit tests.
+ Scope/ownership for this work: docs/TETRIS_MIGRATION_PLAN.md, lib/tetris/ (new), clockfaces/tetris/ (new), and small additive edits to shared files:
+ firmware/CMakeLists.txt, main/CMakeLists.txt, src/main.cpp (settings page/save guards), tools/idf.sh, tools/preview/showcase.cpp/.py, LICENSE_SCOPE.md,
+ THIRD_PARTY_NOTICES.md, LICENSES/LGPL-2.1.txt, README.md, docs/ARCHITECTURE.md. Football/F1 behaviour must not change: baselines taken
+ before any edit (football 2095 files, f1 1571 files incl. frames.tsv, GIFs) are in the session scratchpad; each step re-renders and diffs them.
+ Other agents: none found in HANDOFF.txt; several Claude app processes were running but no idf/cmake/ninja/showcase process.
+
+Claude (12 Oct) Tetris step 2 DONE (preview only, no firmware build yet): docs/TETRIS_MIGRATION_PLAN.md written.
+ New: lib/tetris/{TetrisDigits,TetrisShapes}.h/.cpp (LGPL-derived const tables + rotationAt), TetrisLayout.h/.cpp; clockfaces/tetris/{TetrisRenderer,TetrisScreens,Clockface}.h/.cpp,
+ library.json. Frame (30 B POD, memcmp) is the renderer's only input. Letters table (TetrisLetters.h) deliberately dropped.
+ tools/preview/showcase.cpp/.py: tetris mode (-DSHOWCASE_TETRIS, `--face tetris`, default run now renders all three); show() got a `restart` flag and a kFrameMs
+ (40 for football/f1, 50 for tetris). docs/previews/tetris.gif (629 frames, 45 s, 1.1 MB): boot at 31 Dec 23:58:30, minute change, midnight into 1 Jan, 9:05 on 4 Oct.
+ Checks: football (2095 files) + f1 (1571 files) frames and GIFs byte-identical to the pre-edit baselines. One-off scratch comparison (not in repo) of the original
+ Clockwise TetrisMatrixDraw vs the new renderer/layout: 432 time/date runs, 66 966 frames, 0 pixel diffs, digits/x offsets equal.
+ Next: build mode (CMake x2, main.cpp guards, tools/idf.sh), then three ESP-IDF builds.
+
+Claude (12 Oct) TETRIS MIGRATION DONE except on-device check (no commit, no flash, serial port untouched, no unit tests).
+ Build mode: firmware/CMakeLists.txt (tetris accepted), main/CMakeLists.txt (tetris branch: lib/tetris/*.cpp + TetrisRenderer/Screens, UM_TETRIS, UM_MODE_NAME="Tetris"),
+ src/main.cpp (settings page/save: Tetris shows only brightness, rotation, timezone, blue/green swap; sports fields guarded with #ifndef UM_TETRIS; F1 branch is now #elif UM_F1),
+ tools/idf.sh (accepts tetris). Commands as above: idf.py -B build/tetris -DULTIMATRIX_MODE=tetris build.
+ Sizes: tetris ultimatrix.bin 0x11ef90 (40% free; .bss 24712, .data 17736); football 0x155890 and f1 0x153db0 UNCHANGED (29% free). No new warnings from Tetris files.
+ Previews: football/f1 frames+GIFs byte-identical to the pre-edit baselines; docs/previews/tetris.gif rendered. Docs: docs/TETRIS_MIGRATION_PLAN.md, README, ARCHITECTURE,
+ LICENSE_SCOPE.md, THIRD_PARTY_NOTICES.md, LICENSES/LGPL-2.1.txt (copied from Clockwise).
+ Finding (not fixed): tools/idf.sh tetris build stops right after "Executing action" with an IDF message about the python path being configured as
+ ".../firmware/../.tools/..." vs ".../.tools/..." (it needs a fullclean or the relative -B path); use the idf.py commands above. Not changed by me.
+ Needs on-device check (Tetris not flashed): digits fall like the old face (pace: 50 ms update granularity, 30 ms/fast steps are several steps per call), colon blink,
+ date line + separator after boot, minute/hour/midnight changes, settings page (Tetris fields only), brightness/rotation, heap at idle.
+ Open: digit-table licence provenance (see THIRD_PARTY_NOTICES.md); Tetris-specific settings (12 h, date on/off) not added; 64x32 ticker row not migrated.
+
+Claude (12 Oct) BOOT / AP QR / mDNS / TELNET work IN PROGRESS (no commit, no flash, serial port untouched, no unit tests).
+ Owns: lib/core/{BootScreen,TelnetConsole}.h/.cpp, lib/core/qrcodegen.c/.h (unmodified Nayuki QR, MIT: LICENSES/Nayuki-QR-MIT.txt),
+ tools/preview/boot.cpp (+ `--face boot` in showcase.py), docs/previews/boot.gif; edits in src/main.cpp (boot state machine, mDNS, telnet, settings toggle),
+ lib/core/Settings.h (telnet, default off), main/CMakeLists.txt (3 new sources), vendor/wifi-manager (setWaitCallback hook, ~8 lines).
+ DONE. Boot/AP/mDNS/telnet (no commit, no flash, serial untouched, no unit tests).
+ - Shared screens (BootScreen): logo fade-in, Wi-Fi connecting + SYNC (3 pulsing dots, phase-shifted), AP QR (open network, matches autoConnect("Ultimatrix") with no
+   password; text under the QR cross-fades SSID <-> 192.168.4.1), ONLINE + IP for 2.5 s before the clock starts, red pulsing "NO TIME" after 45 s without NTP.
+   Only the boot screens changed: the faces' own colon blink etc. are untouched (baselines identical). Redraw only on Frame change (memcmp).
+ - QR: preview frames decoded with OpenCV (venv in scratchpad): payload WIFI:T:nopass;S:Ultimatrix;; also after a blur. Version 2, 2 px modules, 3 px white quiet zone
+   (1.5 modules; fine for phones, not the spec's 4). Preview: python3 firmware/tools/preview/showcase.py --face boot --out docs/previews -> docs/previews/boot.gif.
+ - WiFiManager::autoConnect blocks while connecting, so a vendored hook setWaitCallback (~20 ms) keeps the pulse going (vendor/README.md notes it).
+ - mDNS: was begun once after first connect only. Now begun again (end+begin, http, + telnet service when on) in background() after every GOT_IP; logs "mDNS: ultimatrix.local up".
+ - Telnet: lib/core/TelnetConsole, port 23, one client, 48-byte line buffer, 5 min idle timeout, IAC bytes skipped. help/status/heap/reboot/quit; football goal|yellow|red|sub
+   (+g,y,d,w) and sim|next (+s,n); f1 sim|next; tetris none. Settings page checkbox "Telnet console" (Settings::telnet, NVS "telnet", default OFF, applied after the save restart).
+ - Previews: football/f1/tetris frames + GIFs byte-identical to the pre-edit baselines. Builds OK (ultimatrix.bin): football 0x1599e0, f1 0x157ce0, tetris 0x122d40 (28/28/39% free;
+   ~+16 KB football, +15 KB tetris growth for QR, telnet, WiFiServer). No new warnings (tetris unused `selected()` in main.cpp is pre-existing).
+ Needs on-device check: connecting pulse during a real connect (and the 20 ms callback does not upset Wi-Fi); AP screen on the panel + phone scan with the real panel (brightness/contrast);
+ ONLINE+IP screen; ultimatrix.local resolves, including after a router/AP reboot; telnet toggle + each command, single-client rejection, idle timeout; settings still save (new field);
+ NO TIME screen (block NTP). Heap at idle with telnet on.
+
+Claude (12 Oct 20:29) ON-DEVICE TEST session resumed (coordinator relay). State found: board already runs the Football build with telnet (flashed earlier, bin 20:05; 192.168.0.73 pings, web OK, port 23 OPEN and web shows telnet checked = toggle currently ON). Orphan capture PID 81942 (cap2.py, 900 s, ->scratchpad 3a3ceb73.../run3.log, started 20:28) holds the serial port; not mine, left running. Earlier soak.log (12 samples, free 84084->85104, min 58544, failures 0) exists from the previous session. Plan: no reflash needed; use run3.log as serial source; net tests: mDNS, timed fetches, telnet cmds, then telnet OFF.
+Claude (20:32): settings save persisted across reboot (matchSecs 8->9 OK), restored to 8. mDNS resolves (curl via .local has 5 s connect delay on macOS, IP is 65 ms: host-side). Telnet help/status/heap/goal/yellow/red/sub/sim/next OK, 2nd client rejected 'Console in use', web stayed 50-150 ms. Serial does not log animations. No panic/brownout. Next: idle timeout, telnet off.
+Claude (20:38): ON-DEVICE TESTS DONE, no source change/flash/commit. Telnet idle timeout 300 s OK ('Idle, bye.'); telnet toggled OFF, port 23 closed, web OK. Heap stable after boot: free ~84.4k, min 54036, largest 45056, stack_free 5008, 0 failures (5 samples post-boot, flat; earlier soak.log 12 samples flat). No panic/brownout. Needs Joris at panel: boot/QR/ONLINE screens, goal/yellow/red/sub animations (need telnet on; serial does not log them), Tetris/F1 not flashed. Orphan capture PID 81942 still runs to ~20:43.
+
+Codex takeover (12 Oct): Joris explicitly resumed Codex and handed the project back.
+Read the full handoff, README, architecture, and current source/build state.
+Current ownership: Codex; no other agent work requested. Scope for this turn:
+fix tools/idf.sh's equivalent-Python-path mismatch without deleting build trees;
+verify all three modes; reconcile stale README/architecture with completed work.
+No device operations, serial capture, commits, or unit tests planned.
+
+Codex takeover completed (12 Oct): fixed the documented tools/idf.sh blocker.
+Root cause: ESP-IDF compares cached Python paths as strings; firmware/../.tools
+and .tools pointed to the same executable but the comparison failed. The wrapper
+now checks physical path equivalence and asks CMake to update only the cached
+interpreter setting. Existing build trees and per-mode SDK configurations remain.
+A genuinely different interpreter still gets IDF's normal error; no automatic fullclean.
+Also removed invalid CONFIG_MBEDTLS_DYNAMIC_FREE_PEER_CERT from sdkconfig.defaults
+and explicitly set the supported CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y. The effective
+config already enabled CA cleanup, so no memory saving or behaviour change is claimed.
+README and ARCHITECTURE now match the completed refactors and documented device
+checks; FOOTBALL_SNAPSHOT_PLAN is marked historical/completed.
+Files changed this turn: tools/idf.sh, sdkconfig.defaults, README.md,
+docs/ARCHITECTURE.md, docs/FOOTBALL_SNAPSHOT_PLAN.md, HANDOFF.txt.
+Verification from ~/ultimatrix/firmware:
+  ./tools/idf.sh football build -> PASS, ultimatrix.bin 0x1599e0 (28% app space free)
+  ./tools/idf.sh f1 build       -> PASS, ultimatrix.bin 0x157ce0 (28% free)
+  ./tools/idf.sh tetris build   -> PASS, ultimatrix.bin 0x122d40 (39% free)
+All sizes match Claude's latest baseline. Repeated builds work after cached paths
+were corrected. No unknown TLS Kconfig symbol warnings in the final logs.
+No unit tests, native preview rerenders (no drawing changes), device access, flashing,
+serial capture, commits, or pushes this turn. The board state was left untouched.
+Logs: /tmp/ultimatrix-final-{football,f1,tetris}.log (temporary local artifacts).
+Next useful scope: self-contained renderer inputs for Football/F1; keep recorded
+preview pixels unchanged. Remaining panel checks still require someone at the device.
+
+Codex — shared setup/settings work (12 October 2026)
+User priority: shared foundation first; pause clockface refactors. Improve the setup page.
+New preference: avoid unnecessary work/checks to conserve tokens; keep HANDOFF.txt current.
+Implemented: firmware/web/{settings.html,theme.css,settings.js}, embedded in flash via CMake.
+Responsive settings cards, percentage brightness, searchable competitions/timezones,
+checkbox selections, inline validation, dirty-state/save feedback, restart reconnection.
+Wi-Fi portal shares the theme via its public customization callbacks. Change Wi-Fi
+uses a one-shot setupWifi preference and restart, preserving saved credentials.
+Settings server starts only after the provisioning portal releases port 80. Portal
+QR screen stays active during setup; closing it retries the saved network.
+Settings load defaults avoid missing-string-key errors. Save uses a candidate copy,
+so failed persistence does not directly replace the active in-memory settings.
+Existing multi-key NVS writes are still not an atomic transaction.
+Files changed: src/main.cpp, lib/core/{Settings.h,TimeService.h/.cpp}, main/CMakeLists.txt,
+firmware/web/*, docs/previews/{settings-desktop,settings-mobile,wifi-setup-design}.png.
+Visual check: isolated desktop/mobile browser preview using sample device data;
+no page JavaScript errors. Wi-Fi screenshot is a representative design preview,
+not a capture from the actual device portal. No unit tests or device flashing.
+Final compile in progress: corrected std::min's ESP32 uint32_t type mismatch;
+all three modes will be checked. Device validation remains: AP setup/change/exit,
+port ownership, save/restart/reconnect, timezone API, and portal asset delivery.
+
+Setup/settings final verification: Football, F1, and Tetris ESP-IDF builds PASS
+with the final code (logs /tmp/ultimatrix-setup-{football,f1,tetris}.log).
+Desktop/mobile visual preview complete. No unit tests, flashing, commits or pushes.
+Local preview server stopped. Next: device verification of this shared setup flow,
+then only the needed shared-foundation features; keep clockface work paused.
+
+Codex continuing shared foundation at Joris’s request. Progress in WORKLOG.txt. Scope: settings/time/brightness/network/update services; clockface rendering remains untouched. Minimal feedback requested; ask only for required decisions/approvals. No unit tests or device flashing planned.
+
+Foundation checkpoint — Codex, 12 October 2026
+Implemented but still completing checks: versioned single-blob settings with CRC/legacy fallback;
+12/24-hour setting and custom NTP with two backups; three SNTP slots; auto brightness (ADC1 pin,
+smoothing, calibration) and overnight dimming; reconnect backoff and mDNS retries.
+Files: Settings.h/.cpp, DisplayControl.h/.cpp, TimeService.cpp, src/main.cpp, web/settings.html/.js,
+main/CMakeLists.txt, sdkconfig.defaults. FootballTicker config reader now reads a complete settings
+record, not legacy keys; no sports drawing changed. Tetris getHour() adapter honours time format.
+SDK selective compilation was accidentally disabled by a duplicate default. Fixed; first build
+exposed DNSServer's AsyncUDP dependency, now selected. Final all-mode checks remain pending.
+Firmware: unauthenticated upload endpoint was rejected by auto-review; no updater files were written.
+Joris explicitly wants initiated pull updates (telnet or web UI), application images only.
+Server approved by Joris: http://192.168.7.77/ultiMatrix (strip punctuation from his message).
+SCP user joris, /var/www/html/ultiMatrix/. SSH + directory write permission verified. No deployment yet.
+Next: signed current-mode manifest/image downloader (fixed server, no arbitrary upload or URL),
+package/sign app images locally, compile all modes, then deploy via approved SCP.
+Private signing key must stay under ignored .tools/, never uploaded/logged/committed. Public key
+will be embedded in firmware. This materially changes the rejected arbitrary-upload design.
+Follow WORKLOG.txt for current activity. No unit tests, device flashing, commits, or pushes.
+
+Signed updater checkpoint: FirmwareUpdate.h/.cpp and UpdateTrust.h now exist; fixed server
+http://192.168.7.77/ultiMatrix, current-mode manifests only. Public key is embedded;
+private .tools/update-signing.pem stays local, never publish it. Signed manifests authenticate
+mode/image SHA-256/ELF hash; image header and whole-image validation precede activation.
+No arbitrary upload/URL API. Web UI POST /api/firmware and telnet update/update-status.
+Background task serializes with feed networking; app-only inactive-slot writes. Automatic
+rollback enabled in SDK defaults and each generated config, with healthy-start confirmation.
+A matching bootloader must be installed once via USB to obtain rollback on existing devices.
+UI/package tooling added. All builds and packaging/deployment are still pending. No physical
+clock update started. Next command: build all modes, package-firmware.py, deploy images first,
+then signed manifests via approved SCP (replace only our manifest files atomically).
+
+Checkpoint: signed pull-update files and public key exist; GUI/telnet initiation added.
+Build exposed Arduino selective-compilation header dependencies; main and clock-libraries
+now explicitly require esp_wifi/esp_netif/esp_event (main also nvs_flash). Compilation pending.
+Manifest now includes a signed release ID; um-updates NVS rejects replayed/older releases.
+Package command uses cryptography (available in the bundled Python). Private signing key stays
+in .tools/update-signing.pem. No server files deployed, no device flash or update initiated.
+
+User copy preference: remove marketing slogans from setup/settings; informational, concise text only. Applied to HTML and Wi-Fi portal. Build still resolving selective-Arduino public header dependencies; provisioning component now explicit. Deployment remains pending.
+
+Settings copy now uses factual brightness and driver descriptions; avoid marketing slogans in future UI changes.
+
+2026-10-12: Restored old Wi-Fi save-page behavior: mDNS/IP links with HTTP-compatible copy buttons; portal remains open 10 seconds for IP retrieval, extended once after retrieval. Settings now apply on save without reboot (rotation, time, brightness/schedule, console, renderer preferences). Only panel colour wiring and Football feed selections restart. Compile/device verification pending. Original ~/clockwise untouched.
+
+2026-10-12: Added Use device timezone button using browser Intl timezone; server validates supported zones as before. Applies without reboot when saved. JavaScript syntax checked; device verification pending.
+
+Live settings + portal links + device timezone: Football/F1/Tetris builds PASS. JavaScript syntax PASS. No unit tests or device flash. Logs /tmp/ultimatrix-live-settings-{football,f1,tetris}.log. Hardware checks and firmware publication remain open.
+
+Claude (12 Oct, evening) LDR / brightness slider session. No commit, no unit tests.
+ - LDR code was already in the source (DisplayControl, Settings, settings page); Joris's device ran an older image, so it was not visible. Football rebuilt and FLASHED
+   to the panel on /dev/cu.usbserial-110 (port was -10 earlier; check with ls /dev/cu.usbserial*), no NVS erase.
+ - Settings page: auto-brightness range is now ONE slider with two knobs (dimmest/brightest). Same form fields (minimumBrightness, brightness), so no firmware/save change;
+   the old "Minimum brightness" number box was removed. Files: web/{settings.html,settings.js,theme.css}. Overlaid native range inputs; not browser-tested on the device yet.
+ - Settings::load() legacy fallback now imports old Clockwise ldrPin/autoBrightMin/autoBrightMax/displayBrMin (auto on when max > 1). Only applies when no settingsV1 blob exists.
+ - Builds PASS (football 0x184ed0 19% free, f1 0x172ee0 23%, tetris 0x150ca0 30%); logs /tmp/um-ldr-*.log. Free app space has dropped ~9-10% since the updater/foundation work.
+ - NOT flashed: f1, tetris,. Football WAS reflashed with the legacy import. Signed updater not packaged/deployed (external publish; needs Joris's go-ahead).
+ - Open device checks: two-knob slider, auto-dimming with real LDR readings (set dark/bright from the live reading), plus the earlier panel checks listed above.
+ - Noted, not fixed: plaintext HOMEBREW_GITHUB_API_TOKEN reported on line 1 of ~/.bash_profile (unverified); statusline agent found no PS1, statusLine unchanged.
+
+Claude (12 Oct, ~22:30) Slider fix, updater packaging, review. No commit, no unit tests.
+ - Auto-brightness slider restyled (custom track/thumbs + fill between the knobs that follows both); checked in headless Chrome against the live device JSON. Football rebuilt+FLASHED
+   (usb-110) with it. F1/Tetris rebuilt (embed same page), not flashed.
+ - Updater: all three modes built, signed and packaged to dist/firmware/<mode>/ (python: .tools/espressif/python_env/*/bin/python firmware/tools/package-firmware.py).
+   DEPLOY TO 192.168.7.77 WAS BLOCKED by the auto-mode permission classifier (scp/ssh to /var/www/html/ultiMatrix). NOT retried by other means. Nothing is on the server
+   (earlier check: directory exists and is empty). To deploy: run it yourself or allow the Bash scp/ssh rule; order = images first, then manifest.sig/json via .new + mv.
+   Repackage first if firmware is rebuilt (release id = timestamp; image hash changes). Device-side OTA path (stack size of the 8 KB update task, replay history) is untested.
+ - Flash headroom: libesp_app_format reports 136 KB of .rodata = the full x509 certificate bundle (F1 needs HTTPS: jolpi.ca/openf1). Tried disabling it for Football/Tetris:
+   fails because unused esp_rainmaker (rmaker_common esp-mqtt-glue.c) needs it. Reverted. Lead: drop rainmaker from the build, then CMN/NONE bundle for football/tetris (~60-136 KB).
+ - Review notes (not fixed): (1) lightReading only samples while Automatic brightness is on, so dark/bright can't be calibrated before enabling it; (2) POST /api/firmware has no
+   auth/CSRF (LAN only; only installs newer signed releases, 30 s rate limit); (3) update task stack 8192 B holds ~2 KB buffers + ECDSA verify: consider 10240 if the OTA test overflows;
+   (4) release id is recorded before activation, so a failed activation needs a new release; (5) Settings save/display/web all run in the clock task (no String race seen);
+   (6) HUB75 pins do not collide with selectable LDR pins 32/33/34/35/36/39.
+
+Claude (12 Oct, late) Settings UI, LDR average, night clock, boot visuals. No commit, no unit tests. Football built+FLASHED (usb-110); F1/Tetris build OK, not flashed.
+ - Settings page: sensor range is a two-knob slider (ldrDark/ldrLight) with live reading marker (polls /api/settings every 2 s while auto brightness is on) and
+   "use current reading as dark/bright" buttons; night brightness is a styled slider; night fields dim when the schedule is off; selected competitions listed first.
+ - LDR: DisplayControl uses a 20-sample moving average (100 ms/sample, kWindow); average restarts on auto off/on or pin change.
+ - NIGHT CLOCK (new): lib/core/NightClock.{h,cpp}: red HH:MM in the block digits (numericfont::pixel), whole panel otherwise black, redrawn on the minute only.
+   Shown (all three modes, main.cpp loop) when DisplayControl::nightActive(): night schedule active OR averaged reading < dark reading (hysteresis: back to normal above
+   dark + max(10, 5% of range)); only with Automatic brightness on for the LDR path. On exit the face is redrawn via new IClockface::invalidate() (football haveFrame,
+   f1 screens.reset(), tetris drawn). Not visually previewed (no preview harness for it): check on the panel. Night brightness setting caps the schedule case.
+ - BOOT VISUALS: pulsing BLUE Wi-Fi icon while connecting AND while linked but NTP not synced (label WI-FI / SYNC, address shown once linked); steady GREEN icon + ONLINE once
+   synced (clock starts 2.5 s after sync: syncedAt); RED pulsing icon + "NTP ERROR" after 45 s linked without NTP; new Kind::Joined (green ring+tick, "JOINED", AP address)
+   when WiFi.softAPgetStationNum() > 0 in portal mode. IPs use the 1-px block digits (numericfont::smallPixel, falls back to Picopixel if wider than 64 px).
+   Web server (background() starts it on link-up) and telnet were already independent of NTP; unchanged. Preview: docs/previews/boot.gif (rendered, checked).
+ - Still pending: updater deployment (blocked by the permission classifier; dist/ has stale images now: rebuild+repackage before deploying); cert bundle removal
+   (blocked, 3 sdkconfig lines + rm build/*/sdkconfig); panel checks of night clock, boot screens, AP joined screen, two sliders.
+
+Claude (12 Oct, latest) Night clock brightness. No commit, no unit tests. Football built+FLASHED (usb-110); F1/Tetris not rebuilt for this change.
+ - DisplayControl: while nightActive() (schedule OR dark room) the panel brightness is exactly Settings::nightBrightness (was: only a cap during the schedule).
+   Settings page: label "Night clock brightness", hint "Brightness of the red night clock, for the schedule and for a dark room."; the slider is no longer dimmed
+   when the schedule is off (only From/Until are). Files: lib/core/DisplayControl.cpp, web/settings.{html,js}. Not checked on the panel.
+ - Open list (unchanged): updater deploy to 192.168.7.77 (blocked by the permission classifier; dist/ is stale, rebuild + repackage first), certificate bundle removal
+   (blocked: add CONFIG_ESP_RMAKER_USE_CERT_BUNDLE=n, CONFIG_ESP_RMAKER_MQTT_USE_CERT_BUNDLE=n, CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n to sdkconfig.defaults, rm build/*/sdkconfig),
+   flash F1 + Tetris, panel checks (night clock both triggers, boot screens incl. AP joined, two sliders, auto-dimming with real readings), Tetris settings (12 h/date),
+   64x32 ticker row, digit-table licence provenance, ~/.bash_profile plaintext token (reported, unverified).
+
+Claude (12 Oct, latest+1) Pixel colour depth 7 -> 8 bits (night clock too bright). main/CMakeLists.txt: UM_PIXEL_DEPTH_BITS=8 PIXEL_COLOR_DEPTH_BITS=8 (was 7, as Clockwise). Football built + flashed
+ (/dev/cu.usbserial-10 this time; the port name changes between -10 and -110: ls /dev/cu.usbserial*). Serial: boots, no panic; DMA framebuffer 65536 B (was 57344), free heap 92.8k,
+ largest 55k, failures 0. NOTE: at 8 bits the library needs lsbMsbTransitionBit 2 for 60 Hz ("perceived colour depth reduced"; 1 gives 55 Hz), so the gain at the very low end may be smaller
+ than expected: judge on the panel. If still too bright: night clock brightness 1, or allow ~55 Hz (min refresh rate in the panel config). F1/Tetris not rebuilt with 8 bits yet (same shared line).
+
+Claude (12 Oct, final) Night clock colour. Root cause of "too bright": Clockwise drew the night clock in RGB565 0x3800 (dark red, ~22% intensity); Ultimatrix used full red (255,0,0).
+ lib/core/NightClock.cpp now uses 0x3800. Football built + flashed (/dev/cu.usbserial-10). F1/Tetris not rebuilt. 8-bit colour depth (previous entry) is kept; with this dark red the 7 vs 8 bit
+ difference is only quantisation (about 29/127 vs 58/255, the same intensity): 8 bit costs 8 KB DMA RAM and needs lsbMsbTransitionBit 2 for 60 Hz, so reverting to 7 is reasonable if the panel looks the same
+ (main/CMakeLists.txt: UM_PIXEL_DEPTH_BITS / PIXEL_COLOR_DEPTH_BITS). Not checked on the panel.
+
+STATUS: Claude is DONE. All work that does not need Joris is finished; nothing is in progress and no agent is working on this project. No new session needs to be started because of this entry.
+ Everything left needs Joris or an approval: see the open list above (updater deploy, certificate bundle sdkconfig lines, flashing F1/Tetris, panel checks).
+
+Claude (12 Oct, 23:10, new session, Joris asleep, autonomous) NEW FACES work STARTED. No commit/flash/unit tests.
+ Scope: new modes word (time in words, 16 languages), mario (+night 1-2), luigi, pacman, motogp (F1 face with MotoGP data). New dirs:
+ clockfaces/{word,mario,luigi,pacman}/, lib/faces/ (shared sprite/pixel helpers), lib/motogp-feed/; small additive edits to shared files:
+ firmware/CMakeLists.txt, main/CMakeLists.txt, src/main.cpp (guards/mode lists), lib/core/{Settings.h,Settings.cpp,FirmwareUpdate.cpp,IClockface.h},
+ web/settings.{html,js}, tools/idf.sh, tools/package-firmware.py, preview tooling (new files tools/preview/faces.*), docs. Existing three faces must not change.
+
+Claude (12 Oct, ~00:30, autonomous while Joris sleeps) NEW FACES DONE except on-device checks. No commit, no flash, no unit tests, serial untouched.
+ Five new modes, all built with ./tools/idf.sh <mode> build (ultimatrix.bin bytes): word 1406448, mario 1396528, luigi 1396528, pacman ~1388k, motogp 1511232;
+ football 1599664, f1 1528880, tetris 1387120 rebuilt after the shared edits and fine. F1 preview GIF byte-identical to docs/previews/f1.gif before/after.
+ - WORDS (clockfaces/word): time in words, 16 languages (tables copied from the Clockwise fork's WordClock.*, MIT: WordLanguages.*), own 4x5 pixel typeface
+   with accents (WordFont.*; hour words drawn 2x with Scale2x smoothing), colours drift with the time of day, words fade over each other once a minute,
+   weekday+date line, seconds line along the bottom. Language is stored in Settings::numberFont (the football alternative-digits byte; the settings record
+   did not change; default 1 = Dutch). Settings page: "Language" select (mode "Words", /api/catalog lists the languages, field wordLanguage).
+ - MARIO (clockfaces/mario): 4 question blocks (bump + coin on change; the minute-unit block is hit by Mario exactly as the minute turns), real walk cycle,
+   turns at the ends, pipe with a piranha plant, hill, clouds, a Goomba every 3rd minute that Mario waits for and stomps, and World 1-2 underground
+   (black, blue bricks) when DisplayControl::nightActive(): IClockface got handlesNight()/setNight(); main loop skips the red night clock for faces that handle it.
+ - LUIGI (clockfaces/luigi): haunted garden at night: big glowing green digits (stroke-drawn, fade out/in), mansion with flickering windows, moon, stars,
+   Luigi with flashlight + vacuum walks slowly, shy Boo covers his face in the beam, lightning on the hour (Luigi jumps), mist.
+ - PAC-MAN (clockfaces/pacman): first built as a pellet ring with ghosts, then REWRITTEN as a maze game: see the 13 Oct entry below (current state).
+ - MOTOGP (mode motogp): the F1 face unchanged, with lib/motogp-feed/MotoGpTicker.cpp as another implementation of F1Ticker (+ MotoGpScan.h scanners,
+   MotoGpRiders.h rider table/codes/colours). Data: api.pulselive.motogp.com results (seasons/categories/events/sessions/classification/standings) and
+   timing-gateway/livetiming-lite for the running order. Standing got a name field (F1Ticker.h), renderer standingName(), more flags (TH ID MY CZ SM AR + country words).
+   Scanners were run on real downloads with tools/preview/motogp-scan-test.cpp (compile line in that file's history: c++ -I shim -I lib/core -I lib/f1-feed -I lib/motogp-feed).
+   NOT tested live: the live-timing mapping (session_status_id 'F' = finished is the only value seen), flags, red-flag handling (none), clock format of
+   "remaining"; sprint/Q1+Q2 combined grid is built from two classification downloads. JsonScan::VALUE 32 -> 40 (UUIDs); this applies to all modes.
+   Settings page: mode "MotoGP" behaves as F1 (favourite riders by 3-letter code, catalog = MOTOGP_RIDERS).
+ - Shared edits: CMakeLists (modes), main/CMakeLists (UM_SIMPLE_FACE for tetris+word+mario+luigi+pacman, UM_MODE_ID for the updater, face dir f1 for motogp),
+   main.cpp (guards ifndef UM_SIMPLE_FACE, word language save/state/catalog, motogp catalog, night handling), FirmwareUpdate.cpp (kMode = UM_MODE_ID),
+   IClockface.h, Settings.h (comment), web/settings.{html,js}, tools/idf.sh, tools/package-firmware.py (all 8 modes; skips unbuilt ones), docs.
+ - Previews: python3 firmware/tools/preview/faces.py (pacman mario luigi word -> docs/previews/*.gif; scenarios in tools/preview/faces-scenarios.h), docs/previews/motogp.gif
+   from showcase.py --face motogp using showcase-data.json key "motogp" (recorded by motogp-snapshot.py, real 2026 Indonesian GP data).
+ Open / needs Joris: flash and look at each face (colours at low brightness, Mario/Luigi timing, Word accents at 2x), MotoGP during a real session,
+   settings page for Words/MotoGP, updater packaging+deploy for the 5 new modes (dist/ is stale; deploy still needs approval), commit.
+
+Claude (13 Oct) PAC-MAN REWRITTEN as a self-playing maze game (no commit, no flash). CURRENT STATE, in clockfaces/pacman/{Maze.h,Clockface.cpp,Clockface.h}:
+ - Time: football/F1 solid block digits (numericfont::pixel from lib/core/NumericFont.h), 6x10 px, 2 px strokes (smallest unsquashed), at y=3, x = 12/20/38/46;
+   colon = two 2x2 dots; digit changes dissolve pixel by pixel with white sparks (1.1 s). The time band is the top 16 px; the maze is drawn first and the band painted over it.
+ - Maze: Maze.h generator in the arcade's rules: 16x13 cells (COLS/ROWS), mirrored left/right, random spanning tree + loops, no dead ends, tunnel on the house row (row 6),
+   ghost house with a door in the middle (cols 7-8), power pills near the 4 corners, pills everywhere, Pac-Man starts below the house (row 8), fruit below the house twice a level.
+   Cell pitch 7 px = 5 px corridor + 2 px wall, like the Clockwise Pac-Man (whose actors are also 5x5). The maze (114x93 px) is bigger than the 64x48 window:
+   moveCamera() follows Pac-Man (eased, dt*4), clamped to the maze, snaps on level start and when he leaves through the tunnel; OX/OY are the maze origin on the panel.
+ - Actors are 5x5 px: Pac-Man with a wedge mouth (open/half/closed chomp, death animation), ghosts with dome, wavy feet, eyes whose pupil/shift show the direction;
+   scared = blue, flashing white at the end, pink face; eaten = eyes only; score popups (100/200/400/800, fruit).
+ - Pac-Man plays himself (Dijkstra to pills with fear costs near hunting ghosts, saves power pills for when threatened, chases scared ghosts). Ghosts: Blinky/Pinky/Inky/Clyde
+   targeting, scatter/chase schedule {7,20,7,20,5,20,5} s, reversal on mode change, scared (random), eyes back to the house, staggered release. Deaths (3 lives) and level clears build a new maze.
+   Speeds (px/s) at the top of Clockface.cpp: Pac 12, ghost 10.5, scared 6.5, eyes 26. The date line was dropped.
+ - Preview: python3 firmware/tools/preview/faces.py --face pacman (100 s, ~12 MB) -> docs/previews/pacman.gif. Build OK (./tools/idf.sh pacman build).
+ - History of this rewrite: 4x4 actors in a 12x9 maze -> 5x5 actors in 10x7 (6 px pitch) -> clockwise spacing + scrolling 16x13 maze -> block digits.
+ - NOT seen on the panel: sprite/pill visibility, camera feel (adjust the rate in moveCamera), how often he dies, tunnel camera jump, low-brightness colours.
+   A leftover unused variable (wantDir) gives one compiler warning.
+
+Claude (13 Oct) SETTINGS PAGE ORDER: the face-specific "Clock mode" card (#mode, data-sports) is now the first section on the settings page, above Display.
+ web/settings.html: section moved to the top, sidebar link moved first; numbers are Clock mode 01, Display 02, Time & location 03, Network 04, Advanced 05.
+ web/settings.js (load()): when the mode section is shown (sporty or Words) its sidebar link becomes the active one; otherwise Display stays active.
+ Faces without face settings (Tetris, Mario, Luigi, Pac-Man) hide the section, so their sidebar shows 02-05 with no 01 (same gap as before; not renumbered).
+ Checked: node --check settings.js only. Not loaded in a browser, not built or flashed. Open: look at the page on a device or the preview server, commit.
+
+Claude (13 Oct) BOOT SCREEN REDESIGN: shared start-up/Wi-Fi/NTP/setup screens (all faces; no commit, no flash, no unit tests, full idf.sh build NOT run).
+ Checked only with the native preview: c++ of tools/preview/boot.cpp + lib/core/BootScreen.cpp + vendor/gfx/Adafruit_GFX.cpp + qrcodegen.o (same line as showcase.py render_boot),
+ frames inspected by eye. Files: lib/core/BootScreen.h/.cpp (main work), src/main.cpp, tools/preview/boot.cpp, README.md.
+ Decisions from Joris, as built:
+ - No text on the boot screens except the IP. ULTIMATRIX logo/label text and the 1 s logo hold are gone: main.cpp starts straight on Kind::Connecting (bootKind, drawBoot at
+   start, "not connected" state); removed the unused bootAt. Kind::Logo and logo() remain only as the fallback if the QR fails to encode.
+ - Backdrop (backdrop()/backdropLevel()): full-screen dim lattice of single LEDs (every other pixel, ~4%) with a U lit in it (outer half-width 28, bottom ellipse, brightness
+   ~37% at top to ~15% at bottom). Drawn behind Connecting, Syncing, Connected, Error, Joined; not on the QR (Setup).
+ - States: Connecting = blue Wi-Fi symbol pulsing; Syncing (linked, waiting on NTP) = green pulsing + IP; Connected = steady green + IP; Error (45 s with no NTP, unchanged
+   trigger kSyncGiveUpMs) = ORANGE clock-with-alert-badge icon pulsing + IP; Joined (phone on the setup AP) = tick ring + address.
+ - Icons: 32 px wide pixel art at original size, hard edges (no anti-aliasing), centred on (32,26), light-to-deep vertical gradient (tint()), and the pulse blends
+   the icon into the backdrop pixel under it (not to black), fading fully out at the low point. Art is ASCII strings in BootScreen.cpp: kWifiArt (from ClockWise's
+   CW_STATUS_WIFI bitmap) and kNoTimeArt (clock ring outer r 12.35 / inner 10.35 centred (12,12), hands at 12 and 3, alert badge disc r 7 at (25,25) with a 2 px gap
+   cut round it and a "!" cut out). Coverage cached in Screen::icon_ (IconCache, 4 KB, built on first draw per icon). Colour kOrange {255,130,30}; kRed removed.
+ - IP: block digits (numericfont, 4x7) in the U's cyan with the same vertical gradient; dots 2x2 px, 1x2 px when the address is too wide (192.168.100.100 fits at 62 px
+   that way); falls back to Picopixel only if still too wide. No "http://" (does not fit; discussed and dropped).
+ - Setup QR: full screen, no text. ClockWise's approach: payload "WIFI:S:<ssid>;;" (open network, no T:nopass; WPA keeps T:WPA), qrcodegen min version 1, ECC low.
+   Module size = 64 / modules (21 modules -> 3 px = 63 px, centred; 25 -> 2 px). Alternates every 5 s (kInvertMs): page 0 white modules on black (what scanned best on the
+   ClockWise panel), page 1 black on white. Frame.page carries the polarity so an idle screen still costs a memcmp.
+ - Setup access point renamed Ultimatrix -> UM-SETUP (main.cpp kApName, preview boot.cpp, README). 8 characters is required for the version-1 code (17 bytes); wifi.setTitle
+   "Ultimatrix" (portal page title) is unchanged. Rename only to another name of 8 characters or fewer.
+ Open / needs Joris: run firmware/tools/idf.sh builds (football/f1/tetris etc.) and flash; scan the QR with an iPhone and an Android in both polarities (if one polarity
+   always works, drop the flip); look at the orange icon and the gradient strength on the real panel at low brightness; the 45 s NTP-error timing is untouched.
+   docs/previews/boot.gif was not regenerated (python3 firmware/tools/preview/showcase.py --face boot). No unit tests were added.
+
+Claude (13 Oct) SAVE BUTTON HIDDEN WHEN NOTHING TO SAVE: the settings page save button (#save, "Save settings"; shows "Restarting…" during a restart save) is hidden until the form differs from the last loaded/saved state.
+ web/settings.js: dirty() now sets save.hidden = (encoded() === initial); it returns early while busy, so the button is not toggled during a save/restart/update. The status line ("All settings up to date" / "You have unsaved changes") is unchanged.
+ web/settings.html: #save starts with the hidden attribute (so it does not flash while settings load); dirty() is called after load() and after a non-restart save, which hides it again.
+ Checked: nothing run (not even node --check), not loaded in a browser, not built or flashed. No unit tests. Open: try on a device/preview (change a field -> button appears; revert it or save -> hides), commit.
+
+Claude (13 Oct, timezone + Clockwise clean-up) NOT compiled, NOT flashed, no commit. Only settings.js got a node --check.
+ 1. Clockwise mentions removed from firmware code comments (NightClock, BootScreen x2, pacman Clockface, TetrisLayout.h/.cpp, WordLanguages.h/.cpp). This includes the upstream
+    attribution lines in TetrisLayout (jnthas, MIT) and WordLanguages (Clockwise fork tables, MIT); the SPDX MIT line in WordLanguages stays. LICENSE_SCOPE.md and
+    THIRD_PARTY_NOTICES.md still carry the credit. Check that MIT notice duties are still met. HANDOFF/WORKLOG/docs were left as they are.
+ 2. Renamed: CWTzEntry -> UmTzEntry (TzDb), cw_strlcpy/cw_random -> um_strlcpy/um_random (tools/preview/shim/Arduino.h). No CW identifiers left outside vendor/ and managed_components/.
+ 3. TzDb.h is now generated at every build. Removed lib/core/TzDb.h. New tools/gen_tzdb.py (usage: gen_tzdb.py <out.h> [zones.csv]; gen_tzdb.py --update refetches
+    zones.csv from nayarsystems/posix_tz_db) and tools/zones.csv (469 zones, taken from the old header; output was byte-identical). main/CMakeLists.txt: add_custom_command ->
+    <build>/generated/TzDb.h, target tzdb_header, include dir added, add_dependencies on the component. Needs Python3 at build time (find_package Python3).
+ 4. Timezone on a fresh install / every boot: ultime::detectZone() (lib/core/TimeService.cpp) GETs http://ip-api.com/line/?fields=timezone (plain HTTP like the rest of the
+    firmware; free tier is non-commercial only; 3 s timeouts, runs on the render task so boot can stall up to 3 s) and accepts only names in the table. main.cpp loop(): before
+    clockTime.begin, unless Settings::manualTimezone, a detected zone replaces and saves s.timezone. Failure keeps the saved zone (default Europe/Amsterdam).
+ 5. Manual override: Settings::manualTimezone (record.flags bit 8; existing records read as false = auto, so devices that already have a hand-chosen zone will be overwritten
+    on first boot of this firmware; no migration was added). Settings page: new checkbox "Detect timezone automatically" (name=autoTimezone, ticked by default, JSON key
+    autoTimezone). Ticked: timezone field and "Use device timezone" button disabled/greyed, field still shows the detected zone, server skips zone validation. Unticked: zone
+    must be in the table and is permanent. Ticking it again and saving runs detectZone() inside the POST handler (up to 3 s). Files: Settings.h/.cpp, main.cpp (settingsState,
+    saveSettings, loop), web/settings.html, web/settings.js (timezoneMode()).
+ Open / needs Joris: build all modes (CMake generation step, Python availability on the build machine), flash and test: fresh install, tick/untick, offline boot, wrong-zone
+   via VPN, 3 s boot stall; decide on a migration for hand-chosen zones on existing devices; confirm the licence-comment removal is acceptable.
+
+Claude (13 Oct): CLOCK FACE SWITCH on the settings page DONE (no commit, no flash, no unit tests, no preview run).
+ Requirement: the config page needs an option to switch clock faces. Each face is its own firmware image (one face linked per build), so a
+ switch is a signed OTA install of another mode's image, reusing the existing update path (signature, SHA-256, elf hash, anti-replay).
+ Changes:
+ - lib/core/FirmwareUpdate.h/.cpp: request(const char *mode = nullptr) takes a target face (null/empty = running face, old behaviour);
+   static knownMode() whitelists football, f1, motogp, tetris, word, mario, luigi, pacman. HttpFile/smallFile now take the mode and fetch
+   <server>/<mode>/manifest.json|sig|image. Manifest "mode" must equal the target; the replay history ("um-updates" NVS) is keyed per target mode.
+   New member _target[16]. Success message says "Clock face installed" when the target differs from the running face.
+ - src/main.cpp: POST /api/firmware?mode=<face> (400 "Unknown clock face." if not whitelisted; no param = plain update). GET /api/settings now also
+   returns "modeId" (UM_MODE_ID). The telnet "update" command is unchanged (running face).
+ - web/settings.html: "Clock face" select + "Switch clock face" button at the top of the Advanced card (all 8 faces listed).
+ - web/settings.js: startUpdate(question, mode) shared by "Download & update" and the new button; selector is preset from modeId; switching to the
+   current face is refused client-side; confirm dialog warns about restart and discarded unsaved settings. Reuses the existing progress/reconnect polling.
+ Checked: football build compiled (tools/idf.sh football build). Other modes not rebuilt; firmware/web changes are shared so they should compile too.
+ NOT checked: any on-device switch, the new UI in a browser, F1/Tetris/other builds.
+ Open / caveats:
+ - Faces only switch if published: publish-firmware.sh defaults to football f1 tetris. Publish the rest (word mario luigi pacman motogp) before offering them;
+   otherwise the switch fails with "Could not download the update manifest." The selector lists all 8 regardless; trim it or make it data-driven if wanted.
+ - The existing 30 s wait between update checks applies to switches.
+ - Settings persist across faces (shared "ultimatrix" NVS namespace), but face-specific fields (e.g. Words language in numberFont) carry over as-is.
+ - Server URL is still the hard-coded http://192.168.7.77/ultiMatrix in FirmwareUpdate.cpp.
+ Files touched: lib/core/FirmwareUpdate.h, lib/core/FirmwareUpdate.cpp, src/main.cpp, web/settings.html, web/settings.js, HANDOFF.txt.
+
+Claude (13 Oct): FIRMWARE UPDATE FLOW REWORK (no commit, no flash, no unit tests; football build only compiled: tools/idf.sh football build OK;
+ f1/tetris/motogp/word/mario/luigi/pacman NOT rebuilt). Joris's intended flow: stop all data feeds -> check memory -> enough: update;
+ not enough: ask to "reboot & update". Nothing else needs to keep fetching during an update, but the visuals must keep running.
+Changes:
+ - src/main.cpp: the display loop no longer skips face->update() while firmwareUpdating (the clock/animations keep drawing the last snapshot;
+   feeds were already parking themselves on that flag).
+ - lib/core/FirmwareUpdate.h/.cpp: request() sets firmwareUpdating (parks feeds) and starts the update task. The task takes networkBudget() (so no
+   feed download is in flight), waits 1.5 s for the parked feeds to release memory, then checks heap_caps_get_largest_free_block(8BIT) >= kMinFreeBlock
+   (16 KB: an ESTIMATE, tune from device logs; the update is plain HTTP, no TLS peak). Too little: Status.lowMemory = true, failed = true, message
+   "Not enough free memory ... Reboot and update?", feeds resume. If the task itself cannot be created, the same lowMemory status is returned (HTTP 409).
+   New Status field lowMemory (last member). New scheduleAfterReboot(mode) writes NVS ns "um-updates" key "pending"; static takeScheduled(mode,size)
+   reads and clears it.
+ - Reboot path: main.cpp setup() calls takeScheduled(); if set, firmwareUpdating = true (feeds stay off) and background() calls request(scheduledMode)
+   once Wi-Fi is connected; after 90 s without Wi-Fi it gives up and clears firmwareUpdating. NOTE: while firmwareUpdating the Wi-Fi reconnect branch
+   in background() is skipped, so a failed first connect is not retried during those 90 s.
+ - Web: GET /api/firmware now includes "lowMemory". New POST /api/firmware/reboot[?mode=] (schedules + restarts). web/settings.js: offerReboot() shows a
+   confirm dialog on a 409 lowMemory reply or when polling sees lowMemory; accepting calls the reboot endpoint and reconnects. Not tried in a browser.
+ - Telnet: lib/core/TelnetConsole.h/.cpp got a Watcher hook (setWatcher; called every poll with the client, or nullptr when nobody is connected).
+   main.cpp: "update" starts the update and returns immediately ("checking memory"); telnetWatch() prints the final result later, or the
+   "Reboot and update? (y/n)" question on lowMemory. While a question is pending, y/yes schedules + restarts, n/no cancels (this shadows the football
+   "y" yellow-card alias only during the question). A disconnect drops the pending question.
+ - Tried and removed: a permanent 24 KB RAM reserve held from boot. Joris wanted memory taken only at update time.
+ - Flash: no change; ota_0/ota_1 in partitions.csv already reserve a slot only updates write to.
+Open / next:
+ - Tune kMinFreeBlock: log free heap and largest block at update start, and esp_get_minimum_free_size() during it.
+ - Device checks: update with a face on screen (does drawing during an update cause the low-memory path?), reboot-and-update path (feeds stay off,
+   Wi-Fi up, update runs, 90 s timeout), telnet y/n flow, web confirm dialog.
+ - Failures after the memory check (e.g. HTTP open fails) still show a normal error, not the reboot prompt.
+ - Rebuild the other modes before relying on this.
+
+Claude (13 Oct) Internal publish script. No commit, no unit tests, not run.
+ - New: firmware/tools/publish-firmware.sh (listed in .gitignore on purpose: internal, untracked). Usage: [--no-build] [--dry-run] [mode ...], default modes football f1 tetris.
+   Flow: idf.sh <mode> build -> wipes dist/firmware -> package-firmware.py (bundled IDF python) -> ssh mkdir + scp images to joris@192.168.7.77:/var/www/html/ultiMatrix/<mode>/
+   -> manifest.json/manifest.sig uploaded as .new, then renamed back to back over ssh. Override with UM_UPDATE_HOST / UM_UPDATE_DIR.
+ - Only bash -n checked. Try `--dry-run --no-build` first. Earlier the auto-mode classifier blocked scp/ssh to the server; run it yourself or allow that rule.
+ - Known gap: the two manifest renames are not atomic as a pair (a device polling in between sees new manifest + old sig, should fail verification and retry).
+
+Claude (13 Oct, later) BOOT LOGO: boot now opens on the U instead of text. Kind::Logo = the lattice U at full brightness fading in (kFadeMs 800), held kLogoMs = 1200 ms
+ (main.cpp: bootAt, bootTick shows Logo first, then the normal states). When the Connecting state starts the U dims to the backdrop over kDimMs = 900 ms while the blue
+ Wi-Fi symbol pulses in; the icon blends over the dimming U. BootScreen: backdropLevel(x,y,glow)/backdrop(gfx,glow,fade), Frame.glow (0 dim .. 31 logo), drawIcon takes glow.
+ The ULTI/MATRIX text logo() is deleted; the "QR failed to encode" fallback now shows the bright U. Preview labels in tools/preview/boot.cpp updated.
+ Preview-only check (frames inspected), no idf.sh build, no flash. A connection faster than 1.2 s still waits for the logo before the Syncing/Connected screen.
+
+Claude (13 Oct, later) FIX: the Connecting Wi-Fi symbol did not pulse on the device. Cause: WiFiManager::waitForConnectResult() with _connectTimeout == 0 (never set) calls the
+ core's WiFi.waitForConnectResult(), which blocks without calling the wait callback (bootTick). main.cpp now sets wifi.setConnectTimeout(60) (seconds; the core's own default
+ wait is 60 s), so the vendor loop runs and calls bootTick every 20 ms. Not compiled with idf.sh or checked on the device: confirm the pulse and that a failed connection still
+ falls through to the portal after about 60 s.
+
+Claude (13 Oct, latest) Pixel colour depth back 8 -> 7 bits (night clock is dark red 0x3800, so 7 vs 8 bit is only quantisation: ~29/127 vs 58/255, same intensity).
+ Changed: main/CMakeLists.txt (UM_PIXEL_DEPTH_BITS=7 PIXEL_COLOR_DEPTH_BITS=7) and components/clock-libraries/CMakeLists.txt (PIXEL_COLOR_DEPTH_BITS=7, was still 8 there).
+ Saves 8 KB DMA RAM and should reach 60 Hz without the lsbMsbTransitionBit 2 workaround. F1Renderer.cpp goes back to its 7-bit branch. NOT built, flashed or checked on the panel:
+ rebuild + flash football, F1 and Tetris (none rebuilt since the 8-bit change) and confirm the night clock looks the same (watch for banding on the red); if not, revert both lines to 8.
+
+Claude (13 Oct, warnings cleanup) Compile warnings fixed; all 8 faces (football, f1, motogp, tetris, word, mario, luigi, pacman) built with exit 0 and no project warnings. Not flashed.
+ - PIXEL_COLOR_DEPTH_BITS "redefined" (120x): main and clock-libraries defined different values. Both are 7 now (see the entry above), so the clash is gone; keep the two lines in sync.
+ - Missing initialisers: TeamColors.cpp (second = 0), WordLanguages.h (monthFirst = false), FirmwareUpdate.cpp (Status lowMemory given).
+ - Unused code removed: F1Renderer.cpp narrowWidth/hasDigit/drawLiveClock/anyFavourite, F1Screens.cpp clockY, F1Ticker.cpp "timed", Pac-Man wantDir, FootballRenderer.cpp drawRoundNumber + drawRoundDigit.
+ - Settings.cpp:50 constrain(unsigned, 0U, 1440U) -> min(..., (uint32_t)1440): was the Arduino.h "< 0 always false" warning (the macro only showed up in the message).
+ - vendor/hub75 esp32_i2s_parallel_dma.cpp: removed unused irq_source (its only use is in a commented-out block). MIT/BSD headers untouched; re-apply if hub75 is re-synced with upstream.
+ - Only remaining build output: "ninja: warning: premature end of file; recovering" (ninja repairing its own log, not the compiler). Football once failed to link (libesp_psram.a missing) after a full rebuild; a second run was fine.
+ - After the last edits only football (Settings.cpp) and pacman (hub75) were rebuilt; the rest were built before them.
+
+Claude (13 Oct, later) Pixel colour depth back 7 -> 8 bits (7-bit gradients looked bad). Changed: main/CMakeLists.txt (UM_PIXEL_DEPTH_BITS=8 PIXEL_COLOR_DEPTH_BITS=8), components/clock-libraries/CMakeLists.txt (PIXEL_COLOR_DEPTH_BITS=8), tools/preview/showcase.py. F1Renderer.cpp MIN_LIT already has an 8-bit branch. NOT built or flashed. Costs ~8 KB DMA RAM; the hub75 driver may drop lsbMsbTransitionBit to hold min_refresh_rate (check the I2S-DMA log line). Keep the two CMake lines in sync.
+
+2026-10-13: Joris explicitly delegated commits and GitHub work to Codex as project orchestrator. Codex may create focused commits and manage routine GitHub work; confirm before merges, public releases or destructive history changes. Repository currently has no commits and no configured remote. No commit or push made at this checkpoint. Preserve concurrent edits and inspect current state before committing.
+
+2026-10-13: Joris: no publishing until he explicitly says so. Local commits remain authorized. Do not push, create public repositories/releases, or deploy firmware/artifacts to the web server until further instruction; this supersedes earlier upload authorization.
+
+2026-10-13: Codex reviewed current HANDOFF before starting local commits. Initial baseline includes current source, vendored dependencies, documentation and previews. Secret-pattern scan found no matches; private signing key, build trees, managed components and dist remain ignored. Latest 8-bit colour-depth change is unbuilt per Claude handoff; no new tests/builds or device operations performed for this snapshot. Publishing remains prohibited.

@@ -1,0 +1,75 @@
+ULTIMATRIX WORK LOG
+12 October 2026 — Shared foundation work; clockface refactors paused.
+
+Scope: reliable settings, time sync, brightness/night scheduling, networking,
+memory diagnostics, and local firmware updates with recovery support.
+No unit tests, commits, pushes, or device flashing unless explicitly requested.
+
+STARTED: inspect current shared services and existing hardware defaults.
+IN PROGRESS: atomic settings record with legacy migration; time/brightness controls.
+NEXT: reconnect behaviour, firmware upload/recovery, focused builds and handoff.
+
+IMPLEMENTED: versioned/checksummed single-blob settings; legacy values retained.
+IMPLEMENTED: shared light-sensor smoothing and night schedule; NTP fallback servers.
+IN PROGRESS: expose controls in the existing settings page and validate inputs.
+
+IMPLEMENTED: 12/24-hour format, custom NTP server, sensor calibration, night times in settings UI.
+SDK: enabled three SNTP server slots, retaining other per-mode settings.
+IN PROGRESS: firmware update/recovery service and reconnect backoff.
+
+BUILD: Football passed for settings/time/brightness changes.
+IMPLEMENTED: Wi-Fi reconnect backoff (5–60 seconds), mDNS retries, quiet first-load defaults.
+FIXED: duplicate SDK setting had disabled selective Arduino compilation; enabled it explicitly.
+APPROVAL BLOCK: unauthenticated network firmware updates rejected by automatic review.
+No updater files or rollback configuration were written by the rejected action.
+User decision requested: password-protected web updater or USB-only updates.
+IN PROGRESS: all-mode compilation with shared services and selective-library settings.
+
+USER UPDATE: updates must pull application images from a defined server, initiated by telnet/web UI.
+SERVER: http://192.168.7.77/ultiMatrix ; SCP joris@192.168.7.77:/var/www/html/ultiMatrix/.
+ACCESS: SSH login and destination write permission verified; no remote files changed yet.
+SAFER DESIGN: fixed-server, current-mode downloads; signed manifests and SHA-256 image checks;
+no arbitrary uploads or editable download URLs. Signing key stays local and ignored by Git.
+BUILD FIX: selected AsyncUDP, required by the existing Wi-Fi portal DNS server.
+COMPATIBILITY: Tetris now reads the selected time format (one-line adapter change; no drawing refactor).
+
+IMPLEMENTED: signed current-mode downloader from the approved fixed HTTP server.
+Only authenticated application images can be activated. No upload/arbitrary URL endpoint.
+Signing private key is local in ignored .tools/; public key embedded in firmware.
+Recovery: bootloader rollback enabled; app confirmed after 30 seconds of healthy service operation.
+No downloads/updates run on the physical clock; no bootloader/app flashing performed.
+NEXT: compile, package signed images, deploy via the approved SCP destination.
+
+IMPLEMENTED: web/telnet update initiation, status/progress, signed-image packaging tool.
+CHECKPOINT: HANDOFF.txt updated before final builds/deployment.
+
+BUILD FIX: explicit Wi-Fi/network/NVS public header dependencies for selective Arduino builds.
+UPDATE HARDENING: authenticated release IDs stored before activation to reject older signed replays.
+All-mode compilation restarting; deployment still pending.
+
+COPY: removed marketing phrases; setup/settings descriptions are informational.
+BUILD FIX: exported provisioning header dependency required by Arduino WiFiGeneric.
+
+2026-10-12: Simplified settings copy further: removed promotional glow/favourites wording; kept short functional descriptions. Checked source copy; no tests run for text-only edits.
+
+2026-10-12: Restored old Wi-Fi save-page behavior: mDNS/IP links with HTTP-compatible copy buttons; portal remains open 10 seconds for IP retrieval, extended once after retrieval. Settings now apply on save without reboot (rotation, time, brightness/schedule, console, renderer preferences). Only panel colour wiring and Football feed selections restart. Compile/device verification pending. Original ~/clockwise untouched.
+
+2026-10-12: Added Use device timezone button using browser Intl timezone; server validates supported zones as before. Applies without reboot when saved. JavaScript syntax checked; device verification pending.
+
+Live settings + portal links + device timezone: Football/F1/Tetris builds PASS. JavaScript syntax PASS. No unit tests or device flash. Logs /tmp/ultimatrix-live-settings-{football,f1,tetris}.log. Hardware checks and firmware publication remain open.
+
+2026-10-13: Settings page: face-specific Clock mode section moved to top (settings.html/js, sidebar renumbered 01-05). JS syntax checked only; not tested in browser or on device.
+
+2026-10-13: Boot screens redesigned (lib/core/BootScreen.*, main.cpp, preview boot.cpp): text-free start on a dim LED-lattice U backdrop, blue/green Wi-Fi symbol and orange clock+alert icons (hard edges, gradient, fade into backdrop), IP in block digits with gradient, full-screen version-1 setup QR (3 px, flips polarity every 5 s), setup AP renamed UM-SETUP. Native preview compile only; idf.sh build, flash and QR scan tests pending. Details in HANDOFF.txt.
+
+2026-10-13: Settings page: save button now hidden when there is nothing to save (settings.js dirty(), settings.html #save hidden by default). Not run or tested. Details in HANDOFF.txt.
+2026-10-13: Removed Clockwise mentions from firmware code comments; renamed CWTzEntry -> UmTzEntry and cw_* shim functions -> um_*. TzDb.h is generated on every build (tools/gen_tzdb.py + tools/zones.csv, wired in main/CMakeLists.txt). Timezone is detected from the public IP at boot (ip-api.com, HTTP); settings page got a "Detect timezone automatically" checkbox (manualTimezone setting) that greys out the timezone field when ticked and keeps hand-entered zones permanent when unticked. Not compiled or flashed; details in HANDOFF.txt.
+
+2026-10-13: Update flow: feeds parked -> memory check (16 KB largest block, estimate) -> update, or ask "reboot & update" (web confirm, telnet y/n; NVS "pending" runs it on next boot with feeds off). Display keeps drawing during updates. Football build compiles; other modes, device and browser untested. Details in HANDOFF.txt.
+2026-10-13: Added firmware/tools/publish-firmware.sh (gitignored, internal): build + package + scp upload to update server. Syntax-checked only, not run. Details in HANDOFF.txt.
+
+2026-10-13: Joris explicitly delegated commits and GitHub work to Codex as project orchestrator. Codex may create focused commits and manage routine GitHub work; confirm before merges, public releases or destructive history changes. Repository currently has no commits and no configured remote. No commit or push made at this checkpoint. Preserve concurrent edits and inspect current state before committing.
+
+2026-10-13: Joris: no publishing until he explicitly says so. Local commits remain authorized. Do not push, create public repositories/releases, or deploy firmware/artifacts to the web server until further instruction; this supersedes earlier upload authorization.
+
+2026-10-13: Codex reviewed current HANDOFF before starting local commits. Initial baseline includes current source, vendored dependencies, documentation and previews. Secret-pattern scan found no matches; private signing key, build trees, managed components and dist remain ignored. Latest 8-bit colour-depth change is unbuilt per Claude handoff; no new tests/builds or device operations performed for this snapshot. Publishing remains prohibited.

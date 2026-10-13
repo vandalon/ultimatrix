@@ -1,0 +1,1864 @@
+{
+ "captured": "2026-10-12",
+ "sources": [
+  {
+   "name": "football-board",
+   "url": "https://site.api.espn.com/apis/site/v2/sports/soccer/ned.1/scoreboard"
+  },
+  {
+   "name": "football-summary",
+   "url": "https://site.api.espn.com/apis/site/v2/sports/soccer/ned.1/summary?event=401875587"
+  },
+  {
+   "name": "eredivisie-table",
+   "url": "https://site.api.espn.com/apis/v2/sports/soccer/ned.1/standings"
+  },
+  {
+   "name": "bundesliga-table",
+   "url": "https://site.api.espn.com/apis/v2/sports/soccer/ger.1/standings"
+  },
+  {
+   "name": "eredivisie-upcoming",
+   "url": "https://site.api.espn.com/apis/site/v2/sports/soccer/ned.1/scoreboard?dates=20261016"
+  },
+  {
+   "name": "eredivisie-upcoming-saturday",
+   "url": "https://site.api.espn.com/apis/site/v2/sports/soccer/ned.1/scoreboard?dates=20261017"
+  },
+  {
+   "name": "eredivisie-upcoming-sunday",
+   "url": "https://site.api.espn.com/apis/site/v2/sports/soccer/ned.1/scoreboard?dates=20261018"
+  },
+  {
+   "name": "bundesliga-upcoming",
+   "url": "https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard?dates=20261017"
+  },
+  {
+   "name": "f1-board",
+   "url": "https://site.api.espn.com/apis/site/v2/sports/racing/f1/scoreboard"
+  },
+  {
+   "name": "f1-standings",
+   "url": "https://api.jolpi.ca/ergast/f1/current/driverstandings.json?limit=30"
+  },
+  {
+   "name": "f1-results",
+   "url": "https://api.jolpi.ca/ergast/f1/2026/last/results.json?limit=30"
+  },
+  {
+   "name": "f1-qualifying",
+   "url": "https://api.jolpi.ca/ergast/f1/2026/last/qualifying.json?limit=30"
+  },
+  {
+   "name": "f1-practice-results",
+   "url": "https://api.openf1.org/v1/session_result?session_key=11378"
+  },
+  {
+   "name": "f1-calendar",
+   "url": "https://api.jolpi.ca/ergast/f1/2026.json?limit=100"
+  }
+ ],
+ "football": {
+  "games": [
+   {
+    "id": "401875587",
+    "league": "ned.1",
+    "home": {
+     "code": "UTR",
+     "id": "153",
+     "color": "F31522",
+     "second": "1a316b",
+     "position": 13
+    },
+    "away": {
+     "code": "WIL",
+     "id": "156",
+     "color": "1a316b",
+     "second": "96c0df",
+     "position": 18
+    },
+    "kickoff": 1791713700,
+    "homeScore": 3,
+    "awayScore": 1,
+    "events": [
+     {
+      "minute": 45,
+      "kind": "y",
+      "home": true,
+      "number": 10,
+      "name": "CATHLINE"
+     },
+     {
+      "minute": 53,
+      "kind": "g",
+      "home": true,
+      "number": 10,
+      "name": "CATHLINE"
+     },
+     {
+      "minute": 60,
+      "kind": "g",
+      "home": false,
+      "number": 7,
+      "name": "SLORY"
+     },
+     {
+      "minute": 75,
+      "kind": "g",
+      "home": true,
+      "number": 10,
+      "name": "CATHLINE"
+     },
+     {
+      "minute": 80,
+      "kind": "y",
+      "home": true,
+      "number": 5,
+      "name": "PANAGIOTOU"
+     },
+     {
+      "minute": 92,
+      "kind": "g",
+      "home": true,
+      "number": 11,
+      "name": "ALARCON"
+     }
+    ]
+   },
+   {
+    "id": "401875586",
+    "league": "ned.1",
+    "home": {
+     "code": "PEC",
+     "id": "2565",
+     "color": "0000d4",
+     "second": "000000",
+     "position": 16
+    },
+    "away": {
+     "code": "CAM",
+     "id": "3736",
+     "color": "FCEE33",
+     "second": "98994e",
+     "position": 12
+    },
+    "kickoff": 1791721800,
+    "homeScore": 0,
+    "awayScore": 1,
+    "events": [
+     {
+      "minute": 39,
+      "kind": "y",
+      "home": true,
+      "number": 2,
+      "name": "FLORANUS"
+     },
+     {
+      "minute": 39,
+      "kind": "y",
+      "home": false,
+      "number": 2,
+      "name": "BOUAH"
+     },
+     {
+      "minute": 52,
+      "kind": "y",
+      "home": true,
+      "number": 22,
+      "name": "CISSOKO"
+     },
+     {
+      "minute": 56,
+      "kind": "y",
+      "home": false,
+      "number": 30,
+      "name": "CEKA"
+     },
+     {
+      "minute": 73,
+      "kind": "y",
+      "home": false,
+      "number": 28,
+      "name": "COSTARELLI"
+     },
+     {
+      "minute": 83,
+      "kind": "g",
+      "home": false,
+      "number": 13,
+      "name": "BINDER"
+     },
+     {
+      "minute": 86,
+      "kind": "y",
+      "home": true,
+      "number": 20,
+      "name": "REIZIGER"
+     }
+    ]
+   },
+   {
+    "id": "401875585",
+    "league": "ned.1",
+    "home": {
+     "code": "TEL",
+     "id": "3735",
+     "color": "C60000",
+     "second": "FCEE33",
+     "position": 15
+    },
+    "away": {
+     "code": "ADO",
+     "id": "2726",
+     "color": "307B64",
+     "second": "a0ffe5",
+     "position": 17
+    },
+    "kickoff": 1791721800,
+    "homeScore": 2,
+    "awayScore": 2,
+    "events": [
+     {
+      "minute": 13,
+      "kind": "r",
+      "home": false,
+      "number": 15,
+      "name": "HOKKE"
+     },
+     {
+      "minute": 14,
+      "kind": "g",
+      "home": true,
+      "number": 10,
+      "name": "OWUSU"
+     },
+     {
+      "minute": 16,
+      "kind": "y",
+      "home": true,
+      "number": 9,
+      "name": "SEEDORF"
+     },
+     {
+      "minute": 16,
+      "kind": "g",
+      "home": false,
+      "number": 46,
+      "name": "EDUARDO"
+     },
+     {
+      "minute": 25,
+      "kind": "g",
+      "home": false,
+      "number": 11,
+      "name": "ROTTIER"
+     },
+     {
+      "minute": 37,
+      "kind": "g",
+      "home": true,
+      "number": 10,
+      "name": "OWUSU"
+     },
+     {
+      "minute": 40,
+      "kind": "y",
+      "home": false,
+      "number": 24,
+      "name": "POZO"
+     },
+     {
+      "minute": 85,
+      "kind": "y",
+      "home": true,
+      "number": 4,
+      "name": "SOUALHIA"
+     }
+    ]
+   },
+   {
+    "id": "401875584",
+    "league": "ned.1",
+    "home": {
+     "code": "EXC",
+     "id": "2566",
+     "color": "000000",
+     "second": "b41226",
+     "position": 9
+    },
+    "away": {
+     "code": "GRO",
+     "id": "145",
+     "color": "ffffff",
+     "second": "30565c",
+     "position": 6
+    },
+    "kickoff": 1791729900,
+    "homeScore": 1,
+    "awayScore": 5,
+    "events": [
+     {
+      "minute": 7,
+      "kind": "g",
+      "home": false,
+      "number": 5,
+      "name": "RENTE"
+     },
+     {
+      "minute": 20,
+      "kind": "y",
+      "home": false,
+      "number": 17,
+      "name": "WERFF"
+     },
+     {
+      "minute": 36,
+      "kind": "g",
+      "home": true,
+      "number": 8,
+      "name": "YEGOIAN"
+     },
+     {
+      "minute": 38,
+      "kind": "g",
+      "home": false,
+      "number": 1,
+      "name": "GASSEL"
+     },
+     {
+      "minute": 64,
+      "kind": "g",
+      "home": false,
+      "number": 26,
+      "name": "BERGEN"
+     },
+     {
+      "minute": 67,
+      "kind": "g",
+      "home": false,
+      "number": 9,
+      "name": "WILLUMSSON"
+     },
+     {
+      "minute": 80,
+      "kind": "y",
+      "home": false,
+      "number": 18,
+      "name": "LAND"
+     },
+     {
+      "minute": 95,
+      "kind": "g",
+      "home": false,
+      "number": 5,
+      "name": "RENTE"
+     }
+    ]
+   }
+  ],
+  "upcoming": [
+   {
+    "id": "401875583",
+    "league": "ned.1",
+    "home": {
+     "code": "HEE",
+     "id": "146",
+     "color": "003eff",
+     "second": "1a316b",
+     "position": 10
+    },
+    "away": {
+     "code": "EXC",
+     "id": "2566",
+     "color": "000000",
+     "second": "b41226",
+     "position": 9
+    },
+    "kickoff": 1792173600,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   },
+   {
+    "id": "401875582",
+    "league": "ned.1",
+    "home": {
+     "code": "ADO",
+     "id": "2726",
+     "color": "307B64",
+     "second": "a0ffe5",
+     "position": 17
+    },
+    "away": {
+     "code": "PSV",
+     "id": "148",
+     "color": "ef2f24",
+     "second": "000000",
+     "position": 2
+    },
+    "kickoff": 1792247400,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   },
+   {
+    "id": "401875580",
+    "league": "ned.1",
+    "home": {
+     "code": "TEL",
+     "id": "3735",
+     "color": "C60000",
+     "second": "FCEE33",
+     "position": 15
+    },
+    "away": {
+     "code": "FEY",
+     "id": "142",
+     "color": "ef2f24",
+     "second": "000000",
+     "position": 1
+    },
+    "kickoff": 1792260000,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   },
+   {
+    "id": "401875579",
+    "league": "ned.1",
+    "home": {
+     "code": "SPA",
+     "id": "151",
+     "color": "F31522",
+     "second": "84aee7",
+     "position": 14
+    },
+    "away": {
+     "code": "WIL",
+     "id": "156",
+     "color": "1a316b",
+     "second": "96c0df",
+     "position": 18
+    },
+    "kickoff": 1792263600,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   },
+   {
+    "id": "401875578",
+    "league": "ned.1",
+    "home": {
+     "code": "PEC",
+     "id": "2565",
+     "color": "0000d4",
+     "second": "000000",
+     "position": 16
+    },
+    "away": {
+     "code": "GAE",
+     "id": "3706",
+     "color": "F80017",
+     "second": "8f0058",
+     "position": 8
+    },
+    "kickoff": 1792318500,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   },
+   {
+    "id": "401875576",
+    "league": "ned.1",
+    "home": {
+     "code": "CAM",
+     "id": "3736",
+     "color": "FCEE33",
+     "second": "98994e",
+     "position": 12
+    },
+    "away": {
+     "code": "AZ",
+     "id": "140",
+     "color": "ef2f24",
+     "second": "ffffff",
+     "position": 3
+    },
+    "kickoff": 1792326600,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   },
+   {
+    "id": "401875575",
+    "league": "ned.1",
+    "home": {
+     "code": "GRO",
+     "id": "145",
+     "color": "ffffff",
+     "second": "30565c",
+     "position": 6
+    },
+    "away": {
+     "code": "AJA",
+     "id": "139",
+     "color": "DF1B27",
+     "second": "4d6286",
+     "position": 5
+    },
+    "kickoff": 1792334700,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   },
+   {
+    "id": "401875581",
+    "league": "ned.1",
+    "home": {
+     "code": "NEC",
+     "id": "147",
+     "color": "ef2f24",
+     "second": "84aee7",
+     "position": 11
+    },
+    "away": {
+     "code": "FOR",
+     "id": "143",
+     "color": "FCEE33",
+     "second": "ffffff",
+     "position": 7
+    },
+    "kickoff": 1792346400,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   },
+   {
+    "id": "401875577",
+    "league": "ned.1",
+    "home": {
+     "code": "TWE",
+     "id": "152",
+     "color": "F31522",
+     "second": "9df9f7",
+     "position": 4
+    },
+    "away": {
+     "code": "UTR",
+     "id": "153",
+     "color": "F31522",
+     "second": "1a316b",
+     "position": 13
+    },
+    "kickoff": 1792346400,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   },
+   {
+    "id": "401884764",
+    "league": "ger.1",
+    "home": {
+     "code": "ELV",
+     "id": "10388",
+     "color": "000000",
+     "second": "FFFFFF",
+     "position": 9
+    },
+    "away": {
+     "code": "FCA",
+     "id": "3841",
+     "color": "ffffff",
+     "second": "03915c",
+     "position": 6
+    },
+    "kickoff": 1792243800,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   },
+   {
+    "id": "401884769",
+    "league": "ger.1",
+    "home": {
+     "code": "FCU",
+     "id": "598",
+     "color": "DA0308",
+     "second": "d4d4d4",
+     "position": 16
+    },
+    "away": {
+     "code": "DOR",
+     "id": "124",
+     "color": "ffee00",
+     "second": "272726",
+     "position": 2
+    },
+    "kickoff": 1792243800,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   },
+   {
+    "id": "401884767",
+    "league": "ger.1",
+    "home": {
+     "code": "HSV",
+     "id": "127",
+     "color": "1a26af",
+     "second": "1a1a1a",
+     "position": 12
+    },
+    "away": {
+     "code": "VFB",
+     "id": "134",
+     "color": "ffffff",
+     "second": "DA0308",
+     "position": 11
+    },
+    "kickoff": 1792243800,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   },
+   {
+    "id": "401884765",
+    "league": "ger.1",
+    "home": {
+     "code": "S04",
+     "id": "133",
+     "color": "0000dd",
+     "second": "ffffff",
+     "position": 13
+    },
+    "away": {
+     "code": "M05",
+     "id": "2950",
+     "color": "DA0308",
+     "second": "000055",
+     "position": 8
+    },
+    "kickoff": 1792243800,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   },
+   {
+    "id": "401884766",
+    "league": "ger.1",
+    "home": {
+     "code": "SVW",
+     "id": "137",
+     "color": "03915c",
+     "second": "ffffff",
+     "position": 7
+    },
+    "away": {
+     "code": "SCP",
+     "id": "3307",
+     "color": "0000dd",
+     "second": "ffffff",
+     "position": 15
+    },
+    "kickoff": 1792243800,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   },
+   {
+    "id": "401884772",
+    "league": "ger.1",
+    "home": {
+     "code": "MUN",
+     "id": "132",
+     "color": "dc052d",
+     "second": "1a1a1a",
+     "position": 3
+    },
+    "away": {
+     "code": "RBL",
+     "id": "11420",
+     "color": "ffffff",
+     "second": "740c14",
+     "position": 5
+    },
+    "kickoff": 1792254600,
+    "homeScore": 0,
+    "awayScore": 0,
+    "events": []
+   }
+  ],
+  "tables": [
+   {
+    "name": "Eredivisie",
+    "rows": [
+     {
+      "code": "FEY",
+      "points": 20,
+      "position": 1
+     },
+     {
+      "code": "PSV",
+      "points": 19,
+      "position": 2
+     },
+     {
+      "code": "AZ",
+      "points": 19,
+      "position": 3
+     },
+     {
+      "code": "TWE",
+      "points": 17,
+      "position": 4
+     },
+     {
+      "code": "AJA",
+      "points": 15,
+      "position": 5
+     },
+     {
+      "code": "GRO",
+      "points": 14,
+      "position": 6
+     },
+     {
+      "code": "FOR",
+      "points": 14,
+      "position": 7
+     },
+     {
+      "code": "GAE",
+      "points": 11,
+      "position": 8
+     },
+     {
+      "code": "EXC",
+      "points": 11,
+      "position": 9
+     },
+     {
+      "code": "HEE",
+      "points": 9,
+      "position": 10
+     },
+     {
+      "code": "NEC",
+      "points": 9,
+      "position": 11
+     },
+     {
+      "code": "CAM",
+      "points": 8,
+      "position": 12
+     },
+     {
+      "code": "UTR",
+      "points": 8,
+      "position": 13
+     },
+     {
+      "code": "SPA",
+      "points": 6,
+      "position": 14
+     },
+     {
+      "code": "TEL",
+      "points": 6,
+      "position": 15
+     },
+     {
+      "code": "PEC",
+      "points": 4,
+      "position": 16
+     },
+     {
+      "code": "ADO",
+      "points": 3,
+      "position": 17
+     },
+     {
+      "code": "WIL",
+      "points": 2,
+      "position": 18
+     }
+    ]
+   },
+   {
+    "name": "Bundesliga",
+    "rows": [
+     {
+      "code": "SCF",
+      "points": 13,
+      "position": 1
+     },
+     {
+      "code": "DOR",
+      "points": 13,
+      "position": 2
+     },
+     {
+      "code": "MUN",
+      "points": 11,
+      "position": 3
+     },
+     {
+      "code": "B04",
+      "points": 10,
+      "position": 4
+     },
+     {
+      "code": "RBL",
+      "points": 9,
+      "position": 5
+     },
+     {
+      "code": "FCA",
+      "points": 8,
+      "position": 6
+     },
+     {
+      "code": "SVW",
+      "points": 8,
+      "position": 7
+     },
+     {
+      "code": "M05",
+      "points": 7,
+      "position": 8
+     },
+     {
+      "code": "ELV",
+      "points": 7,
+      "position": 9
+     },
+     {
+      "code": "KOE",
+      "points": 7,
+      "position": 10
+     },
+     {
+      "code": "VFB",
+      "points": 6,
+      "position": 11
+     },
+     {
+      "code": "HSV",
+      "points": 6,
+      "position": 12
+     },
+     {
+      "code": "S04",
+      "points": 5,
+      "position": 13
+     },
+     {
+      "code": "SGE",
+      "points": 5,
+      "position": 14
+     },
+     {
+      "code": "SCP",
+      "points": 4,
+      "position": 15
+     },
+     {
+      "code": "FCU",
+      "points": 4,
+      "position": 16
+     },
+     {
+      "code": "TSG",
+      "points": 3,
+      "position": 17
+     },
+     {
+      "code": "BMG",
+      "points": 0,
+      "position": 18
+     }
+    ]
+   }
+  ],
+  "substitution": {
+   "game": 0,
+   "kind": "s",
+   "minute": 68,
+   "home": true,
+   "number": 92,
+   "numberOn": 32,
+   "name": ""
+  }
+ },
+ "f1": {
+  "circuit": "Marina Bay Street Circuit",
+  "standings": [
+   {
+    "code": "ANT",
+    "points": 340
+   },
+   {
+    "code": "RUS",
+    "points": 238
+   },
+   {
+    "code": "HAM",
+    "points": 229
+   },
+   {
+    "code": "VER",
+    "points": 221
+   },
+   {
+    "code": "LEC",
+    "points": 215
+   },
+   {
+    "code": "NOR",
+    "points": 201
+   },
+   {
+    "code": "PIA",
+    "points": 138
+   },
+   {
+    "code": "HAD",
+    "points": 97
+   },
+   {
+    "code": "LAW",
+    "points": 75
+   },
+   {
+    "code": "GAS",
+    "points": 41
+   },
+   {
+    "code": "LIN",
+    "points": 38
+   },
+   {
+    "code": "COL",
+    "points": 27
+   },
+   {
+    "code": "BEA",
+    "points": 23
+   },
+   {
+    "code": "HUL",
+    "points": 13
+   },
+   {
+    "code": "BOR",
+    "points": 10
+   },
+   {
+    "code": "OCO",
+    "points": 7
+   },
+   {
+    "code": "ALO",
+    "points": 7
+   },
+   {
+    "code": "SAI",
+    "points": 7
+   },
+   {
+    "code": "ALB",
+    "points": 5
+   },
+   {
+    "code": "TSU",
+    "points": 1
+   },
+   {
+    "code": "STR",
+    "points": 0
+   },
+   {
+    "code": "BOT",
+    "points": 0
+   },
+   {
+    "code": "PER",
+    "points": 0
+   }
+  ],
+  "practice": [
+   {
+    "code": "RUS",
+    "time": "1:32.274",
+    "fastest": false
+   },
+   {
+    "code": "LEC",
+    "time": "+0.198",
+    "fastest": false
+   },
+   {
+    "code": "NOR",
+    "time": "+0.273",
+    "fastest": false
+   },
+   {
+    "code": "HAM",
+    "time": "+0.499",
+    "fastest": false
+   },
+   {
+    "code": "PIA",
+    "time": "+0.564",
+    "fastest": false
+   },
+   {
+    "code": "VER",
+    "time": "+0.732",
+    "fastest": false
+   },
+   {
+    "code": "ANT",
+    "time": "+1.251",
+    "fastest": false
+   },
+   {
+    "code": "HAD",
+    "time": "+1.449",
+    "fastest": false
+   },
+   {
+    "code": "GAS",
+    "time": "+1.764",
+    "fastest": false
+   },
+   {
+    "code": "LAW",
+    "time": "+1.881",
+    "fastest": false
+   },
+   {
+    "code": "BEA",
+    "time": "+2.057",
+    "fastest": false
+   },
+   {
+    "code": "LIN",
+    "time": "+2.202",
+    "fastest": false
+   },
+   {
+    "code": "OCO",
+    "time": "+2.207",
+    "fastest": false
+   },
+   {
+    "code": "ALO",
+    "time": "+2.221",
+    "fastest": false
+   },
+   {
+    "code": "SAI",
+    "time": "+2.377",
+    "fastest": false
+   },
+   {
+    "code": "BOR",
+    "time": "+2.462",
+    "fastest": false
+   },
+   {
+    "code": "ALB",
+    "time": "+2.531",
+    "fastest": false
+   },
+   {
+    "code": "HUL",
+    "time": "+2.610",
+    "fastest": false
+   },
+   {
+    "code": "COL",
+    "time": "+2.709",
+    "fastest": false
+   },
+   {
+    "code": "STR",
+    "time": "+2.994",
+    "fastest": false
+   },
+   {
+    "code": "PER",
+    "time": "+3.025",
+    "fastest": false
+   },
+   {
+    "code": "BOT",
+    "time": "+3.346",
+    "fastest": false
+   }
+  ],
+  "qualifying": [
+   {
+    "code": "VER",
+    "time": "1:31.373",
+    "fastest": false
+   },
+   {
+    "code": "LEC",
+    "time": "1:31.427",
+    "fastest": false
+   },
+   {
+    "code": "HAM",
+    "time": "1:31.496",
+    "fastest": false
+   },
+   {
+    "code": "ANT",
+    "time": "1:31.562",
+    "fastest": false
+   },
+   {
+    "code": "NOR",
+    "time": "1:31.712",
+    "fastest": false
+   },
+   {
+    "code": "RUS",
+    "time": "1:31.747",
+    "fastest": false
+   },
+   {
+    "code": "PIA",
+    "time": "1:31.860",
+    "fastest": false
+   },
+   {
+    "code": "GAS",
+    "time": "1:32.225",
+    "fastest": false
+   },
+   {
+    "code": "LAW",
+    "time": "1:32.369",
+    "fastest": false
+   },
+   {
+    "code": "LIN",
+    "time": "1:32.781",
+    "fastest": false
+   },
+   {
+    "code": "HUL",
+    "time": "1:32.784",
+    "fastest": false
+   },
+   {
+    "code": "BEA",
+    "time": "1:32.908",
+    "fastest": false
+   },
+   {
+    "code": "OCO",
+    "time": "1:33.323",
+    "fastest": false
+   },
+   {
+    "code": "SAI",
+    "time": "1:33.526",
+    "fastest": false
+   },
+   {
+    "code": "BOR",
+    "time": "1:33.658",
+    "fastest": false
+   },
+   {
+    "code": "COL",
+    "time": "1:33.787",
+    "fastest": false
+   },
+   {
+    "code": "ALO",
+    "time": "1:34.223",
+    "fastest": false
+   },
+   {
+    "code": "ALB",
+    "time": "1:34.289",
+    "fastest": false
+   },
+   {
+    "code": "STR",
+    "time": "1:34.946",
+    "fastest": false
+   },
+   {
+    "code": "PER",
+    "time": "1:35.123",
+    "fastest": false
+   },
+   {
+    "code": "BOT",
+    "time": "1:35.984",
+    "fastest": false
+   },
+   {
+    "code": "HAD",
+    "time": "",
+    "fastest": false
+   }
+  ],
+  "race": [
+   {
+    "code": "VER",
+    "time": "LEAD",
+    "fastest": false
+   },
+   {
+    "code": "LEC",
+    "time": "+7.335",
+    "fastest": true
+   },
+   {
+    "code": "ANT",
+    "time": "+24.573",
+    "fastest": false
+   },
+   {
+    "code": "NOR",
+    "time": "+40.506",
+    "fastest": false
+   },
+   {
+    "code": "PIA",
+    "time": "+49.644",
+    "fastest": false
+   },
+   {
+    "code": "HAM",
+    "time": "+53.188",
+    "fastest": false
+   },
+   {
+    "code": "LAW",
+    "time": "+1:21.66",
+    "fastest": false
+   },
+   {
+    "code": "HUL",
+    "time": "+1:23.38",
+    "fastest": false
+   },
+   {
+    "code": "RUS",
+    "time": "+1:24.67",
+    "fastest": false
+   },
+   {
+    "code": "HAD",
+    "time": "+1:30.86",
+    "fastest": false
+   },
+   {
+    "code": "GAS",
+    "time": "+2.171",
+    "fastest": false
+   },
+   {
+    "code": "BEA",
+    "time": "+5.006",
+    "fastest": false
+   },
+   {
+    "code": "OCO",
+    "time": "+25.647",
+    "fastest": false
+   },
+   {
+    "code": "SAI",
+    "time": "+58.139",
+    "fastest": false
+   },
+   {
+    "code": "LIN",
+    "time": "+1:00.95",
+    "fastest": false
+   },
+   {
+    "code": "ALO",
+    "time": "+1:14.45",
+    "fastest": false
+   },
+   {
+    "code": "PER",
+    "time": "+20.520",
+    "fastest": false
+   },
+   {
+    "code": "ALB",
+    "time": "",
+    "fastest": false
+   },
+   {
+    "code": "BOT",
+    "time": "+17.347",
+    "fastest": false
+   },
+   {
+    "code": "STR",
+    "time": "RETIRED",
+    "fastest": false
+   },
+   {
+    "code": "COL",
+    "time": "RETIRED",
+    "fastest": false
+   },
+   {
+    "code": "BOR",
+    "time": "RETIRED",
+    "fastest": false
+   }
+  ],
+  "practiceStart": 1791534600,
+  "qualifyingStart": 1791639000,
+  "raceStart": 1791720000,
+  "raceLaps": 62,
+  "raceEnd": 1791726120,
+  "nextSession": {
+   "name": "SQ",
+   "start": 1791549000
+  },
+  "nextRace": {
+   "city": "AUSTIN",
+   "circuit": "Circuit of the Americas",
+   "start": 1792776600
+  }
+ },
+ "motogp": {
+  "circuit": "INDONESIA Pertamina Mandalika C LOMBOK",
+  "standings": [
+   {
+    "code": "MRT",
+    "points": 355,
+    "color": "9660F0",
+    "name": "MARTIN"
+   },
+   {
+    "code": "MAR",
+    "points": 353,
+    "color": "E81828",
+    "name": "M MARQUEZ"
+   },
+   {
+    "code": "BEZ",
+    "points": 309,
+    "color": "9660F0",
+    "name": "BEZZECCHI"
+   },
+   {
+    "code": "OGU",
+    "points": 259,
+    "color": "9660F0",
+    "name": "OGURA"
+   },
+   {
+    "code": "ACO",
+    "points": 258,
+    "color": "FF7A14",
+    "name": "ACOSTA"
+   },
+   {
+    "code": "DIG",
+    "points": 245,
+    "color": "E81828",
+    "name": "DI GIANNANTONIO"
+   },
+   {
+    "code": "RFE",
+    "points": 236,
+    "color": "9660F0",
+    "name": "R FERNANDEZ"
+   },
+   {
+    "code": "AMA",
+    "points": 172,
+    "color": "E81828",
+    "name": "A MARQUEZ"
+   },
+   {
+    "code": "BAG",
+    "points": 166,
+    "color": "E81828",
+    "name": "BAGNAIA"
+   },
+   {
+    "code": "ALD",
+    "points": 125,
+    "color": "E81828",
+    "name": "ALDEGUER"
+   },
+   {
+    "code": "BAS",
+    "points": 122,
+    "color": "FF7A14",
+    "name": "BASTIANINI"
+   },
+   {
+    "code": "MRI",
+    "points": 108,
+    "color": "FFFFFF",
+    "name": "MARINI"
+   },
+   {
+    "code": "BIN",
+    "points": 104,
+    "color": "FF7A14",
+    "name": "BINDER"
+   },
+   {
+    "code": "QUA",
+    "points": 74,
+    "color": "2878FF",
+    "name": "QUARTARARO"
+   },
+   {
+    "code": "MRA",
+    "points": 74,
+    "color": "FFFFFF",
+    "name": "MOREIRA"
+   },
+   {
+    "code": "MBD",
+    "points": 59,
+    "color": "E81828",
+    "name": "MORBIDELLI"
+   },
+   {
+    "code": "ZAR",
+    "points": 51,
+    "color": "FFFFFF",
+    "name": "ZARCO"
+   },
+   {
+    "code": "MIR",
+    "points": 33,
+    "color": "FFFFFF",
+    "name": "MIR"
+   },
+   {
+    "code": "MIL",
+    "points": 28,
+    "color": "2878FF",
+    "name": "MILLER"
+   },
+   {
+    "code": "RIN",
+    "points": 25,
+    "color": "2878FF",
+    "name": "RINS"
+   },
+   {
+    "code": "RAZ",
+    "points": 18,
+    "color": "2878FF",
+    "name": "RAZGATLIOGLU"
+   },
+   {
+    "code": "VIN",
+    "points": 12,
+    "color": "FF7A14",
+    "name": "VINALES"
+   }
+  ],
+  "practice": [
+   {
+    "code": "RFE",
+    "time": "1:28.725",
+    "fastest": false,
+    "color": "9660F0"
+   },
+   {
+    "code": "BEZ",
+    "time": "+.219",
+    "fastest": false,
+    "color": "9660F0"
+   },
+   {
+    "code": "MRT",
+    "time": "+.481",
+    "fastest": false,
+    "color": "9660F0"
+   },
+   {
+    "code": "ACO",
+    "time": "+.669",
+    "fastest": false,
+    "color": "FF7A14"
+   },
+   {
+    "code": "MAR",
+    "time": "+.701",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "DIG",
+    "time": "+.705",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "QUA",
+    "time": "+.833",
+    "fastest": false,
+    "color": "2878FF"
+   },
+   {
+    "code": "AMA",
+    "time": "+.847",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "MBD",
+    "time": "+.968",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "BAG",
+    "time": "+1.06",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "RIN",
+    "time": "+1.15",
+    "fastest": false,
+    "color": "2878FF"
+   },
+   {
+    "code": "MIL",
+    "time": "+1.16",
+    "fastest": false,
+    "color": "2878FF"
+   },
+   {
+    "code": "OGU",
+    "time": "+1.23",
+    "fastest": false,
+    "color": "9660F0"
+   },
+   {
+    "code": "MRI",
+    "time": "+1.31",
+    "fastest": false,
+    "color": "FFFFFF"
+   },
+   {
+    "code": "ALD",
+    "time": "+1.43",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "RAZ",
+    "time": "+1.43",
+    "fastest": false,
+    "color": "2878FF"
+   },
+   {
+    "code": "BIN",
+    "time": "+1.52",
+    "fastest": false,
+    "color": "FF7A14"
+   },
+   {
+    "code": "ZAR",
+    "time": "+1.59",
+    "fastest": false,
+    "color": "FFFFFF"
+   },
+   {
+    "code": "MRA",
+    "time": "+1.68",
+    "fastest": false,
+    "color": "FFFFFF"
+   },
+   {
+    "code": "VIN",
+    "time": "+1.94",
+    "fastest": false,
+    "color": "FF7A14"
+   },
+   {
+    "code": "BAS",
+    "time": "+1.94",
+    "fastest": false,
+    "color": "FF7A14"
+   },
+   {
+    "code": "AES",
+    "time": "+2.97",
+    "fastest": false,
+    "color": "FFFFFF"
+   }
+  ],
+  "qualifying": [
+   {
+    "code": "RFE",
+    "time": "1:28.852",
+    "fastest": false,
+    "color": "9660F0"
+   },
+   {
+    "code": "BEZ",
+    "time": "+.109",
+    "fastest": false,
+    "color": "9660F0"
+   },
+   {
+    "code": "DIG",
+    "time": "+.196",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "MAR",
+    "time": "+.266",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "MRT",
+    "time": "+.300",
+    "fastest": false,
+    "color": "9660F0"
+   },
+   {
+    "code": "ALD",
+    "time": "+.380",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "OGU",
+    "time": "+.427",
+    "fastest": false,
+    "color": "9660F0"
+   },
+   {
+    "code": "AMA",
+    "time": "+.534",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "ACO",
+    "time": "+.556",
+    "fastest": false,
+    "color": "FF7A14"
+   },
+   {
+    "code": "BAG",
+    "time": "+.934",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "MBD",
+    "time": "+.938",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "QUA",
+    "time": "+.985",
+    "fastest": false,
+    "color": "2878FF"
+   },
+   {
+    "code": "RIN",
+    "time": "+.195",
+    "fastest": false,
+    "color": "2878FF"
+   },
+   {
+    "code": "BAS",
+    "time": "+.240",
+    "fastest": false,
+    "color": "FF7A14"
+   },
+   {
+    "code": "MRI",
+    "time": "+.398",
+    "fastest": false,
+    "color": "FFFFFF"
+   },
+   {
+    "code": "BIN",
+    "time": "+.609",
+    "fastest": false,
+    "color": "FF7A14"
+   },
+   {
+    "code": "MIL",
+    "time": "+.718",
+    "fastest": false,
+    "color": "2878FF"
+   },
+   {
+    "code": "VIN",
+    "time": "+.865",
+    "fastest": false,
+    "color": "FF7A14"
+   },
+   {
+    "code": "RAZ",
+    "time": "+.893",
+    "fastest": false,
+    "color": "2878FF"
+   },
+   {
+    "code": "ZAR",
+    "time": "+1.06",
+    "fastest": false,
+    "color": "FFFFFF"
+   },
+   {
+    "code": "MRA",
+    "time": "+1.09",
+    "fastest": false,
+    "color": "FFFFFF"
+   },
+   {
+    "code": "AES",
+    "time": "+1.43",
+    "fastest": false,
+    "color": "FFFFFF"
+   }
+  ],
+  "race": [
+   {
+    "code": "BEZ",
+    "time": "LEAD",
+    "fastest": false,
+    "color": "9660F0"
+   },
+   {
+    "code": "RFE",
+    "time": "+4.26",
+    "fastest": false,
+    "color": "9660F0"
+   },
+   {
+    "code": "MRT",
+    "time": "+6.89",
+    "fastest": false,
+    "color": "9660F0"
+   },
+   {
+    "code": "OGU",
+    "time": "+9.38",
+    "fastest": false,
+    "color": "9660F0"
+   },
+   {
+    "code": "ACO",
+    "time": "+9.49",
+    "fastest": false,
+    "color": "FF7A14"
+   },
+   {
+    "code": "MAR",
+    "time": "+10.8",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "AMA",
+    "time": "+16.8",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "DIG",
+    "time": "+19.8",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "QUA",
+    "time": "+20.0",
+    "fastest": false,
+    "color": "2878FF"
+   },
+   {
+    "code": "BAS",
+    "time": "+21.1",
+    "fastest": false,
+    "color": "FF7A14"
+   },
+   {
+    "code": "BIN",
+    "time": "+21.9",
+    "fastest": false,
+    "color": "FF7A14"
+   },
+   {
+    "code": "MRI",
+    "time": "+22.7",
+    "fastest": false,
+    "color": "FFFFFF"
+   },
+   {
+    "code": "ZAR",
+    "time": "+26.3",
+    "fastest": false,
+    "color": "FFFFFF"
+   },
+   {
+    "code": "MBD",
+    "time": "+28.0",
+    "fastest": false,
+    "color": "E81828"
+   },
+   {
+    "code": "RIN",
+    "time": "+31.7",
+    "fastest": false,
+    "color": "2878FF"
+   },
+   {
+    "code": "MRA",
+    "time": "+34.2",
+    "fastest": false,
+    "color": "FFFFFF"
+   },
+   {
+    "code": "VIN",
+    "time": "+71.6",
+    "fastest": false,
+    "color": "FF7A14"
+   }
+  ],
+  "practiceStart": 1791558000,
+  "qualifyingStart": 1791630900,
+  "raceStart": 1791730800,
+  "raceLaps": 27,
+  "raceEnd": 1791734100,
+  "qName": "Q2",
+  "nextSession": {
+   "name": "SPRINT",
+   "start": 1791644400
+  },
+  "nextRace": {
+   "city": "PHILLIP ISLAND",
+   "circuit": "AUSTRALIA Phillip Island PHILLIP IS",
+   "start": 1792746000
+  }
+ }
+}
