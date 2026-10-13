@@ -339,15 +339,16 @@ static void settingsState() {
 static void selectionCatalog() {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(200, "application/json", "");
-  server.sendContent("[");
 #ifdef UM_FOOTBALL_ONLY
   server.sendContent_P(FOOTBALL_LEAGUES_JSON);  // [code, label, name, group]
   server.sendContent("");
   return;
 #endif
   bool first = true;
+  server.sendContent("[");
 #ifdef UM_FOOTBALL_ONLY
 #elif defined(UM_MOTOGP)
+  (void)first;
   for (const auto &rider : MOTOGP_RIDERS) {
     if (!first) server.sendContent(",");
     first = false;
@@ -373,6 +374,15 @@ static void selectionCatalog() {
 }
 
 static void timezones() {
+#ifdef UM_FOOTBALL_ONLY
+static void footballTeams() {
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "application/json", "");
+  for (const char *part : FOOTBALL_TEAMS_JSON) server.sendContent_P(part);  // [id, abbreviation, name, 'c'|'n']; the parts split one array
+  server.sendContent("");
+}
+#endif
+
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(200, "application/json", "");
   server.sendContent("[");
@@ -500,9 +510,6 @@ static void saveSettings() {
   }
   const auto &previous = *Settings::getInstance();
   bool restart = previous.swapBlueGreen != s.swapBlueGreen;
-#ifdef UM_FOOTBALL_ONLY
-  restart |= previous.footballLeagues != s.footballLeagues || previous.footballTeams != s.footballTeams;
-#endif
   bool timeChanged = previous.timezone != s.timezone || previous.use24h != s.use24h || previous.ntpServer != s.ntpServer;
   bool consoleChanged = previous.telnet != s.telnet;
   *Settings::getInstance() = candidate;
@@ -748,6 +755,9 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   if (s.telnet) telnet.begin(telnetCommand, "  update  download signed application update\r\n  update-status  show update progress\r\n" UM_TELNET_HELP);
   backgroundWork() = background;
 }
+#ifdef UM_FOOTBALL_ONLY
+  server.on("/api/teams", HTTP_GET, footballTeams);
+#endif
 
 void loop() {
   background();
@@ -757,9 +767,6 @@ void loop() {
     auto &s = *Settings::getInstance();
     String zone;  // unless a zone was typed in on the settings page, the network's location decides; the page shows the result
     if (!s.manualTimezone && ultime::detectZone(zone) && zone != s.timezone) { s.timezone = zone; s.save(); }
-#ifdef UM_FOOTBALL_ONLY
-  server.on("/api/teams", HTTP_GET, footballTeams);
-#endif
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
     face = new Clockface(display);
     face->setup(&clockTime);

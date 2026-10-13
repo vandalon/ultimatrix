@@ -54,41 +54,64 @@ function choices(id, name, entries, values) {
   target.replaceChildren();
   let group = null;
   (grouped ? entries : [...entries].sort((a, b) => selected.has(b.value) - selected.has(a.value))).forEach(entry => {
-    if (grouped && entry.group !== group) { group = entry.group; const heading = document.createElement('div'); heading.className = 'choice-group'; heading.textContent = group; target.append(heading); }
+    if (grouped && entry.group !== group) {
+      group = entry.group; const heading = document.createElement('div'); heading.className = 'choice-group'; heading.dataset.group = group; heading.textContent = group;
+      heading.setAttribute('role', 'button'); heading.tabIndex = 0;
+      const toggle = () => foldGroup(target, heading.dataset.group, heading.getAttribute('aria-expanded') === 'true');
+      heading.addEventListener('click', toggle);
+      heading.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); } });
+      target.append(heading);
+    }
     const label = document.createElement('label'); label.className = 'choice';
     const input = document.createElement('input'); input.type = 'checkbox'; input.name = name; input.value = entry.value; input.checked = selected.has(entry.value);
     const text = document.createElement('span'); text.textContent = entry.label;
     label.dataset.search = (entry.label + ' ' + (entry.group || '')).toLowerCase();
+    if (grouped) label.dataset.group = entry.group;
     label.append(input, text); target.append(label);
   });
+  // Countries and regions start folded, unless something in them is selected
+  if (grouped) target.querySelectorAll('.choice-group').forEach(heading => {
+    const group = heading.dataset.group;
+    foldGroup(target, group, ![...target.querySelectorAll('label.choice')].some(label => label.dataset.group === group && label.querySelector('input').checked));
+  });
+}
+function foldGroup(target, group, fold) {
+  target.querySelectorAll('.choice-group').forEach(heading => { if (heading.dataset.group === group) heading.setAttribute('aria-expanded', String(!fold)); });
+  target.querySelectorAll('label.choice').forEach(label => { if (label.dataset.group === group) label.classList.toggle('folded', fold); });
 }
 const TEAM_LIMIT = 8;
 let teamCatalog = [], favourites = [];
 const parseTeams = text => (text || '').split(',').filter(Boolean).map(item => { const [id, abbr, kind] = [item.slice(0, item.indexOf(':')), item.slice(item.indexOf(':') + 1, item.lastIndexOf(':')), item.slice(item.lastIndexOf(':') + 1)]; return { id, abbr, kind }; });
 function teamName(team) { const known = teamCatalog.find(entry => String(entry[0]) === team.id); return known ? known[2] : team.abbr; }
+let suggestions = [], active = 0;
 function renderTeams() {
-  const query = document.querySelector('#team-search').value.trim().toLowerCase(), target = document.querySelector('#teams');
-  const chosen = new Set(favourites.map(team => team.id));
-  const matches = query ? teamCatalog.filter(entry => !chosen.has(String(entry[0])) && (entry[2].toLowerCase().includes(query) || entry[1].toLowerCase() === query)).slice(0, 40) : [];
-  const rows = [...favourites.map(team => ({ id: team.id, abbr: team.abbr, kind: team.kind, name: teamName(team), on: true })), ...matches.map(entry => ({ id: String(entry[0]), abbr: entry[1], kind: entry[3], name: entry[2], on: false }))];
-  target.replaceChildren();
-  rows.forEach(row => {
-    const label = document.createElement('label'); label.className = 'choice';
-    const input = document.createElement('input'); input.type = 'checkbox'; input.checked = row.on;
-    input.addEventListener('change', () => toggleTeam(row, input));
-    const text = document.createElement('span'); text.textContent = row.name + (row.kind === 'n' ? ' (national team)' : '');
-    label.append(input, text); target.append(label);
-  });
-  if (!rows.length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = query ? 'No team found.' : 'No favourites yet. Search to add one.'; target.append(empty); }
+  const input = document.querySelector('#team-search'), tags = document.querySelector('#team-tags'), box = document.querySelector('#team-suggest');
+  const query = input.value.trim().toLowerCase(), chosen = new Set(favourites.map(team => team.id));
+  tags.replaceChildren(...favourites.map(team => {
+    const tag = document.createElement('span'); tag.className = 'tag'; tag.append(teamName(team) + (team.kind === 'n' ? ' 🏳' : ''));
+    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'tag-x'; remove.textContent = '×'; remove.setAttribute('aria-label', 'Remove ' + teamName(team));
+    remove.addEventListener('click', () => { removeTeam(team.id); input.focus(); });
+    tag.append(remove); return tag;
+  }));
+  suggestions = query ? teamCatalog.filter(entry => !chosen.has(String(entry[0])) && (entry[2].toLowerCase().includes(query) || entry[1].toLowerCase() === query)).sort((a, b) => b[2].toLowerCase().startsWith(query) - a[2].toLowerCase().startsWith(query)).slice(0, 8) : [];
+  active = Math.min(active, Math.max(suggestions.length - 1, 0));
+  box.replaceChildren(...suggestions.map((entry, i) => {
+    const item = document.createElement('div'); item.className = 'suggest-item' + (i === active ? ' active' : ''); item.setAttribute('role', 'option');
+    item.textContent = entry[2] + (entry[3] === 'n' ? ' (national team)' : '');
+    item.addEventListener('mousedown', event => { event.preventDefault(); addTeam(entry); });
+    return item;
+  }));
+  if (query && !suggestions.length) { const none = document.createElement('div'); none.className = 'suggest-none'; none.textContent = 'No team found'; box.append(none); }
+  box.hidden = !query; input.setAttribute('aria-expanded', String(!!query));
   document.querySelector('#team-count').textContent = favourites.length + ' of ' + TEAM_LIMIT + ' selected';
 }
-function toggleTeam(row, input) {
-  if (!input.checked) favourites = favourites.filter(team => team.id !== row.id);
-  else if (favourites.length >= TEAM_LIMIT) { input.checked = false; message('Choose up to ' + TEAM_LIMIT + ' teams. Unselect one to add another.', true); return; }
-  else favourites.push({ id: row.id, abbr: row.abbr, kind: row.kind });
-  field('fbTeams').value = favourites.map(team => team.id + ':' + team.abbr + ':' + team.kind).join(',');
-  renderTeams(); dirty();
+function saveTeams() { field('fbTeams').value = favourites.map(team => team.id + ':' + team.abbr + ':' + team.kind).join(','); renderTeams(); dirty(); }
+function addTeam(entry) {
+  if (favourites.length >= TEAM_LIMIT) { message('Choose up to ' + TEAM_LIMIT + ' teams. Remove one to add another.', true); return; }
+  favourites.push({ id: String(entry[0]), abbr: entry[1], kind: entry[3] });
+  document.querySelector('#team-search').value = ''; active = 0; saveTeams();
 }
+function removeTeam(id) { favourites = favourites.filter(team => team.id !== id); saveTeams(); }
 function countLeagues() { const count = form.querySelectorAll('[name=fbLeagues]:checked').length; document.querySelector('#league-count').textContent = count + ' of 10 selected'; }
 async function load() {
   try {
@@ -146,6 +169,7 @@ form.addEventListener('change', event => {
 });
 document.querySelector('#league-search').addEventListener('input', event => {
   const query = event.target.value.toLowerCase(); let heading = null, shown = 0;
+  document.querySelector('#leagues').classList.toggle('searching', query !== '');  // folded groups open up while searching
   const finish = () => { if (heading) heading.hidden = !shown; };
   document.querySelectorAll('#leagues > *').forEach(node => {
     if (node.classList.contains('choice-group')) { finish(); heading = node; shown = 0; return; }
@@ -153,7 +177,16 @@ document.querySelector('#league-search').addEventListener('input', event => {
   });
   finish();
 });
-document.querySelector('#team-search').addEventListener('input', renderTeams);
+const teamInput = document.querySelector('#team-search');
+teamInput.addEventListener('input', () => { active = 0; renderTeams(); });
+teamInput.addEventListener('blur', () => { teamInput.value = ''; renderTeams(); });
+teamInput.addEventListener('keydown', event => {
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); if (suggestions.length) { active = (active + (event.key === 'ArrowDown' ? 1 : suggestions.length - 1)) % suggestions.length; renderTeams(); } }
+  else if (event.key === 'Enter' || event.key === ',') { event.preventDefault(); if (suggestions[active]) addTeam(suggestions[active]); }
+  else if (event.key === 'Escape') { teamInput.value = ''; renderTeams(); }
+  else if (event.key === 'Backspace' && !teamInput.value && favourites.length) removeTeam(favourites[favourites.length - 1].id);
+});
+document.querySelector('#team-box').addEventListener('click', () => teamInput.focus());
 document.querySelector('#device-timezone').addEventListener('click', () => {
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (!zone) { message('Device timezone unavailable. Choose a timezone manually.', true); return; }
