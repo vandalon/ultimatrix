@@ -1,0 +1,8 @@
+# Ultimatrix
+
+## Handoff file (mandatory)
+`HANDOFF.txt` is the shared handoff between sessions and agents (Claude, Codex).
+- At the start of every session on this project, read `HANDOFF.txt` first.
+- Before finishing any turn that changed files, config, or decisions, append a short dated entry to the end of `HANDOFF.txt` in the existing style (`Claude (13 Oct, later) TOPIC: what changed, files touched, what was/wasn't verified, what's still open`), and update the `Updated:` line at the top.
+- Do this automatically without being asked. Skip only for turns that changed nothing.
+- Keep entries brief; never put secrets in it.
