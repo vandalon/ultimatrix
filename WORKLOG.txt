@@ -145,3 +145,8 @@ Reviewed completed portal styling/spinner/timing/debug and fixed-polarity QR han
 Codex (13 Oct, 12:12 UTC monitor): ace7416 Use two-bit setup display and alternate QR polarity. Reviewed completed setup-depth and QR-polarity handoffs; staged only setup display change, preserving updater/feed edits. Whitespace check passed. No new tests/builds/flash; camera scan reliability, inverted QR and Joined-screen colours remain unverified. No publishing.
 
 Codex (13 Oct, 12:22 UTC monitor): f28ac7c Guide first-time setup with settings QR and connection addresses. Reviewed completed welcome/scroll/card and competition-order handoffs; source/UI staged together, pending updater/feed changes preserved. Whitespace check passed. Claude reports local static page preview and JS syntax for league ordering only; onboarding NVS persistence, QR scans, text widths/scroll readability and boot release after page visit remain unverified. No new tests/builds/flash or publishing.
+
+Codex (13 Oct, 13:32 UTC monitor): Local commits:
+841d689 Remove blinking colon from Football score tiles
+3556ae0 Add command history, completion and factory reset to telnet
+Reviewed completed telnet editing/factory-reset and Football colon-removal handoffs. Whitespace checks passed; no new builds/device tests. Factory reset explicitly requires “factory-reset yes” but full NVS erase and cache-partition behavior still need build/device validation. No publishing.
