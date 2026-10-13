@@ -71,7 +71,7 @@ unsigned backdropLevel(int x, int y, unsigned glow = 0) {
   bool outer = y <= kCentreY ? fabsf(dx) <= kOuterX : (dx * dx) / (kOuterX * kOuterX) + (dy * dy) / (kOuterY * kOuterY) <= 1;
   bool inner = y <= kCentreY ? fabsf(dx) <= kInnerX : (dx * dx) / (kInnerX * kInnerX) + (dy * dy) / (kInnerY * kInnerY) <= 1;
   if (!(outer && !inner)) return 0;  // no background: only the U is lit
-  if ((x & 1) == (x < 32)) return 0;  // the U's left arm is on even x: shifted 1px left off the lattice
+  if ((x & 1) == (x < 32) && x != 31) return 0;  // the U's left arm is on even x: shifted 1px left off the lattice; x 31 stays lit so the bottom has no 3px gap in the middle
   unsigned dim = 70, bright = 255 - 190 * y / kSize;  // the dimmed U is one flat level, only the lit logo has the gradient
   return dim + (bright - dim) * glow / 255;
 }
