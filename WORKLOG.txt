@@ -75,3 +75,9 @@ Live settings + portal links + device timezone: Football/F1/Tetris builds PASS. 
 2026-10-13: Codex reviewed current HANDOFF before starting local commits. Initial baseline includes current source, vendored dependencies, documentation and previews. Secret-pattern scan found no matches; private signing key, build trees, managed components and dist remain ignored. Latest 8-bit colour-depth change is unbuilt per Claude handoff; no new tests/builds or device operations performed for this snapshot. Publishing remains prohibited.
 
 2026-10-13: Initial local commit f45e3c4 created. Working tree clean afterward. Whitespace check reports existing trailing whitespace/CRLF in baseline source and vendor files; not cleaned up in this snapshot. No tests/builds run. No publishing.
+
+Codex (13 Oct, handoff monitor): Reviewed and locally committed completed updater restart/cache fixes, sticky update banner and Claude handoff instructions:
+17edf9e Document mandatory shared handoff workflow
+fa6e81c Keep firmware update banner visible while scrolling
+2ef7197 Keep deliberate restarts and update notices consistent with installed firmware
+Review only; targeted whitespace check passed, no new tests/builds/flashing. Claude reports F1 build/flash for cache fix; immediate reboot-after-OTA and banner visual checks remain open. Left BootScreen gradient/preview and web flasher tooling/workflow uncommitted: latest gradient has no handoff completion entry; generated web-flasher firmware is a release artifact and excluded. No publishing or uploads.
