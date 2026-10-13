@@ -67,7 +67,8 @@ constexpr float kCentreY = 40, kOuterX = 28, kOuterY = 22, kInnerX = 16, kInnerY
 unsigned backdropLevel(int x, int y, unsigned glow = 0) {
   if (!(x & 1) || !(y & 1)) return 0;
   float dx = x - 32.0f, dy = y - kCentreY;
-  bool outer = y <= kCentreY ? fabsf(dx) <= kOuterX : (dx * dx) / (kOuterX * kOuterX) + (dy * dy) / (kOuterY * kOuterY) <= 1;
+  float ox = dx < 0 ? kOuterX + 1 : kOuterX;  // the U's outer edge is one pixel wider on the left
+  bool outer = y <= kCentreY ? fabsf(dx) <= ox : (dx * dx) / (ox * ox) + (dy * dy) / (kOuterY * kOuterY) <= 1;
   bool inner = y <= kCentreY ? fabsf(dx) <= kInnerX : (dx * dx) / (kInnerX * kInnerX) + (dy * dy) / (kInnerY * kInnerY) <= 1;
   if (!(outer && !inner)) return 10;
   unsigned dim = 70, bright = 255 - 190 * y / kSize;  // the dimmed U is one flat level, only the lit logo has the gradient
