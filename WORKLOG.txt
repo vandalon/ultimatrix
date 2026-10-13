@@ -109,3 +109,9 @@ Codex (13 Oct, 10:52 UTC monitor): Local commits:
 803d21e Widen boot logo outer edge on the left
 28e9dd2 Smooth Football goal animation and clarify fixture divider
 Reviewed completed Football animation/divider, boot-edge and banner handoffs. Whitespace checks passed; no new tests/builds/flash. 50 fps hardware timing, boot logo alignment and banner behavior remain unverified. Animation helpers are shared with preview-only playGoalCelebration, so preview pacing also needs review after the new frame counts. Pending updater/feed/CI edits preserved; no publishing.
+
+Codex (13 Oct, 11:02 UTC monitor): Local commits:
+7d4b532 Support q and Ctrl-D to close telnet console
+649327a Shift boot logo left arm without changing its thickness
+49d534f Restore Football animation pacing and refine numeric strokes
+Reviewed completed divider/pacing/font, corrected logo shift and TELNET EXIT handoffs. Whitespace checks passed. Claude reports compilation for animation/font only; device visuals and console exits remain unverified. No new tests/builds/flash/publishing. Preserved concurrent factory-reset edits (currently documented only in firmware/HANDOFF.txt) and pending feed/updater/CI work.

@@ -1,5 +1,5 @@
 ULTIMATRIX — SHARED HANDOFF
-Updated: 13 Oct (boot U logo wider)
+Updated: 13 Oct (telnet q and Ctrl-D exit)
 Project: ~/ultimatrix
 Reference implementation: ~/clockwise (preserve it)
 
@@ -736,3 +736,17 @@ Codex (13 Oct, 10:52 UTC monitor): Local commits:
 803d21e Widen boot logo outer edge on the left
 28e9dd2 Smooth Football goal animation and clarify fixture divider
 Reviewed completed Football animation/divider, boot-edge and banner handoffs. Whitespace checks passed; no new tests/builds/flash. 50 fps hardware timing, boot logo alignment and banner behavior remain unverified. Animation helpers are shared with preview-only playGoalCelebration, so preview pacing also needs review after the new frame counts. Pending updater/feed/CI edits preserved; no publishing.
+Claude (13 Oct, later) FOOTBALL: both main-view dividers (vertical, and under the ranking league title) now MAIN_DIVIDER = rgb(26,28,34), darker than the first attempt (DIVIDER 40,44,52). Not built/seen on device.
+Claude (13 Oct, later) FOOTBALL: 50 fps goal animation was choppier on device (frame draw > 20 ms); reverted to SUBSTEPS=1 / FRAME_MS=40 (original timing, code stays parametrised). Smoother needs cheaper drawing (e.g. skip catch-up redraws, cache stadium), not a higher rate. Builds; not seen on device.
+
+Claude (13 Oct, later) TELNET EXIT: "q" and Ctrl-D (empty line) now close the telnet console like quit. firmware/lib/core/TelnetConsole.cpp. Not built or tested on device.
+
+Claude (13 Oct, later) BOOT LOGO (corrected): replaced the wider-edge change with shifting the U's left half one LED column (2px, lattice is odd pixels only) left, so the opening is wider and arm thickness unchanged. firmware/lib/core/BootScreen.cpp backdropLevel. Not built/flashed; check on device.
+Claude (13 Oct, later) FOOTBALL: dividers looked green on panel; MAIN_DIVIDER now rgb(24,20,24) (RGB565 3/5/3, green deliberately lower). Not built/seen.
+Claude (13 Oct, later) FOOTBALL: block font '1' flag (lib/core/NumericFont.h pixel()) now 2 px thick: each diagonal pixel plus the one below. Applies to every size using numericfont::pixel (clock tiles, score). Compiles; not seen on device.
+
+Codex (13 Oct, 11:02 UTC monitor): Local commits:
+7d4b532 Support q and Ctrl-D to close telnet console
+649327a Shift boot logo left arm without changing its thickness
+49d534f Restore Football animation pacing and refine numeric strokes
+Reviewed completed divider/pacing/font, corrected logo shift and TELNET EXIT handoffs. Whitespace checks passed. Claude reports compilation for animation/font only; device visuals and console exits remain unverified. No new tests/builds/flash/publishing. Preserved concurrent factory-reset edits (currently documented only in firmware/HANDOFF.txt) and pending feed/updater/CI work.
