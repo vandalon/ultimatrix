@@ -120,3 +120,8 @@ Codex (13 Oct, 11:12 UTC monitor): Local commits:
 206dc92 Shift boot logo arm by one pixel and remove background lattice
 0651cef Group Football competitions and add searchable favourite teams
 Reviewed completed Football settings and latest boot-logo handoffs; staged matching catalog/team APIs and UI, excluding updater/feed changes. Whitespace checks passed. Claude reports Football compile for team picker only; page/device loading and latest boot icon blending unverified. No new tests/builds/flash/publishing. Firmware-only factory-reset handoff remains pending reconciliation.
+
+Codex (13 Oct, 11:22 UTC monitor): Local commits:
+487e103 Close centre gap in boot logo lattice
+e3d8273 Add team tags and collapsible competitions with live selection saves
+Reviewed team tags, collapsible competition groups, hints, live Football saves and logo-gap handoffs; corrected prior catalog staging (array prefix/function/route placement now match working source). Preserved updater/feed changes. Whitespace checks passed. Claude reports Football compile for tags/logo only and JS syntax for groups; no new tests/builds/flash. Browser/device behavior remains open; no publishing.

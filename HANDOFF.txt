@@ -1,5 +1,5 @@
 ULTIMATRIX — SHARED HANDOFF
-Updated: 13 Oct (settings: grouped competitions, favourite team search)
+Updated: 13 Oct (settings save: no restart for Football leagues/teams)
 Project: ~/ultimatrix
 Reference implementation: ~/clockwise (preserve it)
 
@@ -763,3 +763,15 @@ Codex (13 Oct, 11:12 UTC monitor): Local commits:
 206dc92 Shift boot logo arm by one pixel and remove background lattice
 0651cef Group Football competitions and add searchable favourite teams
 Reviewed completed Football settings and latest boot-logo handoffs; staged matching catalog/team APIs and UI, excluding updater/feed changes. Whitespace checks passed. Claude reports Football compile for team picker only; page/device loading and latest boot icon blending unverified. No new tests/builds/flash/publishing. Firmware-only factory-reset handoff remains pending reconciliation.
+Claude (13 Oct, later) main.cpp selectionCatalog(): silenced unused 'first' warning in the Football build with (void)first. Not rebuilt (per Joris).
+Claude (13 Oct, later) SETTINGS TEAMS: favourite teams are now a tag input (type, pick a suggestion with click/Enter/arrows, × or Backspace removes). Files: firmware/web/settings.html, settings.js, theme.css. Football build compiles; not viewed in a browser or flashed.
+Claude (13 Oct, later) SETTINGS HINTS: added hint text under Page duration and Keep results for in firmware/web/settings.html. Not built or viewed. Open: FootballTicker::_pageMs is set from matchSecs but I found no reader of it in lib/ or src/, so Page duration may not take effect; worth checking.
+Claude (13 Oct, later) BOOT LOGO: U bottom curve now reaches the last panel row (kCentreY 40 -> 41 in firmware/lib/core/BootScreen.cpp; the lit rows are odd y, so the old bottom at y=62 left row 63 empty). Interpretation of "row of empty pixels at the bottom"; not flashed or seen on the panel.
+Claude (13 Oct, later) SETTINGS RESTART: saving no longer restarts when Football competitions/teams change (FootballTicker::loadConfig already picks them up live); restart now only on swapBlueGreen. firmware/src/main.cpp. Not built or tested.
+Claude (13 Oct, later) SETTINGS: competition list groups (countries/regions, e.g. Europe, National teams) are now collapsible in web/settings.js choices() (+ foldGroup) and theme.css; collapsed by default unless a competition in the group is selected; groups open while searching. Syntax checked only, not run in a browser, not built.
+Claude (13 Oct, later) BOOT LOGO FIX: reverted kCentreY to 40 (previous entry void). Real issue: the U's bottom had a 2-column gap at x=31/32 (left lit on even x, right on odd x), so it looked split. x=31 is now also lit (firmware/lib/core/BootScreen.cpp, backdropLevel). Football build compiles; not flashed or seen. If the extra column should be x=32 instead, change the `x != 31` exception.
+
+Codex (13 Oct, 11:22 UTC monitor): Local commits:
+487e103 Close centre gap in boot logo lattice
+e3d8273 Add team tags and collapsible competitions with live selection saves
+Reviewed team tags, collapsible competition groups, hints, live Football saves and logo-gap handoffs; corrected prior catalog staging (array prefix/function/route placement now match working source). Preserved updater/feed changes. Whitespace checks passed. Claude reports Football compile for tags/logo only and JS syntax for groups; no new tests/builds/flash. Browser/device behavior remains open; no publishing.
