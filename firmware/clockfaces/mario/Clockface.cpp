@@ -19,8 +19,8 @@ const Theme kCave = {rgb(0, 0, 0), rgb(0, 84, 176), rgb(60, 140, 232), rgb(0, 12
 
 const int kGround = 52;             // first row of the ground
 const int kPlumberY = kGround - 16;
-const int kBlockX[4] = {1, 15, 36, 50};
-const int kBlockTop = 10, kBlockW = 13, kBlockH = 17;
+const int kBlockX[4] = {0, 15, 35, 50};
+const int kBlockTop = 13, kBlockSize = 14;  // square; its bottom edge is where Mario's head meets it
 const int kMinX = 18, kMaxX = 48;    // where Mario strolls
 const int kHitX = 50;                // under the last block
 const int kHitJumpMs = 520, kHitHeight = 9;
@@ -125,18 +125,32 @@ void drawGoomba(MatrixPanel_I2S_DMA &d, int x, int y, bool squashed, bool step, 
   sprite(d, rows, 12, x, y, pal, 5);
 }
 
+// A round coin, 6 tall; it turns by narrowing, so the widest it gets is a circle. cx is the line through its middle.
 void drawCoin(MatrixPanel_I2S_DMA &d, int cx, int y, int width) {
-  const uint16_t gold = rgb(255, 200, 32), light = rgb(255, 250, 170), edge = rgb(200, 112, 0);
-  const int x = cx - width / 2;
-  box(d, x, y, width, 6, gold);
-  if (width >= 3) { box(d, x, y, 1, 6, light); box(d, x + width - 1, y, 1, 6, edge); }
-  if (width == 4) { box(d, x + 1, y + 1, 1, 4, light); }
-  box(d, x, y, width, 1, edge); box(d, x, y + 5, width, 1, edge);
+  const uint16_t gold = rgb(255, 200, 32), light = rgb(255, 250, 170), edge = rgb(200, 112, 0), slot = rgb(230, 150, 0);
+  for (int row = 0; row < 6; row++) {
+    const float v = (row - 2.5f) / 3.0f;
+    float half = width / 2.0f * sqrtf(1.0f - v * v);
+    if (half < 1.0f) half = 1.0f;
+    int left = 0, right = -1;
+    for (int px = -3; px < 3; px++) {
+      if (fabsf(px + 0.5f) >= half) continue;
+      if (right < left) left = px;
+      right = px;
+    }
+    for (int px = left; px <= right; px++) {
+      uint16_t c = gold;
+      if (row == 0 || row == 5 || px == right) c = edge;
+      else if (px == left) c = light;
+      else if (width >= 5 && px == -1) c = slot;
+      put(d, cx + px, y + row, c);
+    }
+  }
 }
 
-// width of a spinning coin over time: 4, 3, 2, 1, 2, 3
+// width of a spinning coin over time: 6, 5, 3, 2, 3, 5
 int coinWidth(uint32_t phase) {
-  static const uint8_t W_[6] = {4, 3, 2, 1, 2, 3};
+  static const uint8_t W_[6] = {6, 5, 3, 2, 3, 5};
   return W_[(phase / 170) % 6];
 }
 
@@ -159,18 +173,20 @@ void drawDigit(MatrixPanel_I2S_DMA &d, int digit, int x, int y, uint16_t color) 
 }
 
 void drawBlock(MatrixPanel_I2S_DMA &d, int x, int y, int digit, bool cave) {
+  const int n = kBlockSize;
   const uint16_t outline = rgb(96, 36, 0), body = cave ? rgb(210, 140, 30) : rgb(248, 172, 40), light = rgb(255, 224, 120), dark = rgb(184, 96, 0);
-  box(d, x, y, kBlockW, kBlockH, outline);
-  box(d, x + 1, y + 1, kBlockW - 2, kBlockH - 2, body);
-  box(d, x + 1, y + 1, kBlockW - 2, 1, light);
-  box(d, x + 1, y + 1, 1, kBlockH - 2, light);
-  box(d, x + 1, y + kBlockH - 2, kBlockW - 2, 1, dark);
-  box(d, x + kBlockW - 2, y + 1, 1, kBlockH - 2, dark);
-  put(d, x + 2, y + 2, outline); put(d, x + kBlockW - 3, y + 2, outline);
-  put(d, x + 2, y + kBlockH - 3, outline); put(d, x + kBlockW - 3, y + kBlockH - 3, outline);
+  box(d, x, y, n, n, outline);
+  box(d, x + 1, y + 1, n - 2, n - 2, body);
+  box(d, x + 1, y + 1, n - 2, 1, light);
+  box(d, x + 1, y + 1, 1, n - 2, light);
+  box(d, x + 1, y + n - 2, n - 2, 1, dark);
+  box(d, x + n - 2, y + 1, 1, n - 2, dark);
+  put(d, x + 2, y + 2, outline); put(d, x + n - 3, y + 2, outline);
+  put(d, x + 2, y + n - 3, outline); put(d, x + n - 3, y + n - 3, outline);
   if (digit < 0) return;
-  drawDigit(d, digit, x + 4, y + 4, rgb(150, 70, 0));  // the shadow of the digit
-  drawDigit(d, digit, x + 3, y + 3, rgb(255, 250, 220));
+  drawDigit(d, digit, x + 4, y + 3, rgb(150, 70, 0));  // the shadow of the digit
+  drawDigit(d, digit, x + 3, y + 2, rgb(255, 250, 220));
+  box(d, x, y + n - 1, n, 1, outline);  // the shadow runs onto the bottom edge: put it back
 }
 
 // How far a block is lifted: it jumps up three pixels and settles again
@@ -329,11 +345,11 @@ void Clockface::update() {
     if (since >= 0 && since < 760) {
       // The coin that jumps out
       const int rise = 10 * ease(since < 700 ? since : 700, 700) / 1000;
-      drawCoin(d, kBlockX[i] + 6, kBlockTop - 4 - rise + (since > 500 ? (since - 500) / 40 : 0), coinWidth(since * 2));
+      drawCoin(d, kBlockX[i] + 7, kBlockTop - 4 - rise + (since > 500 ? (since - 500) / 40 : 0), coinWidth(since * 2));
     }
   }
-  drawCoin(d, 31, 11, coinWidth(now));
-  drawCoin(d, 31, 19, coinWidth(now + 340));
+  drawCoin(d, 32, 14, coinWidth(now));
+  drawCoin(d, 32, 21, coinWidth(now + 340));
 
   // The Goomba, and its score once it is flat
   if (goomba.state == 1) drawGoomba(d, (int)goomba.x, kGround - 12, false, (now / 220) % 2, theme);
