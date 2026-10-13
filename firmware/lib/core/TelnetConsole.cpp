@@ -111,6 +111,7 @@ void TelnetConsole::poll() {
     if (iac_ == 1) { iac_ = (c >= 251 && c <= 254) ? 2 : 0; continue; }  // IAC command: skip it (and its option byte)
     if (iac_ == 2) { iac_ = 0; continue; }
     if (c == 255) { iac_ = 1; continue; }
+    if (c == 4 && length_ == 0) { run("quit"); if (!client_) return; continue; }  // Ctrl-D on an empty line, as in a shell
     if (c == '\n' || c == '\r') {
       if (c == '\n' && length_ == 0) continue;  // the LF of a CR LF pair
       line_[length_] = 0;
@@ -146,7 +147,7 @@ void TelnetConsole::run(const char *line) {
   if (!strcasecmp(command, "help") || !strcmp(command, "?")) {
     client_.print("  help    this list\r\n  status  uptime, address, signal, mode, heap\r\n  heap    free, minimum and largest block\r\n"
                   "  log     log on / log off: show the serial log here\r\n"
-                  "  reboot  restart the clock\r\n  quit    close the console\r\n");
+                  "  reboot  restart the clock\r\n  quit    close the console (q or Ctrl-D)\r\n");
     client_.print(modeHelp_);
   } else if (!strcasecmp(command, "status")) {
     client_.printf("mode    %s\r\nuptime  ", UM_MODE_NAME);
@@ -167,7 +168,7 @@ void TelnetConsole::run(const char *line) {
     delay(100);
     FirmwareUpdate::confirmBeforeRestart();
     ESP.restart();
-  } else if (!strcasecmp(command, "quit") || !strcasecmp(command, "exit")) {
+  } else if (!strcasecmp(command, "quit") || !strcasecmp(command, "q") || !strcasecmp(command, "exit")) {
     client_.print("Bye.\r\n");
     setLogging(false);
     client_.stop();
