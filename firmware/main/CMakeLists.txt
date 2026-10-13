@@ -94,6 +94,10 @@ foreach(asset settings.html theme.css settings.js)
 endforeach()
 # Installable-app manifest and its LED-matrix U icons.
 target_add_binary_data(${COMPONENT_LIB} "${root}/web/manifest.webmanifest" TEXT)
+# Clock face thumbnails for the face picker (64x64, one frame of each face).
+foreach(thumb football f1 motogp tetris word mario luigi pacman)
+    target_add_binary_data(${COMPONENT_LIB} "${root}/web/faces/${thumb}.png" BINARY)
+endforeach()
 foreach(icon icon-192 icon-512 icon-maskable-192 apple-touch-icon favicon-32)
     target_add_binary_data(${COMPONENT_LIB} "${root}/web/icons/${icon}.png" BINARY)
 endforeach()

@@ -262,6 +262,15 @@ extern const char manifestJson[] asm("_binary_manifest_webmanifest_start");
   extern const uint8_t sym##Start[] asm("_binary_" #sym "_png_start"); \
   extern const uint8_t sym##End[] asm("_binary_" #sym "_png_end")
 UM_ICON(icon_192); UM_ICON(icon_512); UM_ICON(icon_maskable_192); UM_ICON(apple_touch_icon); UM_ICON(favicon_32);
+#define UM_FACE(sym) UM_ICON(sym)
+UM_FACE(football);
+UM_FACE(f1);
+UM_FACE(motogp);
+UM_FACE(tetris);
+UM_FACE(word);
+UM_FACE(mario);
+UM_FACE(luigi);
+UM_FACE(pacman);
 static void sendIcon(const uint8_t *start, const uint8_t *end) {
   server.sendHeader("Cache-Control", "public, max-age=86400");
   server.send_P(200, "image/png", (const char *)start, end - start);
@@ -719,6 +728,14 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/apple-touch-icon.png", HTTP_GET, []() { sendIcon(apple_touch_iconStart, apple_touch_iconEnd); });
   server.on("/favicon-32.png", HTTP_GET, []() { sendIcon(favicon_32Start, favicon_32End); });
   server.on("/favicon.ico", HTTP_GET, []() { sendIcon(favicon_32Start, favicon_32End); });
+  server.on("/faces/football.png", HTTP_GET, []() { sendIcon(footballStart, footballEnd); });
+  server.on("/faces/f1.png", HTTP_GET, []() { sendIcon(f1Start, f1End); });
+  server.on("/faces/motogp.png", HTTP_GET, []() { sendIcon(motogpStart, motogpEnd); });
+  server.on("/faces/tetris.png", HTTP_GET, []() { sendIcon(tetrisStart, tetrisEnd); });
+  server.on("/faces/word.png", HTTP_GET, []() { sendIcon(wordStart, wordEnd); });
+  server.on("/faces/mario.png", HTTP_GET, []() { sendIcon(marioStart, marioEnd); });
+  server.on("/faces/luigi.png", HTTP_GET, []() { sendIcon(luigiStart, luigiEnd); });
+  server.on("/faces/pacman.png", HTTP_GET, []() { sendIcon(pacmanStart, pacmanEnd); });
   server.on("/api/settings", HTTP_GET, settingsState);
   server.on("/api/settings", HTTP_POST, saveSettings);
   server.on("/api/catalog", HTTP_GET, selectionCatalog);

@@ -39,3 +39,37 @@ body.ultimatrix-portal{background:var(--paper)!important;color:var(--ink)!import
 .settings-app .sync-note{margin-top:12px;padding:9px 12px}
 .settings-app .fw-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:0}.settings-app .fw-row .hint{margin:0}
 @media(max-width:800px){.settings-app .main{padding:18px 14px}.settings-app .card{padding:16px}}
+
+/* Modern look */
+.settings-app{--paper:#eef3f6;--line:#e3eaee;--radius:18px}
+body.settings-app{background:radial-gradient(1200px 500px at 70% -10%,#dff4fc 0,transparent 60%),var(--paper);-webkit-font-smoothing:antialiased}
+.settings-app .sidebar{background:linear-gradient(180deg,#050809,#0a1a22)}
+.settings-app .sidebar nav a{border-radius:12px;transition:background .15s,color .15s}
+.settings-app .sidebar nav a.active{background:#12303c;color:#fff;box-shadow:inset 3px 0 0 var(--accent)}
+.settings-app .card{border:0;box-shadow:0 1px 2px #0e1a2010,0 8px 24px #0e1a200a}
+.settings-app h2{font-size:15px;letter-spacing:0;text-transform:uppercase;color:#4a5b64;font-size:12px;font-weight:700;letter-spacing:.08em}
+.settings-app input,.settings-app select{border:1px solid transparent;background:#f1f6f8;border-radius:12px;transition:background .15s,box-shadow .15s}
+.settings-app input:hover,.settings-app select:hover{background:#e9f1f4}
+.settings-app input:focus,.settings-app select:focus{background:#fff;box-shadow:0 0 0 2px var(--accent);outline:0}
+.settings-app select{appearance:none;-webkit-appearance:none;padding-right:34px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%236b7a82' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m1 1.5 5 5 5-5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+.settings-app button{border-radius:999px;font-size:13px}
+.settings-app button.secondary{background:#f1f6f8;border-color:transparent}.settings-app button.secondary:hover{background:#e3eef3}
+.settings-app .extra{border:0;background:#f6f9fb;border-radius:14px}
+.settings-app .choice-list{border:0;background:#f6f9fb}
+.settings-app .toggle{border-bottom-color:#edf2f5}
+.settings-app input[type=checkbox]{appearance:none;-webkit-appearance:none;width:38px;height:22px;border-radius:999px;background:#cfdbe1;position:relative;cursor:pointer;padding:0;transition:background .2s}
+.settings-app input[type=checkbox]::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #0003;transition:transform .2s}
+.settings-app input[type=checkbox]:checked{background:#2aa8d6}.settings-app input[type=checkbox]:checked::after{transform:translateX(16px)}
+.settings-app .choice input[type=checkbox]{width:19px;height:19px;border-radius:6px}.settings-app .choice input[type=checkbox]::after{display:none}.settings-app .choice input[type=checkbox]:checked{background:#2aa8d6 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3.5 8.5 3 3 6-7'/%3E%3C/svg%3E") center/13px no-repeat}
+.settings-app .save-bar{border:0;border-radius:18px;box-shadow:0 10px 40px #0e1a2022}
+.settings-app .mode-pill{background:#050809;color:#d8f4ff;border:0}
+/* Face picker: each thumbnail is a 64x64 frame drawn as LED dots */
+.face-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:10px}
+.settings-app button.face{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px;border-radius:16px;background:#f1f6f8;color:var(--ink);font-size:12px;font-weight:650;transition:transform .15s,background .15s,box-shadow .15s}
+.settings-app button.face:hover{background:#e3eef3;transform:translateY(-2px)}
+.settings-app button.face.current{background:#fff;box-shadow:0 0 0 2px var(--accent),0 6px 18px #46d2ff40}
+.settings-app button.face.current b::after{content:" · active";font-weight:500;color:var(--muted)}
+.led{position:relative;display:block;width:100%;aspect-ratio:1;background:#000;border-radius:10px;overflow:hidden}
+.led img{display:block;width:100%;height:100%;image-rendering:pixelated}
+.led::after{content:"";position:absolute;inset:0;background:radial-gradient(circle closest-side,#0000 55%,#000 88%) 0 0/1.5625% 1.5625%}
+@media(max-width:450px){.face-grid{grid-template-columns:repeat(2,1fr)}}
