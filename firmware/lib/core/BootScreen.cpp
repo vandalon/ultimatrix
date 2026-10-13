@@ -65,12 +65,13 @@ constexpr float kCentreY = 40, kOuterX = 28, kOuterY = 22, kInnerX = 16, kInnerY
 // Brightness 0..255 of the backdrop at a pixel (0 between the lattice LEDs). glow 0 is the dim backdrop, 255 the U
 // shown at full brightness as the logo.
 unsigned backdropLevel(int x, int y, unsigned glow = 0) {
-  if (!(x & 1) || !(y & 1)) return 0;
+  if (!(y & 1)) return 0;
   float dx = x - 32.0f, dy = y - kCentreY;
-  if (dx < 0) dx += 2;  // the left half is shifted one LED column (2px on the lattice) left: the opening is wider, the arm the same
+  if (dx < 0) dx += 1;  // the left half is shifted 1px left: the opening is wider, the arm the same
   bool outer = y <= kCentreY ? fabsf(dx) <= kOuterX : (dx * dx) / (kOuterX * kOuterX) + (dy * dy) / (kOuterY * kOuterY) <= 1;
   bool inner = y <= kCentreY ? fabsf(dx) <= kInnerX : (dx * dx) / (kInnerX * kInnerX) + (dy * dy) / (kInnerY * kInnerY) <= 1;
-  if (!(outer && !inner)) return 10;
+  if (!(outer && !inner)) return 0;  // no background: only the U is lit
+  if ((x & 1) == (x < 32)) return 0;  // the U's left arm is on even x: shifted 1px left off the lattice
   unsigned dim = 70, bright = 255 - 190 * y / kSize;  // the dimmed U is one flat level, only the lit logo has the gradient
   return dim + (bright - dim) * glow / 255;
 }
@@ -81,7 +82,7 @@ void backdrop(Adafruit_GFX &gfx, unsigned glow = 0, unsigned fade = 255) {  // f
   for (int y = 1; y < kSize; y += 2) {
     int edge = (int)(fade * 13 / 10) - y * 255 / kSize;  // the wipe's soft edge is 76 (0.3 of the height) wide
     unsigned rowFade = edge <= 0 ? 0 : edge >= 76 ? 255 : edge * 255 / 76;
-    for (int x = 1; x < kSize; x += 2) {
+    for (int x = 0; x < kSize; x++) {
       int t = 255 * y / kSize * (int)glow / 255;  // cyan at the top to blue at the bottom when lit; the dimmed U is plain cyan
       Rgb c{(uint8_t)(kCyan.r + (kBlue.r - kCyan.r) * t / 255), (uint8_t)(kCyan.g + (kBlue.g - kCyan.g) * t / 255),
             (uint8_t)(kCyan.b + (kBlue.b - kCyan.b) * t / 255)};
