@@ -84,6 +84,8 @@ void Settings::load() {
     footballTeams = p.isKey("fbTeams") ? p.getString("fbTeams") : UM_DEFAULT_FOOTBALL_TEAMS;
     timezone = p.isKey("timezone") ? p.getString("timezone") : "Europe/Amsterdam";
   }
+  const uint32_t clockColour = p.isKey("pacClockColor") ? p.getUInt("pacClockColor", 0) : 0;
+  pacmanClockColor = clockColour < pacmancolors::COLOR_COUNT ? clockColour : 0;
   hasLocation = p.isKey("lat") && p.isKey("lon");  // kept outside the settings record so its size and older saves stay as they are
   if (hasLocation) { latitude = p.getFloat("lat", 0); longitude = p.getFloat("lon", 0); }
   p.end();
@@ -92,7 +94,7 @@ void Settings::load() {
 bool Settings::save() {
   if (timezone.length() > 80 || ntpServer.isEmpty() || ntpServer.length() > 128 ||
       footballLeagues.length() > 400 || footballTeams.length() > 400 || f1Drivers.length() > 400) return false;
-  if (color >= pacmancolors::WALL_COUNT || dotColor >= pacmancolors::COLOR_COUNT) return false;
+  if (color >= pacmancolors::WALL_COUNT || dotColor >= pacmancolors::COLOR_COUNT || pacmanClockColor >= pacmancolors::COLOR_COUNT) return false;
   for (uint8_t ghost : ghostColors) if (ghost >= pacmancolors::COLOR_COUNT) return false;
   Record record{};
   record.magic = kMagic; record.version = 1; record.size = sizeof(record);
@@ -112,6 +114,8 @@ bool Settings::save() {
   Preferences p;
   if (!p.begin("ultimatrix", false)) return false;
   bool saved = p.putBytes("settingsV1", &record, sizeof(record)) == sizeof(record);
+  const uint32_t previousClockColour = p.isKey("pacClockColor") ? p.getUInt("pacClockColor", 0) : 0;
+  if (saved && previousClockColour != pacmanClockColor) saved = p.putUInt("pacClockColor", pacmanClockColor) == sizeof(uint32_t);
   if (hasLocation) { p.putFloat("lat", latitude); p.putFloat("lon", longitude); }
   p.end();
   return saved;

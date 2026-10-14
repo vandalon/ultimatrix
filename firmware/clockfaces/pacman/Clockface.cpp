@@ -599,12 +599,16 @@ void Clockface::update() {
     sceneText(d, text, x, popupY + OY, rgb(60, 230, 255));
   }
   // The time overlays the full-height maze; the scene behind it was drawn dimmer.
+  const auto &settings = *Settings::getInstance();
+  const uint16_t selectedClockColour = settings.pacmanColor(settings.pacmanClockColor);
+  const uint16_t hours = selectedClockColour ? selectedClockColour : kHours;
+  const uint16_t minutes = selectedClockColour ? selectedClockColour : kMinutes;
   for (int i = 0; i < 4; i++) {
     if (i == 0 && !_dateTime->is24hFormat() && hour < 10 && slots[0].digit == 0 && now - slots[0].since >= kChangeMs) continue;
-    drawDigit(d, i, i < 2 ? kHours : kMinutes, now);
+    drawDigit(d, i, i < 2 ? hours : minutes, now);
   }
   {  // the colon: two power pellets
-    const uint16_t c = dim(kHours, 150 + triangle(now / 4) * 105 / 255);
+    const uint16_t c = dim(hours, 150 + triangle(now / 4) * 105 / 255);
     for (int i = 0; i < 2; i++) box(d, 31, kDigitTop + (i ? 6 : 2), 2, 2, c);
   }
   // The lives, as Pac-Man in the corner of the maze's bottom wall

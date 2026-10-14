@@ -384,6 +384,7 @@ static void settingsState() {
 #endif
 #ifdef UM_PACMAN
   json += ",\"color\":" + String(s.color) + ",\"dotColor\":" + String(s.dotColor);
+  json += ",\"pacmanClockColor\":" + String(s.pacmanClockColor);
   const char *ghostNames[] = {"ghost1Color", "ghost2Color", "ghost3Color", "ghost4Color"};
   for (int i = 0; i < 4; i++) json += ",\"" + String(ghostNames[i]) + "\":" + String(s.ghostColors[i]);
 #endif
@@ -586,6 +587,7 @@ static void saveSettings() {
 #endif
 #ifdef UM_PACMAN
   const struct { const char *name; uint8_t *value; uint8_t count; } colours[] = {
+    {"pacmanClockColor", &s.pacmanClockColor, pacmancolors::COLOR_COUNT},
     {"color", &s.color, pacmancolors::WALL_COUNT}, {"dotColor", &s.dotColor, pacmancolors::COLOR_COUNT},
     {"ghost1Color", &s.ghostColors[0], pacmancolors::COLOR_COUNT}, {"ghost2Color", &s.ghostColors[1], pacmancolors::COLOR_COUNT},
     {"ghost3Color", &s.ghostColors[2], pacmancolors::COLOR_COUNT}, {"ghost4Color", &s.ghostColors[3], pacmancolors::COLOR_COUNT}
