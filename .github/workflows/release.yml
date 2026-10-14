@@ -17,7 +17,7 @@ jobs:
       matrix:
         mode: [football, f1, motogp, tetris, word, mario, luigi, pacman]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build ${{ matrix.mode }}
         uses: espressif/esp-idf-ci-action@v1
         with:
@@ -31,7 +31,7 @@ jobs:
           esp_idf_version: v5.5.5
           target: esp32
           command: bash firmware/tools/build-webflasher.sh ${{ matrix.mode }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: build-${{ matrix.mode }}
           path: |
@@ -49,12 +49,12 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: build-*
           merge-multiple: true
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - run: pip install cryptography
@@ -75,9 +75,9 @@ jobs:
           mkdir -p web-flasher/updates
           cp dist/release/* web-flasher/updates/
           python firmware/tools/build-updates-page.py web-flasher/updates "$GITHUB_REF_NAME"
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: web-flasher
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
