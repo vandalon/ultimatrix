@@ -83,7 +83,7 @@ Open [localhost:8000](http://localhost:8000/) in a desktop browser with Web Seri
 
 The flasher offers to erase the device on a fresh install. Erasing removes Wi-Fi credentials and settings; leave that option off if you want to keep them.
 
-The release workflow can publish this page through GitHub Pages, but that release path still needs setup and an end-to-end check. There is no configured public flasher address in this repository.
+The hosted flasher is at [vandalon.github.io/ultimatrix](https://vandalon.github.io/ultimatrix/) once a release has been published; signed update files are mirrored under [/updates/](https://vandalon.github.io/ultimatrix/updates/).
 
 ## First setup
 
@@ -140,7 +140,7 @@ python3 firmware/tools/package-firmware.py
 
 It writes the built faces and signed manifests to `dist/firmware/`, in the folder layout expected by a private server. Keep the signing key private. Self-hosted face installation has been confirmed on a device.
 
-The [release workflow](.github/workflows/release.yml) builds all eight faces when a `v*` tag is pushed. It signs the update manifests, creates a GitHub release and deploys the browser flasher. It needs the `UPDATE_SIGNING_KEY` repository secret and GitHub Pages configured for Actions. This workflow has not yet been checked end to end.
+The [release workflow](.github/workflows/release.yml) builds all eight faces when a `v*` tag is pushed. It signs the update manifests, creates a GitHub release and deploys the browser flasher and an update-file mirror to GitHub Pages. It needs the `UPDATE_SIGNING_KEY` repository secret and GitHub Pages configured for Actions. This workflow has not yet been checked end to end.
 
 ## Remote console
 

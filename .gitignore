@@ -12,3 +12,5 @@ web-flasher/firmware/
 # Local agent handoff
 HANDOFF.txt
 WORKLOG.txt
+__pycache__/
+.vscode/

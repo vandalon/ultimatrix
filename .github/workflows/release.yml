@@ -1,6 +1,6 @@
 name: Build and release
 # Every push to main, pull request and manual run builds every clock face (no signing, nothing published).
-# Push a tag such as v0.3.0 to also sign the update manifests, publish a GitHub release and deploy the web flasher.
+# Push a tag such as v0.3.0 to also sign the update manifests, publish a GitHub release and deploy the web flasher and a mirror of the update files to GitHub Pages.
 on:
   push:
     branches: [main]
@@ -70,6 +70,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" dist/release/* --title "$GITHUB_REF_NAME" --generate-notes
+      - name: Mirror the signed update files on Pages
+        run: |
+          mkdir -p web-flasher/updates
+          cp dist/release/* web-flasher/updates/
+          python firmware/tools/build-updates-page.py web-flasher/updates "$GITHUB_REF_NAME"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
