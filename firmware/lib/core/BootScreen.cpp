@@ -376,6 +376,11 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
       break;
     default:
       now.level = pulse(pulsing ? clock_ : since, kLabelPeriodMs) >> 3;
+      if (kind == Kind::Installing) {
+        now.page = progress_ < 0 ? 255 : (uint8_t)(progress_ > 100 ? 100 : progress_);
+        uint32_t step = (since / 60) % (2 * 30);  // the light travels along the bar and back: 30 positions each way
+        now.mix = step < 30 ? step : 2 * 30 - step - 1;
+      }
       if (kind == Kind::Syncing) now.mix = since < kMixMs ? 31 * since / kMixMs : 31;  // blue melts into green
       if (kind == Kind::Connecting && since < kDimMs) now.glow = 31 - 31 * since / kDimMs;  // the logo's U dims as the symbol comes in
       break;
@@ -414,6 +419,19 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
       centredSmall(gfx, "UPDATE", 43, shade(kViolet, 255));
       centredSmall(gfx, "AVAILABLE", 50, shade(kViolet, 255));
       break;
+    case Kind::Installing: {  // the update runs on its own, with no face loaded: pulsing arrow, label and a progress bar
+      drawIcon(gfx, icon_, kUpdate, kViolet, level, glow);
+      centredSmall(gfx, "UPDATING", 43, shade(kViolet, 255));
+      const int x = 12, y = 50, w = 40;
+      gfx.drawRect(x, y, w, 5, shade(kViolet, 90));
+      if (now.page <= 100) {
+        int filled = (w - 2) * now.page / 100;
+        if (filled > 0) gfx.fillRect(x + 1, y + 1, filled, 3, shade(kViolet, 255));  // the panel driver reads a zero width as a full row
+      }
+      else for (int i = 0; i < 8; ++i)  // a short light, brightest in the middle, so it looks the same in both directions
+        gfx.fillRect(x + 1 + now.mix + i, y + 1, 1, 3, shade(kViolet, 70 + 185 * (i < 4 ? i : 7 - i) / 3));
+      break;
+    }
     case Kind::Joined:
       joinedIcon(gfx, shade(plain_ ? kWhite : kGreen, 255));
       blockText(gfx, address_, 54, kAddress);

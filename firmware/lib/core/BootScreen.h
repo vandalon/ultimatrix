@@ -14,7 +14,7 @@
 
 namespace boot {
 
-enum class Kind : uint8_t { Logo, Connecting, Setup, Connected, Syncing, Error, Joined, Update, Welcome };  // Joined: someone is on the access point; Welcome: first-run QR for the settings page
+enum class Kind : uint8_t { Logo, Connecting, Setup, Connected, Syncing, Error, Joined, Update, Welcome, Installing };  // Joined: someone is on the access point; Welcome: first-run QR for the settings page
 
 // The panel runs the boot screens at a higher brightness than the user's setting (its brightness is whole pixel
 // clocks per bit plane, so a low setting leaves the dim end only a few levels deep). The caller compensates:
@@ -54,6 +54,8 @@ class Screen {
   void setPlainBackdrop(bool plain) { plain_ = plain; drawn_ = false; }
   // Welcome: once the settings page has been opened the QR pages stop and only the instructions remain
   void setWelcomeVisited(bool visited) { if (visited != welcomeVisited_) { welcomeVisited_ = visited; drawn_ = false; } }
+  // Installing: download progress 0..100, or -1 while it is not known yet (a light sweeps along the bar instead)
+  void setProgress(int percent) { progress_ = percent; }
   // Forget what was drawn (after anything else used the panel).
   void invalidate() { drawn_ = false; }
 
@@ -62,6 +64,7 @@ class Screen {
   bool drawn_ = false;
   bool plain_ = false;
   bool welcomeVisited_ = false;
+  int progress_ = -1;
   Kind lastKind_ = Kind::Logo;
   uint32_t lastSince_ = 0, clock_ = 0, settleAt_ = 0;  // clock_: the pulse clock, kept across pulsing screens
   bool settling_ = false;  // Connected, still pulsing up to the peak
