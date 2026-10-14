@@ -33,6 +33,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 ### lib/core/ (shared services)
 - IClockface.h: face interface. Locator.h: service locator
 - Settings.cpp/.h: persisted settings (NVS). JsonScan: lightweight JSON scanning
+- Birthdays.h: birthday setting parse/clean/lookup. BirthdayCanvas.h: 3 KB band renderer + fonts; BirthdayParty.h: the birthday screen (24 s story loop)
 - FirmwareUpdate.cpp/.h, UpdateTrust.h: OTA update + trust/verification
 - TimeService, ClockTime, NightClock, SunTimes: time, timezone, night mode, sunrise/sunset
 - DisplayControl, PanelLayout, BootScreen, ScreenTimer, FlipDigits, NumericFont, LapFonts: display/panel helpers, fonts
@@ -64,6 +65,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - gen_tzdb.py, zones.csv: generate the build-time timezone table from zone rules
 - preview/faces.cpp, preview/faces.py, preview/faces-scenarios.h: native pixel-art face runner, GIF generation and scenarios
 - preview/boot.cpp, preview/showcase.cpp, preview/showcase.py, preview/showcase-data.json: native boot/sports/Tetris previews and sample snapshots
+- preview/birthday.cpp, preview/birthday.py: native birthday-screen render to GIF
 - preview/refresh.py: exports README GIFs, stills/contact sheets and web face thumbnails from native renders
 - preview/motogp-snapshot.py: fetches real MotoGP API data for preview snapshots; preview/motogp-scan-test.cpp checks scanners against saved downloads
 - preview/shim/: Arduino/ESP/display/service stubs for native previews

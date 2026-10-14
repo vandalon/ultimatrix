@@ -15,6 +15,8 @@
 #include <DisplayControl.h>
 #include <SunTimes.h>
 #include <NightClock.h>
+#include <Birthdays.h>
+#include <BirthdayParty.h>
 #include <FirmwareUpdate.h>
 #include <NetworkBudget.h>
 #ifdef UM_FOOTBALL_ONLY
@@ -42,6 +44,7 @@ static void allocationFailed(size_t, uint32_t, const char *) {
 
 std::atomic<bool> firmwareUpdating{false};
 std::atomic<bool> liveEventOn{false};
+std::atomic<bool> liveFavouriteOn{false};
 volatile bool faceBootDone = false;
 
 static MatrixPanel_I2S_DMA *display = nullptr;
@@ -58,6 +61,24 @@ static uint32_t scheduledSince = 0;
 static DisplayControl displayControl;
 static NightClock nightClock;
 static bool nightShown = false;
+static bool birthdayShown = false;  // the birthday screen is on the panel instead of the face
+static uint32_t birthdayPreviewUntil = 0;  // telnet "birthday": show the screen until then, whatever the date
+constexpr uint32_t kBirthdayFrameMs = 60;
+static bool birthdayPreviewing() { return birthdayPreviewUntil && (int32_t)(birthdayPreviewUntil - millis()) > 0; }
+
+// Today's birthday, or nullptr. Never while a favourite team's match or a race session is live (liveFavouriteOn: that is
+// what the face is for, the preview included; other football matches do not count), and not for a minute after, so a feed that blinks does not flash the party over the live screens.
+// Nor before the time is known: until the first sync the date reads 1 January 1970.
+static const Birthdays::Entry *birthdayToday() {
+  static const Birthdays::Entry preview = {0, 0, "TEST", 2013};
+  static uint32_t liveSeenAt = 0;
+  uint32_t now = millis();
+  if (liveFavouriteOn.load()) { liveSeenAt = now ? now : 1; return nullptr; }
+  if (liveSeenAt && now - liveSeenAt < 60000) return nullptr;
+  if (birthdayPreviewing()) return &preview;
+  if (ultime::timeStatus() != timeSet) return nullptr;
+  return Birthdays::on(Settings::getInstance()->birthdays, clockTime.getYear(), clockTime.getMonth(), clockTime.getDay());
+}
 static FirmwareUpdate firmwareUpdate;
 static uint8_t appliedBrightness = 0;
 
@@ -222,6 +243,7 @@ static void startMdns() {
   consoleLog("mDNS: ultimatrix.local %s\n", mdnsStarted ? "up" : "FAILED");
 }
 
+#define UM_TELNET_COMMON_HELP "  update  download signed application update\r\n  update-status  show update progress\r\n  birthday  show the birthday screen for a minute (again to stop)\r\n"
 #if defined(UM_MARIO) || defined(UM_LUIGI)
 #define UM_TELNET_HELP "  world   pick the world: world list, world demo, world rotate, world <name>\r\n"
 #elif defined(UM_F1)
@@ -258,6 +280,12 @@ static bool telnetCommand(const char *c, Print &out) {
     if (accepted) { telnetUpdate = TelnetUpdate::Watching; out.print("Update started: checking memory. The result follows here.\r\n"); }
     else if (status.lowMemory) { firmwareUpdate.scheduleAfterReboot(nullptr); restartAt = millis() + 1000; out.printf("%s\r\n", status.message); }
     else out.printf("Update not started: %s\r\n", status.message);
+    return true;
+  }
+  if (!strcasecmp(c, "birthday")) {
+    bool on = !birthdayPreviewing();
+    birthdayPreviewUntil = on ? millis() + 60000 : 0;
+    out.print(on ? "Showing the birthday screen for a minute (again to stop).\r\n" : "Birthday screen stopped.\r\n");
     return true;
   }
   if (!strcasecmp(c, "update-status")) {
@@ -381,6 +409,7 @@ static void settingsState() {
   json += ",\"timezone\":" + jsonText(s.timezone) + ",\"autoTimezone\":" + String(s.manualTimezone ? "false" : "true") + ",\"matchSecs\":" + String(s.matchSecs);
   json += ",\"resultMins\":" + String(s.resultMins) + ",\"timeStyle\":" + String(s.timeStyle);
   json += ",\"swapBlueGreen\":" + String(s.swapBlueGreen ? "true" : "false") + ",\"telnet\":" + String(s.telnet ? "true" : "false") + ",\"autoUpdate\":" + String(s.autoUpdate ? "true" : "false");
+  json += ",\"birthdays\":" + jsonText(s.birthdays);
   json += ",\"fbLeagues\":" + jsonText(s.footballLeagues) + ",\"fbTeams\":" + jsonText(s.footballTeams);
   json += ",\"f1Drivers\":" + jsonText(s.f1Drivers);
   json += ",\"showRankings\":" + String(s.showRankings ? "true" : "false");
@@ -562,6 +591,7 @@ static void saveSettings() {
   if (!number("timeStyle", 0, 5, style)) { settingsResponse(400, "Choose a clock animation."); return; }
 #endif
   if (!autoZone && !ultime::posixForZone(zone.c_str())) { settingsResponse(400, "Choose a supported timezone from the suggestions."); return; }
+  if (server.arg("birthdays").length() > Birthdays::SETTING_MAX) { settingsResponse(400, "Too many birthdays. At most 10."); return; }
   if (selectedValues("fbLeagues").length() > 400 || server.arg("fbTeams").length() > 400 || selectedValues("f1Drivers").length() > 400) {
     settingsResponse(400, "Your selection is too long. Shorten it and try again.");
     return;
@@ -640,6 +670,7 @@ static void saveSettings() {
     *colour.value = choice;
   }
 #endif
+  if (server.hasArg("birthdays")) s.birthdays = Birthdays::clean(server.arg("birthdays"));
   s.swapBlueGreen = server.hasArg("swapBlueGreen");
   s.telnet = server.hasArg("telnet");
   s.autoUpdate = server.hasArg("autoUpdate");
@@ -662,7 +693,7 @@ static void saveSettings() {
   if (displayReady) display->setRotation(s.rotation);
   if (timeChanged && face) clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (consoleChanged) {
-    if (s.telnet && !memoryShed) telnet.begin(telnetCommand, "  update  download signed application update\r\n  update-status  show update progress\r\n" UM_TELNET_HELP);
+    if (s.telnet && !memoryShed) telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP);
     else telnet.stop();
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
@@ -1039,7 +1070,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/firmware/reboot", rebootForFirmwareUpdate);
   postRoute("/api/firmware/check", checkFirmware);
   postRoute("/api/firmware/server", saveUpdateServer);
-  if (s.telnet) telnet.begin(telnetCommand, "  update  download signed application update\r\n  update-status  show update progress\r\n" UM_TELNET_HELP);
+  if (s.telnet) telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP);
   backgroundWork() = background;
 }
 
@@ -1099,8 +1130,15 @@ void loop() {
       if (face->handlesNight() ? displayControl.roomDark() : displayControl.nightActive()) {
         nightClock.draw(*display, clockTime.getHour(), clockTime.getMinute(), clockTime.is24hFormat());
         nightShown = true;
+      } else if (const Birthdays::Entry *birthday = birthdayToday()) {
+        char time[16];
+        snprintf(time, sizeof(time), clockTime.is24hFormat() ? "%02d:%02d" : "%d:%02d", clockTime.getHour(), clockTime.getMinute());
+        int age = birthday->year ? clockTime.getYear() - birthday->year : 0;
+        birthday::party::draw(*display, now, birthday->name, age, time);
+        display->flipDMABuffer();
+        birthdayShown = true;
       } else {
-        if (nightShown) { nightShown = false; nightClock.reset(); face->invalidate(); }
+        if (nightShown || birthdayShown) { nightShown = birthdayShown = false; nightClock.reset(); face->invalidate(); }
         face->setNight(face->handlesNight() ? displayControl.sunDown() : displayControl.nightActive());
         face->update();
       }
@@ -1113,6 +1151,7 @@ void loop() {
 #else
     nextFrame = millis() + layout::frameMs;
 #endif
+    if (birthdayShown) nextFrame = millis() + kBirthdayFrameMs;
     if (portalActive && millis() - loopStart - backgroundMs > 40) Serial.printf("[Portal] frame took %u ms\n", (unsigned)(millis() - loopStart - backgroundMs));
   }
   delay(portalActive ? 1 : 2);  // the setup page and DNS answers wait on this loop

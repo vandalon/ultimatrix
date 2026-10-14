@@ -38,6 +38,7 @@ struct Settings {
   bool autoUpdate = true;  // check once a day and install a newer signed image by itself
   bool telnet = false;  // LAN console on port 23, unauthenticated: off unless switched on
   String f1Drivers;
+  String birthdays;  // "MMDD:NAME:YYYY" entries, comma separated (Birthdays.h); own NVS key, outside the settings record
   String footballLeagues = UM_DEFAULT_FOOTBALL_LEAGUES;
   String footballTeams = UM_DEFAULT_FOOTBALL_TEAMS;
   String timezone = "Europe/Amsterdam";  // the detected zone while manualTimezone is off

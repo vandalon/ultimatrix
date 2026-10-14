@@ -30,6 +30,12 @@
 #endif
 #include "FootballCatalog.h"
 
+// A live match of a favourite team: the football face's reason to keep the birthday screen off
+static bool favouriteLive(const football::Snapshot &s) {
+  for (size_t i = 0; i < s.liveCount; i++) if (s.live[i].favourite) return true;
+  return false;
+}
+
 // Which competitions and favourite teams to follow is set on the settings page (see FootballCatalog.h
 // for what can be chosen). Matches are drawn in their competition's colour.
 static const size_t MAX_LEAGUES = 10, MAX_FAVOURITES = 8;  // every one is a download
@@ -505,6 +511,7 @@ void FootballTicker::dropOldDay() {
   _race = Race();
 #endif
   liveEventOn = _snapshot.liveCount > 0;
+  liveFavouriteOn = favouriteLive(_snapshot);
 }
 
 // Fetches today's matches, updates the ticker and looks for goals.
@@ -775,6 +782,7 @@ unsigned long FootballTicker::fetchRace() {
     std::lock_guard<std::mutex> guard(_lock);
     _race = live;
     liveEventOn = _snapshot.liveCount > 0;
+    liveFavouriteOn = favouriteLive(_snapshot);
 #ifndef UM_FOOTBALL_ONLY
   liveEventOn = liveEventOn.load() || _race.live;
 #endif
@@ -1733,6 +1741,7 @@ void FootballTicker::buildOverview(const MatchList &matches, const std::vector<c
   std::lock_guard<std::mutex> guard(_lock);
   _snapshot = _staging;
   liveEventOn = _snapshot.liveCount > 0;
+  liveFavouriteOn = favouriteLive(_snapshot);
 #ifndef UM_FOOTBALL_ONLY
   liveEventOn = liveEventOn.load() || _race.live;
 #endif

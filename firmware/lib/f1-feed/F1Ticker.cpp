@@ -596,6 +596,7 @@ unsigned long F1Ticker::fetchWeekend() {
     strlcpy(_snap.circuit, scan.circuit, sizeof(_snap.circuit));
     _snap.live = snap.live;
     liveEventOn = snap.live.valid;
+    liveFavouriteOn = snap.live.valid;
     _snap.last = snap.last;
     _snap.next = snap.next;
     for (int i = 0; i < Snapshot::COMING; i++) _snap.coming[i] = snap.coming[i];

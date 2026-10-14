@@ -59,6 +59,7 @@ class String {
   bool isEmpty() const { return _s.empty(); }
   char operator[](unsigned i) const { return _s[i]; }
   int indexOf(char c) const { size_t p = _s.find(c); return p == std::string::npos ? -1 : (int)p; }
+  int indexOf(char c, unsigned from) const { size_t p = _s.find(c, from); return p == std::string::npos ? -1 : (int)p; }
   int indexOf(const char *s) const { size_t p = _s.find(s); return p == std::string::npos ? -1 : (int)p; }
   String substring(unsigned from) const { return from >= _s.size() ? String("") : String(_s.substr(from)); }
   String substring(unsigned from, unsigned to) const {

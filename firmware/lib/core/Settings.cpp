@@ -65,6 +65,8 @@ void Settings::load() {
   Preferences p;
   if (!p.begin("ultimatrix", false)) return;
   autoUpdate = p.getBool("autoUpdate", true);
+  birthdays = p.getString("birthdays", "");
+  if (birthdays.length() > 260) birthdays = "";
   Record record{};
   bool valid = p.isKey("settingsV2") && p.getBytesLength("settingsV2") == sizeof(record) &&
       p.getBytes("settingsV2", &record, sizeof(record)) == sizeof(record) &&
@@ -150,7 +152,7 @@ void Settings::load() {
 
 bool Settings::save() {
   if (timezone.length() > 80 || ntpServer.isEmpty() || ntpServer.length() > 128 ||
-      footballLeagues.length() > 400 || footballTeams.length() > 400 || f1Drivers.length() > 400) return false;
+      footballLeagues.length() > 400 || footballTeams.length() > 400 || f1Drivers.length() > 400 || birthdays.length() > 260) return false;
   if (color >= pacmancolors::WALL_COUNT || dotColor >= pacmancolors::COLOR_COUNT || pacmanClockColor >= pacmancolors::COLOR_COUNT) return false;
   for (uint8_t ghost : ghostColors) if (ghost >= pacmancolors::COLOR_COUNT) return false;
   Record record{};
@@ -177,6 +179,7 @@ bool Settings::save() {
   if (!p.begin("ultimatrix", false)) return false;
   bool saved = p.putBytes("settingsV2", &record, sizeof(record)) == sizeof(record);  // one write commits everything
   if (saved) p.putBool("autoUpdate", autoUpdate);  // own key, so records saved before this setting keep it on
+  if (saved) p.putString("birthdays", birthdays);  // own key as well: the record stays as it is
   p.end();
   if (saved) memcpy(faceOptions, options, sizeof(options));
   return saved;

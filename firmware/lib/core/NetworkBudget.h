@@ -4,6 +4,8 @@
 
 extern std::atomic<bool> firmwareUpdating;
 extern std::atomic<bool> liveEventOn;
+// A football match of a favourite team is live, or any F1/MotoGP session is: what the birthday screen gives way to
+extern std::atomic<bool> liveFavouriteOn;
 inline std::atomic<bool> liveFeedReading{false};
 inline bool liveDataActive() { return liveEventOn.load() || liveFeedReading.load(); }
 

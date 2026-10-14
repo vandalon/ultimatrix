@@ -151,6 +151,47 @@ function addTeam(entry) {
 }
 function removeTeam(id) { favourites = favourites.filter(team => team.id !== id); saveTeams(); }
 function countLeagues() { const count = form.querySelectorAll('[name=fbLeagues]:checked').length; document.querySelector('#league-count').textContent = count + ' of 10 selected'; }
+// Birthdays: one hidden "MMDD:NAME:YYYY,..." field, edited as rows; "_" stands for a space in a name
+const bdayList = document.querySelector('#bday-list'), bdayAdd = document.querySelector('#bday-add');
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const daysIn = month => [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+const bdayName = value => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').slice(0, 12);  // what the panel's small font can draw
+function fillDays(select, month, day) { select.replaceChildren(...Array.from({ length: daysIn(month) }, (_, i) => new Option(i + 1, i + 1))); select.value = Math.min(day, daysIn(month)); }
+function bdayRow(b) {
+  const part = (tag, cls, label) => { const el = document.createElement(tag); el.className = cls; el.setAttribute('aria-label', label); return el; };
+  const row = part('div', 'bday', 'Birthday'), info = part('div', 'info', ''), line = part('div', 'row', '');
+  const name = part('input', 'n', 'Name'), day = part('select', 'd', 'Day'), month = part('select', 'm', 'Month'), year = part('input', 'y', 'Birth year (optional)'), drop = part('button', 'x', 'Remove');
+  name.type = 'text'; name.maxLength = 12; name.placeholder = 'Name'; name.autocomplete = 'off'; name.value = b.name;
+  MONTHS.forEach((label, i) => month.add(new Option(label, i + 1))); month.value = b.month; fillDays(day, b.month, b.day);
+  year.type = 'text'; year.inputMode = 'numeric'; year.maxLength = 4; year.placeholder = 'Year'; year.value = b.year;
+  drop.type = 'button'; drop.textContent = '\u00d7';
+  line.append(day, month, year); info.append(name, line); row.append(info, drop);
+  return row;
+}
+function bdayCount() { bdayAdd.hidden = bdayList.children.length >= 10; const named = field('birthdays').value ? field('birthdays').value.split(',').length : 0; document.querySelector('#bday-count').textContent = named ? named + (named === 1 ? ' birthday' : ' birthdays') : ''; }
+function bdaySync() {
+  field('birthdays').value = [...bdayList.children].map(row => {
+    const name = bdayName(row.querySelector('.n').value).trim();
+    return name ? String(row.querySelector('.m').value).padStart(2, '0') + String(row.querySelector('.d').value).padStart(2, '0') + ':' + name.replace(/ /g, '_') + ':' + row.querySelector('.y').value.replace(/\D/g, '') : '';
+  }).filter(Boolean).join(',');
+  bdayCount();
+}
+function loadBirthdays(text) {
+  bdayList.replaceChildren(...text.split(',').filter(Boolean).map(entry => { const [date = '', name = '', year = ''] = entry.split(':'); return bdayRow({ month: Number(date.slice(0, 2)) || 1, day: Number(date.slice(2)) || 1, name: name.replace(/_/g, ' '), year }); }));
+  bdayCount();
+}
+bdayList.addEventListener('input', event => {
+  const el = event.target;
+  if (el.classList.contains('n')) { const clean = bdayName(el.value); if (clean !== el.value) el.value = clean; }
+  bdaySync();
+});
+bdayList.addEventListener('change', event => {
+  const row = event.target.closest('.bday');
+  if (event.target.classList.contains('m')) fillDays(row.querySelector('.d'), Number(event.target.value), Number(row.querySelector('.d').value));
+  bdaySync();
+});
+bdayList.addEventListener('click', event => { if (event.target.classList.contains('x')) { event.target.closest('.bday').remove(); bdaySync(); field('birthdays').dispatchEvent(new Event('input', { bubbles: true })); } });
+bdayAdd.addEventListener('click', () => { const now = new Date(); bdayList.append(bdayRow({ month: now.getMonth() + 1, day: now.getDate(), name: '', year: '' })); bdayCount(); bdayList.lastChild.querySelector('.n').focus(); });
 async function load() {
   try {
     const response = await fetch('/api/settings', { cache: 'no-store' });
@@ -168,6 +209,7 @@ async function load() {
     if (data.mode === 'MotoGP') document.querySelector('[data-f1] .field > label').textContent = 'Favourite riders';
     if (racing) form.querySelector('[name=timeStyle] option[value="0"]').remove();
     Object.entries(data.settings).forEach(([name, value]) => { const input = field(name); if (!input) return; if (input.tagName === 'SELECT' && ![...input.options].some(o => o.value === String(value))) input.add(new Option(value, value)); if (input.type === 'checkbox') input.checked = Boolean(value); else input.value = name === 'use24h' ? (value ? '1' : '0') : name === 'timeStyle' && racing && Number(value) === 0 ? 2 : value; });
+    loadBirthdays(field('birthdays').value);
     document.querySelector('#sun-hint').textContent = data.sunTimes || '';
     document.querySelector('#mode-name').textContent = data.mode; currentFace = data.modeId; markFace();
     document.querySelector('#sport-heading').textContent = data.mode + ' preferences';
@@ -282,7 +324,7 @@ document.querySelector('#wifi-confirm').addEventListener('click', async () => {
   try { const response = await fetch('/api/wifi/setup', { method: 'POST' }); const result = await response.json(); if (!response.ok) throw new Error(result.message); dialog.close(); busy = true; controls.disabled = true; save.disabled = true; message('Your clock is restarting into Wi-Fi setup. Join the Ultimatrix network and open 192.168.4.1, or scan the QR code on the clock.'); }
   catch (error) { dialog.close(); message(error.message || 'Could not open Wi-Fi setup. Try again.', true); button.disabled = false; }
 });
-document.querySelectorAll('.sidebar nav a').forEach(link => link.addEventListener('click', () => { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); link.classList.add('active'); }));
+document.querySelectorAll('.sidebar nav a').forEach(link => link.addEventListener('click', () => { if (link.hash === '#birthdays') document.querySelector('#birthdays details').open = true; document.querySelector('.sidebar nav a.active')?.classList.remove('active'); link.classList.add('active'); }));
 load();
 
 let updatePolling = false, currentFace = '';

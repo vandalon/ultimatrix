@@ -164,6 +164,7 @@ unsigned long F1Ticker::fetchWeekend() {
     }
     sessionCount = 0;
     liveEventOn = false;
+    liveFavouriteOn = false;
     weekendEvent[0] = 0;
     return 5 * 60 * 1000UL;
   }
@@ -201,6 +202,7 @@ unsigned long F1Ticker::fetchWeekend() {
     else if (nextOne < 0 && s.start > now) nextOne = i;
   }
   liveEventOn = on >= 0;
+  liveFavouriteOn = on >= 0;
   bool near = on >= 0 || (nextOne >= 0 && sessions[nextOne].start - now < 15 * 60);
   if (near) sessionsDueAt = std::min<unsigned long>(sessionsDueAt, millis() + kSessionsBusyMs);
 

@@ -118,6 +118,10 @@ Mario and Luigi handle night differently. Their scenes follow sunset and sunrise
 
 Changes tied to sunrise and sunset need a detected location. Automatic brightness and the night schedule are off by default.
 
+### Birthdays
+
+Add birthdays under **Birthdays** in settings: a name (capitals, digits and spaces, up to 12 characters), a day, a month and an optional birth year, up to 10. On that day every face is replaced by a birthday screen with the name, the age (or HAPPY BIRTHDAY! without a year) and the time. It steps aside while a favourite team's football match or any F1/MotoGP session is live (and for a minute afterwards), and the night clock still takes over at night. A 29 February birthday is celebrated on 1 March in other years. With the remote console on, `birthday` shows the screen for a minute whatever the date.
+
 ## Updates and switching faces
 
 The clock checks for updates at startup when its cached check is missing or more than 24 hours old, then about once a day while running. With Automatic updates on (the default, under Advanced), a newer version is installed by itself and the clock restarts; with it off, checking installs nothing. Available updates appear on the boot screen and settings page; with Automatic updates off, installation starts when you choose it.
@@ -152,7 +156,7 @@ telnet ultimatrix.local
 
 It accepts one client at a time and has no password or encryption. Enable it only on a network you trust.
 
-Use `help` for the available commands. Shared commands include `status`, `heap`, `log on`, `log off`, `reboot`, `update`, `update-status` and `quit`. Arrow-key history and tab completion are supported; `q` or Ctrl-D on an empty line closes the session.
+Use `help` for the available commands. Shared commands include `status`, `heap`, `log on`, `log off`, `reboot`, `update`, `update-status`, `birthday` and `quit`. Arrow-key history and tab completion are supported; `q` or Ctrl-D on an empty line closes the session.
 
 Mario and Luigi add `world list` and `world <name>`. F1 and MotoGP add `sim` and `next`. Football's simulated match controls have been removed.
 
