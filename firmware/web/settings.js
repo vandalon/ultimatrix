@@ -153,19 +153,19 @@ function removeTeam(id) { favourites = favourites.filter(team => team.id !== id)
 function countLeagues() { const count = form.querySelectorAll('[name=fbLeagues]:checked').length; document.querySelector('#league-count').textContent = count + ' of 10 selected'; }
 // Birthdays: one hidden "MMDD:NAME:YYYY,..." field, edited as rows; "_" stands for a space in a name
 const bdayList = document.querySelector('#bday-list'), bdayAdd = document.querySelector('#bday-add');
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const daysIn = month => [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
 const bdayName = value => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').slice(0, 12);  // what the panel's small font can draw
 function fillDays(select, month, day) { select.replaceChildren(...Array.from({ length: daysIn(month) }, (_, i) => new Option(i + 1, i + 1))); select.value = Math.min(day, daysIn(month)); }
 function bdayRow(b) {
   const part = (tag, cls, label) => { const el = document.createElement(tag); el.className = cls; el.setAttribute('aria-label', label); return el; };
-  const row = part('div', 'bday', 'Birthday'), info = part('div', 'info', ''), line = part('div', 'row', '');
+  const row = part('div', 'bday', 'Birthday');
   const name = part('input', 'n', 'Name'), day = part('select', 'd', 'Day'), month = part('select', 'm', 'Month'), year = part('input', 'y', 'Birth year (optional)'), drop = part('button', 'x', 'Remove');
   name.type = 'text'; name.maxLength = 12; name.placeholder = 'Name'; name.autocomplete = 'off'; name.value = b.name;
   MONTHS.forEach((label, i) => month.add(new Option(label, i + 1))); month.value = b.month; fillDays(day, b.month, b.day);
   year.type = 'text'; year.inputMode = 'numeric'; year.maxLength = 4; year.placeholder = 'Year'; year.value = b.year;
   drop.type = 'button'; drop.textContent = '\u00d7';
-  line.append(day, month, year); info.append(name, line); row.append(info, drop);
+  row.append(name, day, month, year, drop);
   return row;
 }
 function bdayCount() { bdayAdd.hidden = bdayList.children.length >= 10; const named = field('birthdays').value ? field('birthdays').value.split(',').length : 0; document.querySelector('#bday-count').textContent = named ? named + (named === 1 ? ' birthday' : ' birthdays') : ''; }
