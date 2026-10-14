@@ -10,14 +10,14 @@ There are eight clock faces. Each has its own firmware image, so the clock runs 
 
 | Preview | Face | Build name | What it shows |
 | --- | --- | --- | --- |
-| <img src="firmware/web/faces/football.png" alt="Football clock" width="128" height="128"> | Football | `football` | Live scores, fixtures, results, league tables and goal celebrations. Choose up to 10 competitions and 8 favourite teams. |
-| <img src="firmware/web/faces/f1.png" alt="Formula 1 clock" width="128" height="128"> | Formula 1 | `f1` | Race weekends, session results, standings and live timing. Favourite drivers get priority on race screens. |
-| <img src="firmware/web/faces/motogp.png" alt="MotoGP clock" width="128" height="128"> | MotoGP | `motogp` | Race weekends, results, standings and live timing, using the same display layout as F1. |
-| <img src="firmware/web/faces/tetris.png" alt="Tetris clock" width="128" height="128"> | Tetris | `tetris` | Falling pieces that form the time and date. |
-| <img src="firmware/web/faces/word.png" alt="Words clock" width="128" height="128"> | Words | `word` | The time in 16 languages, with a weekday, date and minute bar. Choose letter shuffle, letter lift, pixel dissolve, soft wipe, all four in rotation, or no transition. |
-| <img src="firmware/web/faces/mario.png" alt="Mario clock" width="128" height="128"> | Mario | `mario` | Mario jumps to update the clock blocks, collects coins and gets a 1-UP at the hour change. Nine worlds and a flagpole, castle and fireworks scene at noon. |
-| <img src="firmware/web/faces/luigi.png" alt="Luigi clock" width="128" height="128"> | Luigi | `luigi` | The same clock-block idea and nine worlds, with a taller Luigi, flutter jumps, a Subcon jar and a Shy Guy. It also has the noon finale. |
-| <img src="firmware/web/faces/pacman.png" alt="Pac-Man clock" width="128" height="128"> | Pac-Man | `pacman` | A game that plays itself, with a new maze each level and four ghosts. The clock sits over a dimmed part of the maze. Clock, border, dots and each ghost have separate colour choices. |
+| <img src="docs/previews/football.gif" alt="Football clock" width="128" height="128"> | Football | `football` | Live scores, fixtures, results, league tables and goal celebrations. Choose up to 10 competitions and 8 favourite teams. |
+| <img src="docs/previews/f1.gif" alt="Formula 1 clock" width="128" height="128"> | Formula 1 | `f1` | Race weekends, session results, standings and live timing. Favourite drivers get priority on race screens. |
+| <img src="docs/previews/motogp.gif" alt="MotoGP clock" width="128" height="128"> | MotoGP | `motogp` | Race weekends, results, standings and live timing, using the same display layout as F1. |
+| <img src="docs/previews/tetris.gif" alt="Tetris clock" width="128" height="128"> | Tetris | `tetris` | Falling pieces that form the time and date. |
+| <img src="docs/previews/word.gif" alt="Words clock" width="128" height="128"> | Words | `word` | The time in 16 languages, with a weekday, date and minute bar. Choose letter shuffle, letter lift, pixel dissolve, soft wipe, all four in rotation, or no transition. |
+| <img src="docs/previews/mario.gif" alt="Mario clock" width="128" height="128"> | Mario | `mario` | Mario jumps to update the clock blocks, collects coins and gets a 1-UP at the hour change. Nine worlds and a flagpole, castle and fireworks scene at noon. |
+| <img src="docs/previews/luigi.gif" alt="Luigi clock" width="128" height="128"> | Luigi | `luigi` | The same clock-block idea and nine worlds, with a taller Luigi, flutter jumps, a Subcon jar and a Shy Guy. It also has the noon finale. |
+| <img src="docs/previews/pacman.gif" alt="Pac-Man clock" width="128" height="128"> | Pac-Man | `pacman` | A game that plays itself, with a new maze each level and four ghosts. The clock sits over a dimmed part of the maze. Clock, border, dots and each ghost have separate colour choices. |
 
 Football starts with Eredivisie and KNVB Cup selected, and the Dutch national team as a favourite. Competitions are grouped by country, and favourite teams have a searchable picker.
 
