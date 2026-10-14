@@ -22,7 +22,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 
 ### clockfaces/<name>/ (each: Clockface.cpp/.h, library.json)
 - bridge/: migration image showing where to choose a face, rather than a time display
-- mario/, luigi/: scrolling worlds, pipe/plant jumps, separate minute/hour hits, exit/swipe/entry and an update pause; shared sprites/course in lib/faces/
+- mario/, luigi/: scrolling worlds, pipe/plant jumps, separate minute/hour hits, exit/swipe/entry; shared sprites/course in lib/faces/
 - pacman/: self-playing maze clock; Maze.h generates/stores the maze; palette in lib/core/PacmanColors.h
 - word/: word clock; WordFont draws glyphs, WordLanguages defines language layouts
 - tetris/: falling-digit clock; TetrisRenderer draws, TetrisScreens controls timing/frame state

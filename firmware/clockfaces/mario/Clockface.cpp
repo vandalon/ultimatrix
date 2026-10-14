@@ -723,12 +723,6 @@ Clockface::Clockface(MatrixPanel_I2S_DMA* display) { _display = display; }
 
 void Clockface::setNight(bool value) { night = value; }
 
-void Clockface::setUpdating(bool value) {
-  if (_updating == value) return;
-  _updating = value; _updateDrawn = false;
-  lastNow = millis();
-}
-
 
 void Clockface::setup(ClockTime *dateTime) {
   _dateTime = dateTime;
@@ -752,11 +746,10 @@ void Clockface::update() {
   MatrixPanel_I2S_DMA &d = *_display;
   const uint32_t realNow = millis(), elapsed = realNow - lastNow;
   lastNow = realNow;
-  if (_updating && _updateDrawn) return;
-  const uint64_t scaled = _updating ? 0 : (uint64_t)elapsed * 6 + animationRemainder;
+  const uint64_t scaled = (uint64_t)elapsed * 6 + animationRemainder;
   sceneNow += scaled / 5; animationRemainder = scaled % 5;
   const uint32_t now = sceneNow;
-  float dt = _updating ? 0 : elapsed * plumberworld::kAnimationSpeed / 1000.0f;
+  float dt = elapsed * plumberworld::kAnimationSpeed / 1000.0f;
   if (dt > 0.2f) dt = 0.2f;
   if (!primed) {
     // The first frame comes after the time sync (the boot screens run until then): start from the real time
@@ -790,74 +783,72 @@ void Clockface::update() {
   const int digits[4] = {hour / 10, hour % 10, minute / 10, minute % 10};
   const bool hideTens = !_dateTime->is24hFormat() && hour < 10;
 
-  if (!_updating) {
-    if (coinDay != _dateTime->getDay()) { coinDay = _dateTime->getDay(); coins = 0; }
-    step(_dateTime, now, dt);
+  if (coinDay != _dateTime->getDay()) { coinDay = _dateTime->getDay(); coins = 0; }
+  step(_dateTime, now, dt);
 
-    // Each jump updates one block. At an hour turn, the minute block is hit first.
-    if (touch.pending) {
-      const int i = touch.block;
-      blocks[i].target[0] = digits[i * 2]; blocks[i].target[1] = digits[i * 2 + 1];
-      blocks[i].bumpAt = now;
-      coins = (coins + 1) % 100;
-      if (i == 1) blockMushroom.spawn(kBlockX[1], kBlockTop, course.camera, now,
-                                    (hash(minuteOfDay(_dateTime) + _dateTime->getDay() * 1440) & 1) != 0);
-      if (i == 0) {
-        mushroomOn = true; mushroomAt = now;
-        if (_dateTime->getHour24() == 12 && minute == 0 && flagDay != _dateTime->getDay()) {
-          flagDay = _dateTime->getDay(); finaleWanted = true;
-        } else {
-          // Every hour ends with a walk out. A pinned world is entered again.
-          pendingWorld = pinnedWorld() >= 0 ? pinnedWorld() : demoWorlds() ? (world + 1) % kWorlds
-                       : nextWorld(now ^ (_dateTime->getDay() * 24 + _dateTime->getHour24()), night);
-        }
+  // Each jump updates one block. At an hour turn, the minute block is hit first.
+  if (touch.pending) {
+    const int i = touch.block;
+    blocks[i].target[0] = digits[i * 2]; blocks[i].target[1] = digits[i * 2 + 1];
+    blocks[i].bumpAt = now;
+    coins = (coins + 1) % 100;
+    if (i == 1) blockMushroom.spawn(kBlockX[1], kBlockTop, course.camera, now,
+                                  (hash(minuteOfDay(_dateTime) + _dateTime->getDay() * 1440) & 1) != 0);
+    if (i == 0) {
+      mushroomOn = true; mushroomAt = now;
+      if (_dateTime->getHour24() == 12 && minute == 0 && flagDay != _dateTime->getDay()) {
+        flagDay = _dateTime->getDay(); finaleWanted = true;
+      } else {
+        // Every hour ends with a walk out. A pinned world is entered again.
+        pendingWorld = pinnedWorld() >= 0 ? pinnedWorld() : demoWorlds() ? (world + 1) % kWorlds
+                     : nextWorld(now ^ (_dateTime->getDay() * 24 + _dateTime->getHour24()), night);
       }
-      touch.pending = false;
     }
-    if (mushroomOn && now - mushroomAt >= 3700) mushroomOn = false;
-    if (pinnedWorld() >= 0 && world != pinnedWorld() && !changingWorld() && finaleStage == FinaleStage::None && world != Finale)
-      pendingWorld = pinnedWorld();
-    // The demo visits each world and plays the finale once per round.
-    if (demoWorlds() && world == Overground && !demoFlagDone && !changingWorld() && finaleStage == FinaleStage::None && now - worldSince >= 1500) {
-      demoFlagWanted = true; demoFlagDone = true;
-    }
-    if (demoWorlds() && !changingWorld() && finaleStage == FinaleStage::None && world != Finale && now - worldSince >= 8000) {
-      pendingWorld = (world + 1) % kWorlds; demoFlagDone = false;
-    }
-    if (night && brightWorld(world) && pinnedWorld() < 0 && !demoWorlds() && !changingWorld())
-      pendingWorld = nextWorld(now, true);
+    touch.pending = false;
+  }
+  if (mushroomOn && now - mushroomAt >= 3700) mushroomOn = false;
+  if (pinnedWorld() >= 0 && world != pinnedWorld() && !changingWorld() && finaleStage == FinaleStage::None && world != Finale)
+    pendingWorld = pinnedWorld();
+  // The demo visits each world and plays the finale once per round.
+  if (demoWorlds() && world == Overground && !demoFlagDone && !changingWorld() && finaleStage == FinaleStage::None && now - worldSince >= 1500) {
+    demoFlagWanted = true; demoFlagDone = true;
+  }
+  if (demoWorlds() && !changingWorld() && finaleStage == FinaleStage::None && world != Finale && now - worldSince >= 8000) {
+    pendingWorld = (world + 1) % kWorlds; demoFlagDone = false;
+  }
+  if (night && brightWorld(world) && pinnedWorld() < 0 && !demoWorlds() && !changingWorld())
+    pendingWorld = nextWorld(now, true);
 
-    if (finaleWanted && finaleStage == FinaleStage::None && !wiping) {
-      finaleWanted = false; worldBefore = world; pendingWorld = Finale;
-      finaleStage = FinaleStage::Out;
-    } else if (finaleStage == FinaleStage::Playing && mario.mode == Mode::FinaleDone && !changingWorld()) {
-      pendingWorld = worldBefore; finaleStage = FinaleStage::Back;
-    }
+  if (finaleWanted && finaleStage == FinaleStage::None && !wiping) {
+    finaleWanted = false; worldBefore = world; pendingWorld = Finale;
+    finaleStage = FinaleStage::Out;
+  } else if (finaleStage == FinaleStage::Playing && mario.mode == Mode::FinaleDone && !changingWorld()) {
+    pendingWorld = worldBefore; finaleStage = FinaleStage::Back;
+  }
 
-    if (pendingWorld >= 0 && !blockMushroom.active && !wiping && (free0(mario) || mario.mode == Mode::FinaleDone)) {
-      mario.mode = Mode::WorldExit; mario.dir = 1; mario.exitJumping = false;
-      goomba.state = 0;
-    }
-    // Only swipe when six pixels of the departing character remain on screen.
-    if (mario.mode == Mode::WorldExit && mario.x >= W - 6 && !wiping) { wiping = true; wipeAt = now; }
-    if (wiping) {
-      const uint32_t wt = now - wipeAt;
-      if (wt >= kSwipeHalfMs && pendingWorld >= 0) {
-        world = pendingWorld; pendingWorld = -1; worldSince = now;
-        course = plumberworld::Course(); blockMushroom.active = false; goomba.state = 0;
-        mario.x = -13; mario.dir = 1; mario.exitJumping = false;
-        if (finaleStage == FinaleStage::Out && world == Finale) {
-          mario.mode = Mode::FlagRun; finaleStage = FinaleStage::Playing;
-        } else {
-          mario.mode = Mode::WorldEnter;
-          if (finaleStage == FinaleStage::Back) finaleStage = FinaleStage::None;
-        }
+  if (pendingWorld >= 0 && !blockMushroom.active && !wiping && (free0(mario) || mario.mode == Mode::FinaleDone)) {
+    mario.mode = Mode::WorldExit; mario.dir = 1; mario.exitJumping = false;
+    goomba.state = 0;
+  }
+  // Only swipe when six pixels of the departing character remain on screen.
+  if (mario.mode == Mode::WorldExit && mario.x >= W - 6 && !wiping) { wiping = true; wipeAt = now; }
+  if (wiping) {
+    const uint32_t wt = now - wipeAt;
+    if (wt >= kSwipeHalfMs && pendingWorld >= 0) {
+      world = pendingWorld; pendingWorld = -1; worldSince = now;
+      course = plumberworld::Course(); blockMushroom.active = false; goomba.state = 0;
+      mario.x = -13; mario.dir = 1; mario.exitJumping = false;
+      if (finaleStage == FinaleStage::Out && world == Finale) {
+        mario.mode = Mode::FlagRun; finaleStage = FinaleStage::Playing;
+      } else {
+        mario.mode = Mode::WorldEnter;
+        if (finaleStage == FinaleStage::Back) finaleStage = FinaleStage::None;
       }
-      if (wt >= 2 * kSwipeHalfMs) wiping = false;
     }
-    for (int i = 0; i < 2; i++) {
-      if (now >= blocks[i].bumpAt + 150) { blocks[i].shown[0] = blocks[i].target[0]; blocks[i].shown[1] = blocks[i].target[1]; }
-    }
+    if (wt >= 2 * kSwipeHalfMs) wiping = false;
+  }
+  for (int i = 0; i < 2; i++) {
+    if (now >= blocks[i].bumpAt + 150) { blocks[i].shown[0] = blocks[i].target[0]; blocks[i].shown[1] = blocks[i].target[1]; }
   }
 
   d.fillScreen(theme.sky);
@@ -969,10 +960,9 @@ void Clockface::update() {
     default: break;
   }
   PlumberColors colors = MARIO;
-  if (!_updating && world != Finale && !wiping && (mario.mode == Mode::Walk || mario.mode == Mode::TravelJump))
+  if (world != Finale && !wiping && (mario.mode == Mode::Walk || mario.mode == Mode::TravelJump))
     coins = (coins + course.collect(mario.x, kPlumberY - lift, kGround - kPlumberY, kGround, now)) % 100;
-  if (_updating) { pose = Pose::Stand; lift = 0; }
-  const int pickup = _updating ? -1 : blockMushroom.update(now, dt, course.camera, kGround, mario.x, kGround - lift);
+  const int pickup = blockMushroom.update(now, dt, course.camera, kGround, mario.x, kGround - lift);
   if (pickup >= 0 && !wiping) {
     course.pickup = (plumberworld::Item)pickup; course.pickupAt = now; course.hasPickup = true;
   }
@@ -993,7 +983,7 @@ void Clockface::update() {
   }
 
   // Swipe the scenery; the clock remains visible in its fixed position
-  if (wiping && !_updating) {
+  if (wiping) {
     const uint32_t wt = now - wipeAt;
     if (wt < kSwipeHalfMs) box(d, 0, 0, W * wt / kSwipeHalfMs, H, rgb(0, 0, 0));
     else box(d, W * (wt - kSwipeHalfMs) / kSwipeHalfMs, 0, W - W * (wt - kSwipeHalfMs) / kSwipeHalfMs, H, rgb(0, 0, 0));
@@ -1046,20 +1036,14 @@ void Clockface::update() {
   }
 
 
-  if (_updating || (!wiping && mario.mode != Mode::FinaleHidden && mario.mode != Mode::FinaleDone))
-    drawPlumber(d, (int)((_updating ? kWalkX : mario.x) + 0.5f), kPlumberY - lift, pose, !_updating && mario.dir < 0, colors);
-  if (world == Finale && (!wiping || _updating)) {  // the castle stands in front of Mario, so he walks in behind it
+  if (!wiping && mario.mode != Mode::FinaleHidden && mario.mode != Mode::FinaleDone)
+    drawPlumber(d, (int)(mario.x + 0.5f), kPlumberY - lift, pose, mario.dir < 0, colors);
+  if (world == Finale && !wiping) {  // the castle stands in front of Mario, so he walks in behind it
     const bool inside = mario.mode == Mode::FinaleHidden || mario.mode == Mode::FinaleDone;
     drawCastle(d, inside ? 8 * ease((int32_t)(now - finaleHiddenAt) - 200, 1400) / 1000 : 0);
   }
   if (world == Lava && !wiping) drawPodoboo(d, now);  // in front of Mario
 
-  if (_updating) {
-    // Draw once: DMA keeps this still scene visible while flash writes stall the CPU.
-    box(d, 0, 0, W, 7, theme.sky);
-    miniText(d, "Updating...", (W - miniWidth("Updating...")) / 2, 1, theme.text);
-    _updateDrawn = true;
-  }
 
   d.flipDMABuffer();
 }

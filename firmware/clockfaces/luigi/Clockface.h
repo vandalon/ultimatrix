@@ -12,7 +12,6 @@
 // when the minute turns. Outdoor worlds have a night sky after sunset.
 class Clockface: public IClockface {
   private:
-    bool _updating = false, _updateDrawn = false;
     ClockTime* _dateTime;
     MatrixPanel_I2S_DMA* _display;
 
@@ -23,5 +22,4 @@ class Clockface: public IClockface {
     void invalidate() {}
     bool handlesNight() const { return true; }
     void setNight(bool night);
-    void setUpdating(bool updating);
 };

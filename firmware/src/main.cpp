@@ -1095,14 +1095,8 @@ void loop() {
     bootTick();  // before the check below: it stamps connectedAt on the connect
     if (face && !portalActive && !bootDone && syncedAt && bootHoldOver(now)) { bootDone = true; Serial.printf("[Boot] done at %u ms\n", (unsigned)now); }
     if (bootDone) {  // keeps drawing during an update: the feeds are parked, the face shows its last snapshot
-      bool installing = false;
-#if defined(UM_MARIO) || defined(UM_LUIGI)
-      FirmwareUpdate::Status updateState; firmwareUpdate.status(updateState);
-      installing = updateState.busy || updateState.ready;
-      face->setUpdating(installing);
-#endif
       // A face that paints its own night (Mario, Luigi) follows the sun for its sky and only gives way to the red clock in a dark room
-      if (!installing && (face->handlesNight() ? displayControl.roomDark() : displayControl.nightActive())) {
+      if (face->handlesNight() ? displayControl.roomDark() : displayControl.nightActive()) {
         nightClock.draw(*display, clockTime.getHour(), clockTime.getMinute(), clockTime.is24hFormat());
         nightShown = true;
       } else {

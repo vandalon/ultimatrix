@@ -33,12 +33,6 @@ static void scenarios() {
 #if defined(PREVIEW_PLUMBER_WORLD)
   s->numberFont = PREVIEW_PLUMBER_WORLD;
   show("pinned world", 6000, at(2026, 10, 14, 14, 39, 10));
-#elif defined(PREVIEW_PLUMBER_UPDATING)
-  show("walking", 2000, at(2026, 10, 14, 9, 41, 10));
-  face->setUpdating(true);
-  show("update paused", 4000, at(2026, 10, 14, 9, 41, 12), false);
-  face->setUpdating(false);
-  show("walking resumes after a failed update", 2000, at(2026, 10, 14, 9, 41, 16), false);
 #else
   show("overground: walking, obstacle jumps and items", 30000, at(2026, 10, 14, 14, 39, 10));
   show("a minute block hit", 12000, at(2026, 10, 14, 14, 40, 54), false);
