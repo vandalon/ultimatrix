@@ -52,7 +52,7 @@ struct HttpFile {
     char url[256]; fileUrl(url, sizeof(url), mode, name);
     tls = !strncmp(url, "https://", 8);
     esp_http_client_config_t config{};
-    config.url = url; config.timeout_ms = 10000; config.buffer_size = tls ? 3072 : 1024; config.buffer_size_tx = 512;
+    config.url = url; config.timeout_ms = 10000; config.buffer_size = tls ? 3072 : 1024; config.buffer_size_tx = tls ? 2048 : 512;  // GitHub redirects to a ~700 character signed asset URL
     config.disable_auto_redirect = true;  // followed by hand in open(), HTTPS only
     config.skip_cert_common_name_check = true;  // TLS without certificate checks, like the feeds; the signed manifest protects the image
     handle = esp_http_client_init(&config);

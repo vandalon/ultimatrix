@@ -24,7 +24,7 @@ const int kReflowMs = kReflowOutMs + kReflowMoveMs;
 struct Line {
   char text[44];
   bool big;
-  bool white;
+  uint8_t white;  // colour: 0 by size, 1 white, 2 green
   uint8_t align;  // 0 centred, 1 left, 2 right
   uint8_t scale;
   int8_t topRow, bottomRow;
@@ -68,7 +68,7 @@ void setText(Line &line, const char *text) {
   line.bottomRow = bottom;
 }
 
-void addLine(Layout &l, const char *text, bool big, int scale, uint8_t align = 0, bool white = false) {
+void addLine(Layout &l, const char *text, bool big, int scale, uint8_t align = 0, uint8_t white = 0) {
   if (l.count >= kMaxLines) return;
   Line &line = l.lines[l.count++];
   line.big = big;
@@ -79,7 +79,7 @@ void addLine(Layout &l, const char *text, bool big, int scale, uint8_t align = 0
 }
 
 // A word on lines of its own: whole if it fits, otherwise broken at its break marks, otherwise smaller
-void addWord(Layout &l, const char *text, bool big, int scale, uint8_t align = 0, bool white = false) {
+void addWord(Layout &l, const char *text, bool big, int scale, uint8_t align = 0, uint8_t white = 0) {
   char whole[44];
   joinParts(text, 0, 99, false, whole, sizeof(whole));
   if (wordfont::width(whole, false, scale) <= kMaxWidth) { addLine(l, whole, big, scale, align, white); return; }
@@ -196,9 +196,10 @@ void makeLayout(Layout &l, int hour24, int minute, int language) {
 // The time in words with the date in words below it
 void makeDateLayout(Layout &l, int hour24, int minute, int language, int weekday, int day, int month) {
   WordPhrase phrase;
-  phrase.nextAlign = 1;  // the time flush left, the date flush right
   WORD_LANGUAGES[language].say(hour24, minute, phrase);
+  for (int i = 0; i < phrase.count; i++) phrase.white[i] = i == 0 ? 1 : 2;  // the first word of the time white, the rest green
   sayDate(language, weekday, day, month, phrase);
+  for (int i = 0; i < phrase.count; i++) phrase.align[i] = phrase.white[i] == 1 ? 1 : 2;  // white words left, the rest right
   layOut(l, phrase, true);
 }
 
@@ -269,7 +270,7 @@ void drawLine(MatrixPanel_I2S_DMA &d, const Line &line, const Theme &theme, word
     wordfont::draw(d, line.text, false, line.x + 1, line.y + 1, line.scale, line.topRow, mix(0, theme.big, 40), plot, ink);
     if (ink) ink->shadow = false;
   }
-  wordfont::draw(d, line.text, false, line.x, line.y, line.scale, line.topRow, line.big || line.white ? theme.big : theme.small, plot, ink);
+  wordfont::draw(d, line.text, false, line.x, line.y, line.scale, line.topRow, line.white == 2 ? theme.small : line.big || line.white ? theme.big : theme.small, plot, ink);
 }
 
 int letterCount(const char *text) {
