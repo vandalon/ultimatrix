@@ -21,9 +21,9 @@ const Theme kDay = {rgb(92, 148, 252), rgb(200, 76, 12), rgb(252, 152, 56), rgb(
 const Theme kCave = {rgb(0, 0, 28), rgb(0, 84, 176), rgb(60, 140, 232), rgb(0, 12, 44), rgb(72, 120, 200), rgb(176, 200, 240), rgb(170, 196, 244), rgb(36, 46, 110), false};
 const Theme kUnder = {rgb(0, 0, 0), rgb(0, 84, 176), rgb(60, 140, 232), rgb(0, 12, 44), rgb(72, 120, 200), rgb(176, 200, 240), rgb(150, 180, 240), rgb(26, 36, 96), false};
 const Theme kCastle = {rgb(28, 12, 16), rgb(120, 120, 120), rgb(176, 176, 176), rgb(32, 32, 32), rgb(160, 120, 100), rgb(220, 200, 180), rgb(232, 232, 232), rgb(84, 48, 56), false};
-const Theme kSnow = {rgb(168, 208, 248), rgb(120, 144, 200), rgb(255, 255, 255), rgb(48, 64, 112), rgb(184, 100, 20), rgb(252, 188, 120), rgb(20, 52, 130), rgb(96, 140, 210), true};
+const Theme kSnow = {rgb(110, 160, 222), rgb(120, 144, 200), rgb(255, 255, 255), rgb(48, 64, 112), rgb(184, 100, 20), rgb(252, 188, 120), rgb(20, 52, 130), rgb(96, 140, 210), true};
 const Theme kWater = {rgb(8, 56, 168), rgb(40, 120, 176), rgb(104, 184, 232), rgb(0, 56, 96), rgb(184, 100, 20), rgb(252, 188, 120), rgb(255, 255, 255), 0, true};
-const Theme kCloud = {rgb(88, 160, 252), rgb(172, 208, 248), rgb(222, 240, 255), rgb(112, 160, 230), rgb(184, 100, 20), rgb(252, 188, 120), rgb(14, 40, 120), 0, true};
+const Theme kCloud = {rgb(48, 112, 232), rgb(172, 208, 248), rgb(222, 240, 255), rgb(112, 160, 230), rgb(184, 100, 20), rgb(252, 188, 120), rgb(14, 40, 120), 0, true};
 const Theme kGhost = {rgb(40, 24, 64), rgb(88, 64, 108), rgb(144, 120, 176), rgb(32, 16, 48), rgb(150, 130, 190), rgb(200, 190, 230), rgb(230, 210, 255), 0, false};
 const Theme kLava = {rgb(96, 24, 8), rgb(80, 48, 48), rgb(128, 80, 76), rgb(24, 8, 8), rgb(120, 90, 70), rgb(200, 160, 130), rgb(255, 224, 192), 0, false};
 const Theme kShip = {rgb(106, 88, 120), rgb(176, 108, 32), rgb(232, 168, 80), rgb(80, 48, 8), rgb(184, 100, 20), rgb(252, 188, 120), rgb(255, 255, 255), 0, true};
@@ -440,22 +440,32 @@ void drawPodoboo(MatrixPanel_I2S_DMA &d, uint32_t now) {
   sprite(d, BALL, 6, plumberworld::sceneryX(49, course.camera, 1), 60 - (int)(26 * 4 * p * (1 - p)), PAL, 2);
 }
 
-// A dusk sky over the deck: a mast with a sail, and a Bullet Bill flying by
+// A dusk sky over a wooden hull: drifting clouds, a rail with posts, a mast with a sail, and a Bullet Bill fired from a cannon tower
 void drawAirship(MatrixPanel_I2S_DMA &d, uint32_t now) {
   const int mast = plumberworld::sceneryX(6, course.camera);
-  const int cannon = plumberworld::sceneryX(52, course.camera);
-  box(d, 0, 30, W, 22, rgb(122, 96, 120)); box(d, 0, 44, W, 8, rgb(140, 106, 116));
-  for (const int anchor : {4, 44}) { const int x = plumberworld::sceneryX(anchor, course.camera, 4); box(d, x, 36, 14, 2, rgb(154, 132, 152)); box(d, x + 2, 35, 10, 1, rgb(154, 132, 152)); }
-  box(d, mast, 20, 2, 32, rgb(108, 60, 16)); box(d, mast + 1, 20, 1, 32, rgb(156, 92, 32));  // the mast
-  box(d, mast + 2, 30, 10, 14, rgb(224, 216, 200)); box(d, mast + 2, 30, 10, 1, rgb(255, 255, 255));
-  for (int i = 0; i < 13; i++) put(d, mast + 2 + i / 3, 31 + i, rgb(160, 152, 136));
-  box(d, cannon, 42, 10, 10, rgb(48, 48, 56)); box(d, cannon - 2, 44, 3, 6, rgb(32, 32, 40)); box(d, cannon + 1, 43, 8, 1, rgb(88, 88, 92));
+  const int tower = plumberworld::sceneryX(52, course.camera);
+  const int deck = kGround - 9;
+  const uint16_t cloud = rgb(146, 122, 150);
+  for (const int anchor : {4, 50}) {
+    const int x = plumberworld::sceneryX(anchor, course.camera, 4);
+    box(d, x, 36, 14, 2, cloud); box(d, x + 2, 35, 10, 1, cloud); box(d, x + 4, 34, 5, 1, cloud);
+  }
+  box(d, mast, 14, 2, deck - 14, rgb(108, 60, 16)); box(d, mast + 1, 14, 1, deck - 14, rgb(156, 92, 32));  // the mast stands on the deck
+  box(d, mast + 2, 18, 10, 18, rgb(224, 216, 200)); box(d, mast + 2, 18, 10, 1, rgb(255, 255, 255)); box(d, mast + 11, 19, 1, 17, rgb(170, 160, 142));
+  box(d, mast + 2, 36, 10, 1, rgb(108, 60, 16));
+  box(d, 0, deck, W, kGround - deck, rgb(74, 42, 14));  // the hull planks
+  for (int y = deck + 3; y < kGround; y += 3) box(d, 0, y, W, 1, rgb(48, 26, 6));
+  box(d, 0, deck - 3, W, 1, rgb(176, 108, 32));  // rail and posts
+  for (int x = 2 - (int)course.camera % 8; x < W; x += 8) box(d, x, deck - 3, 1, 3, rgb(124, 72, 20));
+  box(d, 0, deck, W, 1, rgb(176, 108, 32));
+  box(d, tower, 36, 10, kGround - 36, rgb(48, 48, 56)); box(d, tower, 36, 10, 1, rgb(96, 96, 104)); box(d, tower + 1, 37, 1, kGround - 38, rgb(72, 72, 82));
+  box(d, tower - 3, 38, 3, 4, rgb(32, 32, 40));  // the muzzle
   const uint32_t t = now % 6000;
-  if (t < 700) disc(d, cannon - 4 - (int)(t / 120), 46 - (int)(t / 220), 1 + (int)(t / 250), rgb(216, 216, 224));  // the cannon's smoke
+  if (t < 700) disc(d, tower - 5 - (int)(t / 160), 40 - (int)(t / 260), 1 + (int)(t / 300), rgb(216, 216, 224));  // the cannon's smoke
   if (t < 2900) {
     static const char *const BILL[6] = {".kkkk...", "kkkkkkk.", "kkwkkkkk", "kkkkkkkk", "kkkkkkk.", ".kkkk..."};
     static const Swatch PAL[] = {{'k', rgb(32, 32, 40)}, {'w', rgb(255, 255, 255)}};
-    sprite(d, BILL, 6, 66 - (int)(t * 26 / 1000), 32, PAL, 2);
+    sprite(d, BILL, 6, tower - 11 - (int)(t * 26 / 1000), 37, PAL, 2);
   }
 }
 

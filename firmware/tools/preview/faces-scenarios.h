@@ -30,7 +30,10 @@ static void scenarios() {
 static void scenarios() {
   Settings *s = Settings::getInstance();
   s->numberFont = 0;
-#if defined(PREVIEW_PLUMBER_UPDATING)
+#if defined(PREVIEW_PLUMBER_WORLD)
+  s->numberFont = PREVIEW_PLUMBER_WORLD;
+  show("pinned world", 6000, at(2026, 10, 14, 14, 39, 10));
+#elif defined(PREVIEW_PLUMBER_UPDATING)
   show("walking", 2000, at(2026, 10, 14, 9, 41, 10));
   face->setUpdating(true);
   show("update paused", 4000, at(2026, 10, 14, 9, 41, 12), false);
