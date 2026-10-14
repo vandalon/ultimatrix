@@ -14,6 +14,7 @@
   p.lead { color:var(--muted); margin:0 0 24px; }
   .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:6px; }
+  .card img { width:100%; aspect-ratio:1; image-rendering:pixelated; background:#000; border-radius:8px; }
   .card h2 { margin:0; font-size:18px; }
   .card p { margin:0 0 8px; color:var(--muted); font-size:14px; flex:1; }
   esp-web-install-button { --esp-tools-button-color:var(--accent); --esp-tools-button-text-color:#001018; }
@@ -53,7 +54,9 @@
   for (const [id, name, text] of faces) {
     const card = document.createElement('div');
     card.className = 'card';
-    card.innerHTML = '<h2></h2><p></p><esp-web-install-button></esp-web-install-button>';
+    card.innerHTML = '<img loading="lazy" width="128" height="128" alt=""><h2></h2><p></p><esp-web-install-button></esp-web-install-button>';
+    card.querySelector('img').src = 'img/' + id + '.gif';
+    card.querySelector('img').alt = name + ' clock preview';
     card.querySelector('h2').textContent = name;
     card.querySelector('p').textContent = text;
     card.querySelector('esp-web-install-button').setAttribute('manifest', 'firmware/' + id + '/manifest.json');
