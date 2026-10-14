@@ -6,14 +6,15 @@ class FirmwareUpdate {
 public:
   struct Status { char message[96]; uint32_t received, total; bool busy, ready, failed, lowMemory; };
   // mode: clock face to install; null or empty updates the running face.
-  bool request(const char *mode = nullptr);
+  // force: pause a live match or session (its feed stops for the duration) instead of waiting for it to end.
+  bool request(const char *mode = nullptr, bool force = false);
   // The outcome of the last background check; kept in NVS so the boot screen knows before the network is up.
   struct Latest { char version[32]; char error[64]; uint32_t checkedAt; bool available, checking; };
   void begin();  // loads the cached check result
   void latest(Latest &out);
   // Checks the signed manifest only (no download), once a day. Call often; it is cheap until a check is due.
   void poll(uint32_t now, bool online);
-  bool checkNow();
+  bool checkNow(bool force = false);
   // True when there is no cached result younger than 24 h (needs a synced clock); the boot runs a check then.
   bool checkDue();
   // After a low-memory failure: remember the face in NVS; the caller restarts, and the update starts on the next boot.
@@ -37,12 +38,12 @@ public:
 private:
   static void task(void *self);
   static void checkTask(void *self);
-  bool startCheck();
+  bool startCheck(bool force = false);
   void service(uint32_t now);
   enum class Work { None, Check, Install };
   Work _pending = Work::None;
   uint32_t _stoppingAt = 0, _finishedAt = 0;
-  bool _workerRunning = false;
+  bool _workerRunning = false, _force = false;
   TaskHandle_t _worker = nullptr;
   void check();
   void run();

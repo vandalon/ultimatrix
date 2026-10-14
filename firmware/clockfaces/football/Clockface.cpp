@@ -29,7 +29,8 @@
 
 using namespace fbview;
 
-static FootballTicker footballTicker;
+// On the heap, created by the face: its 10 KB must not be reserved by an update-only boot that never loads the face
+static FootballTicker *footballTicker = nullptr;
 static uint32_t overviewVersion = 0;
 
 // How long finished matches stay on (the setting is in minutes), 0 = until midnight
@@ -90,7 +91,9 @@ void Clockface::invalidate() { haveFrame = false; }
 void Clockface::setup(ClockTime *dateTime) {
   _dateTime = dateTime;
   haveFrame = false;  // whatever was drawn over the face (notification, birthday) must be redrawn
-  footballTicker.begin(dateTime, false, true, resultWindowSecs());  // goals, cards, tables, kick-offs
+  if (!footballTicker) { footballTicker = new FootballTicker; }
+  (void)snap();  // allocated right behind the ticker, so the two sit together and the free space after them stays in one piece
+  footballTicker->begin(dateTime, false, true, resultWindowSecs());  // goals, cards, tables, kick-offs
 }
 
 bool Clockface::animating() const { return animation.kind != animation.None; }
@@ -135,24 +138,24 @@ void Clockface::update() {
     haveFrame = false;
   }
 
-  footballTicker.setResultWindow(resultWindowSecs());
-  uint32_t version = footballTicker.version();
+  footballTicker->setResultWindow(resultWindowSecs());
+  uint32_t version = footballTicker->version();
   if (version != overviewVersion) {
-    footballTicker.snapshot(snapshot);
+    footballTicker->snapshot(snap());
     overview.live.clear();
-    for (size_t i = 0; i < snapshot.liveCount; i++) overview.live.push_back(liveMatch(snapshot.live[i]));
+    for (size_t i = 0; i < snap().liveCount; i++) overview.live.push_back(liveMatch(snap().live[i]));
     overviewVersion = version;
     overviewRevision++;
     resultsOnTop = false;
   }
   showResultsLive(overview, now);
 
-  FootballTicker::Status status = footballTicker.status();
+  FootballTicker::Status status = footballTicker->status();
   screens.advance({_dateTime, hour, minute, second, now, version, showRankings, status});
 
   // A goal: the net cam animation with GOAL! and the new score, then the clock again
   FootballTicker::Goal goal;
-  if (footballTicker.nextGoal(goal)) {
+  if (footballTicker->nextGoal(goal)) {
     if (animation.goal.begin(_display, goal.home.c_str(), goal.away.c_str(), goal.homeScore, goal.awayScore, goal.homeScored,
                              goal.homeKit, goal.awayKit)) {
       animation.kind = animation.Goal;
@@ -167,7 +170,7 @@ void Clockface::update() {
 
   // A card or a substitution: the full screen animation, then the clock again
   FootballTicker::Incident incident;
-  if (footballTicker.nextIncident(incident)) {
+  if (footballTicker->nextIncident(incident)) {
     animation.incident = incident;
     animation.kind = animation.Incident;
     animation.total = incidentFrames(incident);

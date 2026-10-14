@@ -20,6 +20,7 @@ constexpr char kMode[] = UM_MODE_ID;
 constexpr size_t kServerMax = 96;
 constexpr size_t kMinFreeBlock = 16 * 1024;  // estimate for the HTTP client and hashing; tune from device logs
 constexpr size_t kMinFreeBlockTls = 28 * 1024;  // GitHub is HTTPS: one TLS session at a time
+constexpr size_t kMinFreeBlockCheck = 12 * 1024;  // a manifest check is small (TLS buffers are allocated as records arrive); a check succeeded on a clean boot with 1.6 KB largest block left
 constexpr uint32_t kTaskStack = 12288;  // TLS handshake plus certificate checks need more than plain HTTP
 constexpr int kMaxRedirects = 4;
 
@@ -228,13 +229,13 @@ bool FirmwareUpdate::takeScheduled(char *mode, size_t size) {
   return true;
 }
 
-bool FirmwareUpdate::request(const char *mode) {
+bool FirmwareUpdate::request(const char *mode, bool force) {
   std::lock_guard<std::mutex> guard(_lock);
   if (_status.busy || _status.ready || _latest.checking || _workerRunning) return false;
   std::unique_lock<std::mutex> gate(networkBudget(), std::try_to_lock);
-  if (!gate.owns_lock() || liveDataActive()) {
+  if (!gate.owns_lock() || (liveDataActive() && !force)) {
     _status.lowMemory = false;
-    strlcpy(_status.message, "Wait until live data has finished before updating.", sizeof(_status.message));
+    strlcpy(_status.message, "A live match or session is running. It is not paused to free memory for the update; try again when it has ended.", sizeof(_status.message));
     return false;
   }
   if (_lastAttempt && millis() - _lastAttempt < 30000) { strlcpy(_status.message, "Wait 30 seconds before checking again.", sizeof(_status.message)); return false; }
@@ -243,7 +244,7 @@ bool FirmwareUpdate::request(const char *mode) {
   _status = Status{"Checking signed update manifest.", 0, 0, true, false, false, false};
   firmwareUpdating = true;
   consoleLog("[Firmware] Install queued for %s\n", _target);
-  _pending = Work::Install;
+  _pending = Work::Install; _force = force;
   _stoppingAt = millis();
   strlcpy(_status.message, "Stopping feeds before updating.", sizeof(_status.message));
   return true;
@@ -360,11 +361,12 @@ void FirmwareUpdate::begin() {
 
 void FirmwareUpdate::latest(Latest &out) { std::lock_guard<std::mutex> guard(_lock); out = _latest; }
 
-bool FirmwareUpdate::startCheck() {  // _lock held
+bool FirmwareUpdate::startCheck(bool force) {  // _lock held
   if (_latest.checking || _status.busy || _status.ready || _workerRunning || _pending != Work::None) return false;
   std::unique_lock<std::mutex> gate(networkBudget(), std::try_to_lock);
-  if (!gate.owns_lock() || liveDataActive()) return false;
-  consoleLog("[Firmware] Check queued\n");
+  if (!gate.owns_lock() || (liveDataActive() && !force)) return false;
+  consoleLog("[Firmware] Check queued%s\n", force ? " (forced during a live session)" : "");
+  _force = force;
   _latest.checking = true;
   firmwareUpdating = true;
   _pending = Work::Check;
@@ -372,10 +374,10 @@ bool FirmwareUpdate::startCheck() {  // _lock held
   return true;
 }
 
-bool FirmwareUpdate::checkNow() {
+bool FirmwareUpdate::checkNow(bool force) {
   std::lock_guard<std::mutex> guard(_lock);
   if (_lastManual && millis() - _lastManual < 30000) return false;
-  if (!startCheck()) return false;
+  if (!startCheck(force)) return false;
   _lastManual = at(millis());
   return true;
 }
@@ -405,11 +407,11 @@ void FirmwareUpdate::service(uint32_t now) {
   }
   if (_pending == Work::None) return;
   // signed: request() may run later in the same loop pass than the caller's `now`, which would wrap an unsigned difference
-  if (liveDataActive() || (int32_t)(now - _stoppingAt) >= 30000) {
+  if ((liveDataActive() && !_force) || (int32_t)(now - _stoppingAt) >= 30000) {
     bool checking = _pending == Work::Check;
     _pending = Work::None; _status.busy = false; _latest.checking = false;
     _nextCheck = at(now + kRetryMs);
-    const char *error = liveDataActive() ? "Deferred until live data has finished." : "Feeds did not stop in time; try again later.";
+    const char *error = (liveDataActive() && !_force) ? "A live match or session is running, so memory is not freed for the check. It tries again later." : "Feeds did not stop in time; try again later.";
     if (checking) strlcpy(_latest.error, error, sizeof(_latest.error));
     else { strlcpy(_status.message, error, sizeof(_status.message)); _status.failed = true; }
     firmwareUpdating = false;
@@ -464,7 +466,9 @@ void FirmwareUpdate::check() {
   const char *error = nullptr;
   {
     std::unique_lock<std::mutex> gate(networkBudget());  // never alongside a feed download
-    if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) >= minFreeBlock()) {
+    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    consoleLog("[Firmware] Update check heap: free=%u largest=%u\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)largest);
+    if (largest >= kMinFreeBlockCheck) {
       error = fetchManifest(kMode, info, esp_ota_get_next_update_partition(nullptr));
       ok = !error;
       available = ok && !info.current && !info.replayed;

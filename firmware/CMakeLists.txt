@@ -15,3 +15,11 @@ endfunction()
 set(ULTIMATRIX_VERSION "0.2.0" CACHE STRING "Firmware version")
 set(PROJECT_VER "${ULTIMATRIX_VERSION}-${ULTIMATRIX_MODE}")
 project(ultimatrix)
+# Static RAM budget per face: what a face reserves at link time is missing from the heap in every boot, the update-only boot included.
+if(TARGET ultimatrix.elf)
+    set(ULTIMATRIX_STATIC_RAM_KB 60 CACHE STRING "Static RAM budget (KB) per face")
+    add_custom_command(TARGET ultimatrix.elf POST_BUILD
+        COMMAND ${PYTHON} "${CMAKE_CURRENT_LIST_DIR}/tools/check-static-ram.py" "$<TARGET_FILE:ultimatrix.elf>" "${CMAKE_OBJDUMP}" "${ULTIMATRIX_MODE}" "${ULTIMATRIX_STATIC_RAM_KB}"
+        VERBATIM)
+endif()
+

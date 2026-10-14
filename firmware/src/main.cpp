@@ -230,8 +230,10 @@ static void bootTick() {
 
 // The mDNS name is set up again after every GOT_IP, so ultimatrix.local survives a router restart
 static bool memoryShed = false;  // set once out-of-memory errors showed up: telnet and mDNS stay off until the next restart
+static bool telnetStarted = false;  // telnet comes up after the face starts, like mDNS
+static bool updateChecking = false;  // mDNS is left off while an update check runs: its RAM goes to the TLS session
 static void startMdns() {
-  if (memoryShed) return;
+  if (memoryShed || updateChecking || !(face || welcomeMode)) return;  // after the face: what can be stopped again (mDNS, telnet) sits above the permanent allocations, so stopping it leaves one big free block
   mdnsRetryAt = millis() + 15000;
   if (mdnsStarted) MDNS.end();
   mdnsStarted = MDNS.begin("ultimatrix");
@@ -693,8 +695,8 @@ static void saveSettings() {
   if (displayReady) display->setRotation(s.rotation);
   if (timeChanged && face) clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (consoleChanged) {
-    if (s.telnet && !memoryShed) telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP);
-    else telnet.stop();
+    if (s.telnet && !memoryShed) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
+    else { telnet.stop(); telnetStarted = false; }
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
   server.send(200, "application/json", restart ? "{\"message\":\"Settings saved. Restarting Ultimatrix.\",\"restart\":true}" : "{\"message\":\"Settings saved and applied.\",\"restart\":false}");
@@ -718,9 +720,11 @@ static void firmwareStatus() {
 }
 
 static void checkFirmware() {
-  bool started = firmwareUpdate.checkNow();
-  settingsResponse(started ? 202 : 429, started ? "Stopping feeds before checking for updates." :
-      liveDataActive() ? "Wait until live data has finished before checking for updates." : "Wait a moment before checking again.");
+  bool started = firmwareUpdate.checkNow(server.hasArg("force"));
+  if (!started && liveDataActive()) {  // the page offers to pause the live data and check anyway
+    server.send(429, "application/json", "{\"live\":true,\"message\":\"A live match or session is running. It is not paused to free memory for the update check unless you force it.\"}"); return;
+  }
+  settingsResponse(started ? 202 : 429, started ? "Stopping feeds before checking for updates." : "Wait a moment before checking again.");
 }
 
 static void saveUpdateServer() {
@@ -731,8 +735,11 @@ static void saveUpdateServer() {
 static void requestFirmwareUpdate() {
   String mode = server.arg("mode");
   if (mode.length() && !FirmwareUpdate::knownMode(mode.c_str())) { settingsResponse(400, "Unknown clock face."); return; }
-  bool accepted = firmwareUpdate.request(mode.c_str());
+  bool accepted = firmwareUpdate.request(mode.c_str(), server.hasArg("force"));
   FirmwareUpdate::Status status; firmwareUpdate.status(status);
+  if (!accepted && liveDataActive() && !status.lowMemory) {
+    server.send(409, "application/json", "{\"live\":true,\"message\":" + jsonText(status.message) + "}"); return;
+  }
   if (!accepted && status.lowMemory) {
     server.send(409, "application/json", "{\"lowMemory\":true,\"message\":" + jsonText(status.message) + "}"); return;
   }
@@ -786,6 +793,8 @@ static void shedOnLowMemory() {
   if (!bootDone) { seen = failures; return; }
   if (failures == seen || memoryShed) { seen = failures; return; }
   seen = failures;
+  FirmwareUpdate::Latest check; firmwareUpdate.latest(check);
+  if (check.checking) return;  // an update check runs the heap nearly dry on purpose and copes with it; telnet and mDNS stay
   memoryShed = true;
   telnet.stop();
   if (mdnsStarted) { MDNS.end(); mdnsStarted = false; }
@@ -852,6 +861,12 @@ static void background() {
     reconnectAt = now + reconnectDelay;
     reconnectDelay = std::min<uint32_t>(reconnectDelay * 2, 60000);
   }
+  {
+    FirmwareUpdate::Latest check; firmwareUpdate.latest(check);
+    updateChecking = check.checking;
+    if (updateChecking && mdnsStarted) { MDNS.end(); mdnsStarted = false; mdnsRetryAt = now; }  // restarts by itself once the check is over
+  }
+  if (!telnetStarted && face && !memoryShed && Settings::getInstance()->telnet) { telnetStarted = true; telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); }
   if (!portalActive && WiFi.status() == WL_CONNECTED && !mdnsStarted && (int32_t)(now - mdnsRetryAt) >= 0) startMdns();
   firmwareUpdate.confirmBoot(startupHealthy(), now, memoryAllocationFailures.load());
   FirmwareUpdate::Status updateStatus; firmwareUpdate.status(updateStatus);
@@ -919,6 +934,7 @@ void setup() {
   panel.double_buff = !setupRefresh;  // the setup and welcome display is single buffered (static screens, half the DMA memory)
   panel.setPixelColorDepthBits(UM_PIXEL_DEPTH_BITS);
   panel.i2sspeed = HUB75_I2S_CFG::HZ_16M;  // the driver drops low bit planes (lsbMsbTransitionBit) to reach 60 Hz, and each plane kept halves the DMA descriptor memory: 8 bit at 20 MHz needs 4096 descriptors per buffer and ran out of heap
+  panel.i2sspeed = HUB75_I2S_CFG::HZ_8M; panel.min_refresh_rate = 100;  // the driver then drops the lowest bit plane's weight at 102 Hz (111 Hz at 16 MHz): half the DMA descriptors (-24 KB), refresh close to before; the dimmest levels light slightly more (night clock colour is one step darker for it)
   if (setupRefresh) {
     panel.i2sspeed = HUB75_I2S_CFG::HZ_20M;
     panel.min_refresh_rate = 255;
@@ -1070,7 +1086,6 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/firmware/reboot", rebootForFirmwareUpdate);
   postRoute("/api/firmware/check", checkFirmware);
   postRoute("/api/firmware/server", saveUpdateServer);
-  if (s.telnet) telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP);
   backgroundWork() = background;
 }
 

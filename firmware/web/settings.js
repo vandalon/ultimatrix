@@ -363,11 +363,14 @@ async function offerReboot(text) {
   if (!reboot.ok) throw new Error(result.message);
   busy = true; controls.disabled = true; save.disabled = true; message('Restarting to install the update. This page will reconnect automatically.'); setTimeout(reconnect, 2500);
 }
-async function startUpdate(question, mode) {
-  if (busy || updatePolling || !window.confirm(question)) return;
+const liveQuestion = 'A live match or session is running. Pause its live data for a moment and continue anyway?';
+async function startUpdate(question, mode, force) {
+  if (busy || updatePolling || (!force && !window.confirm(question))) return;
   updateMode = mode || '';
   try {
-    const response = await fetch('/api/firmware' + (mode ? '?mode=' + encodeURIComponent(mode) : ''), {method:'POST'}); const result = await response.json();
+    const query = new URLSearchParams(); if (mode) query.set('mode', mode); if (force) query.set('force', '1');
+    const response = await fetch('/api/firmware' + (query.size ? '?' + query : ''), {method:'POST'}); const result = await response.json();
+    if (response.status === 409 && result.live) { if (window.confirm(liveQuestion)) await startUpdate(question, mode, true); else document.querySelector('#firmware-status').textContent = result.message; return; }
     if (response.status === 409 && result.lowMemory) { await offerReboot(result.message); return; }
     if (!response.ok) throw new Error(result.message);
     updatePolling = true; document.querySelector('#firmware-update').disabled = true;
@@ -382,11 +385,16 @@ document.querySelector('#update-server-save').addEventListener('click', async ()
   try { const response = await fetch('/api/firmware/server', {method:'POST', body}); const result = await response.json(); document.querySelector('#firmware-status').textContent = result.message; } catch (_) {}
   setTimeout(refreshFirmware, 500);
 });
-document.querySelector('#firmware-check').addEventListener('click', async () => {
+async function runCheck(force) {
   document.querySelector('#firmware-check').disabled = true;
-  try { const response = await fetch('/api/firmware/check', {method:'POST'}); const result = await response.json(); document.querySelector('#firmware-status').textContent = result.message; } catch (_) {}
+  try {
+    const response = await fetch('/api/firmware/check' + (force ? '?force=1' : ''), {method:'POST'}); const result = await response.json();
+    document.querySelector('#firmware-status').textContent = result.message;
+    if (result.live && !force && window.confirm(liveQuestion)) return runCheck(true);
+  } catch (_) {}
   setTimeout(refreshFirmware, 1200);
-});
+}
+document.querySelector('#firmware-check').addEventListener('click', () => runCheck(false));
 function markFace() { document.querySelectorAll('.face').forEach(b => { const on = b.dataset.face === currentFace; b.classList.toggle('current', on); b.setAttribute('aria-pressed', on); }); }
 document.querySelector('#faces').addEventListener('click', event => {
   const button = event.target.closest('.face'); if (!button) return;

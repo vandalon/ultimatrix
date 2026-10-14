@@ -17,7 +17,8 @@
 
 using namespace f1view;
 
-static F1Ticker f1Ticker;
+// On the heap, created by the face: its 7 KB must not be reserved by an update-only boot that never loads the face
+static F1Ticker *f1Ticker = nullptr;
 static uint32_t snapVersion = 0;
 static bool snapKnown = false;
 static F1Screens screens;
@@ -131,7 +132,8 @@ void Clockface::invalidate() { screens.reset(); }
 void Clockface::setup(ClockTime *dateTime) {
   _dateTime = dateTime;
   screens.reset();  // whatever was drawn over the face (notification, birthday) must be redrawn
-  f1Ticker.begin(dateTime);
+  if (!f1Ticker) f1Ticker = new F1Ticker;
+  f1Ticker->begin(dateTime);
 }
 
 const char *Clockface::simulateNext() {
@@ -239,13 +241,13 @@ void Clockface::update() {
   }
   int hour = _dateTime->getHour(), minute = _dateTime->getMinute();
   bool intervals = (millis() / pageMs()) % 2 != 0;  // alternate at the results-page setting
-  uint32_t version = f1Ticker.version();
+  uint32_t version = f1Ticker->version();
   if (simScenario) {
     simSnapshot(snap);
     snapVersion = version - 1;  // the real data comes back when the simulator stops
     version = 0x80000000UL + simScenario + ((millis() / 7000) % 3) * 16;  // the sim order changes every 7 s
   } else if (!snapKnown || version != snapVersion || intervals != snapIntervals || (snap.live.valid && millis() / 1000 != snapSecond)) {
-    f1Ticker.snapshot(snap, intervals);  // while live also every second, for the countdown
+    f1Ticker->snapshot(snap, intervals);  // while live also every second, for the countdown
     snapIntervals = intervals;
     snapVersion = version;
     snapKnown = true;

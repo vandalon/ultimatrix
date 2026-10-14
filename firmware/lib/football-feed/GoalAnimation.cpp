@@ -423,12 +423,19 @@ struct Spark {
   uint16_t color;
 };
 static const int SPARKS = 96;
-static Spark sparks[SPARKS];
+// On the heap at the first goal: 2.7 KB the update-only boot does not need
+static Spark *sparkPool() {
+  static Spark *pool = nullptr;
+  if (!pool) pool = static_cast<Spark *>(calloc(SPARKS, sizeof(Spark)));
+  return pool;
+}
 
 static void burst(float x, float y, const uint16_t *colors, int colorCount) {
   uint16_t color = colors[(int)(randomFloat() * colorCount) % colorCount];
   int made = 0;
-  for (Spark &s : sparks) {
+  Spark *pool = sparkPool();
+  for (int n = 0; pool && n < SPARKS; n++) {
+    Spark &s = pool[n];
     if (s.life > 0) continue;
     float angle = made * 2 * M_PI / 14 + randomFloat() * 0.3f, speed = 0.8f + randomFloat() * 0.5f;
     s = {x, y, cosf(angle) * speed * 1.4f, sinf(angle) * speed, 0, 0, color};
@@ -439,7 +446,9 @@ static void burst(float x, float y, const uint16_t *colors, int colorCount) {
 
 static void updateSparks(Adafruit_GFX *d) {
   const float damping = powf(0.94f, 1.0f / SUBSTEPS);
-  for (Spark &s : sparks) {
+  Spark *pool = sparkPool();
+  for (int n = 0; pool && n < SPARKS; n++) {
+    Spark &s = pool[n];
     if (s.life <= 0) continue;
     s.x += s.vx / SUBSTEPS;
     s.y += s.vy / SUBSTEPS;
@@ -541,7 +550,7 @@ bool GoalAnimation::begin(Adafruit_GFX *display, const char *home, const char *a
   _text->setTextWrap(false);
   for (int pass = 0; pass < 2; pass++)
     for (int i = 0; i < 5; i++) _text->drawChar(i * 12 + pass, pass, "GOAL!"[i], 1, 0, 2);
-  memset(sparks, 0, sizeof(sparks));
+  if (Spark *pool = sparkPool()) memset(pool, 0, SPARKS * sizeof(Spark));
   _nextBurst = SLAM * SUBSTEPS;
   _display = display;
   strlcpy(_home, home, sizeof(_home));

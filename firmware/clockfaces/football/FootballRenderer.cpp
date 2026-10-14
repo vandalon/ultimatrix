@@ -13,7 +13,7 @@
 namespace fbview {
 
 Overview overview;  // the live matches of the snapshot, or the result on top
-football::Snapshot snapshot;        // what the data task last published: finished, coming and tables are read from here
+football::Snapshot &snap() { static football::Snapshot *s = new football::Snapshot(); return *s; }  // what the data task last published: finished, coming and tables are read from here
 uint32_t overviewRevision = 0;
 RankingPage rankingPage, previousRankingPage;
 unsigned long rankingStartedAt = 0;
@@ -252,8 +252,8 @@ static String gameTime(const MatchRow &m) {
 // take turns on top instead, with the other results and today's kick-offs below.
 bool resultsOnTop = false;
 size_t shownResult = SIZE_MAX;
-size_t finishedCount() { return snapshot.resultCount; }
-size_t upcomingCount() { return snapshot.fixtureCount; }
+size_t finishedCount() { return snap().resultCount; }
+size_t upcomingCount() { return snap().fixtureCount; }
 
 // The snapshot's rows as the MatchRows the drawing code takes
 static void matchFrom(const football::Side &home, const football::Side &away, int homeScore, int awayScore,
@@ -285,8 +285,8 @@ MatchRow liveMatch(const football::LiveRow &row) {
 }
 
 bool readResult(size_t index, MatchRow &out) {
-  if (index >= snapshot.resultCount) return false;
-  const football::ResultRow &row = snapshot.results[index];
+  if (index >= snap().resultCount) return false;
+  const football::ResultRow &row = snap().results[index];
   out = MatchRow();
   matchFrom(row.home, row.away, row.homeScore, row.awayScore, row.competition, row.color, row.favourite, out);
   out.progress = 1;
@@ -296,13 +296,13 @@ bool readResult(size_t index, MatchRow &out) {
 
 uint16_t favouriteResults() {
   uint16_t mask = 0;
-  for (size_t i = 0; i < snapshot.resultCount; i++)
-    if (snapshot.results[i].favourite) mask |= 1U << i;
+  for (size_t i = 0; i < snap().resultCount; i++)
+    if (snap().results[i].favourite) mask |= 1U << i;
   return mask;
 }
 
 static bool comingOnDay(ClockTime *dateTime, size_t i, uint32_t today) {
-  return dateTime->utcToLocal(snapshot.fixtures[i].kickoff) / 86400 == today;
+  return dateTime->utcToLocal(snap().fixtures[i].kickoff) / 86400 == today;
 }
 
 static size_t resultBelowIndex(size_t row) {
@@ -324,7 +324,7 @@ size_t resultsBelow() {
 static const football::FixtureRow *comingToday(ClockTime *dateTime, size_t n) {
   uint32_t today = dateTime->localNow() / 86400;
   for (size_t i = 0; i < upcomingCount(); i++) {
-    if (comingOnDay(dateTime, i, today) && n-- == 0) return &snapshot.fixtures[i];
+    if (comingOnDay(dateTime, i, today) && n-- == 0) return &snap().fixtures[i];
   }
   return nullptr;
 }
@@ -962,8 +962,8 @@ int mainSlots(unsigned long turn, const football::FixtureRow *slots[2]) {
   if (!count) return 0;
   size_t pages = (count + 1) / 2;
   size_t first = count > 2 ? min((size_t)(turn % pages) * 2, count - 2) : 0;
-  slots[0] = &snapshot.fixtures[first];
-  if (count > 1) slots[1] = &snapshot.fixtures[first + 1];
+  slots[0] = &snap().fixtures[first];
+  if (count > 1) slots[1] = &snap().fixtures[first + 1];
   return count > 1 ? 2 : 1;
 }
 

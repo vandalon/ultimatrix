@@ -18,7 +18,7 @@ void digit(MatrixPanel_I2S_DMA &gfx, int value, int left, int top, int w, int h,
 
 void NightClock::draw(MatrixPanel_I2S_DMA &gfx, int hour, int minute, bool use24h) {
   int key = hour * 60 + minute + (use24h ? 0 : 1440);
-  uint16_t colour = 0x3800;  // dark red: full red is far too bright in the dark
+  uint16_t colour = 0x3000;  // dark red: full red is far too bright in the dark (one step below the old 0x3800: the 8 MHz panel clock lights the dimmest levels a little more)
 #ifdef UM_PACMAN
   const auto &settings = *Settings::getInstance();
   colour = settings.nightColor();

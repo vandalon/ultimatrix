@@ -48,7 +48,7 @@ void FootballScreens::advance(const ScreenInputs &in) {
       bool hadPage = rankingPage.valid;
       previousRankingValid = hadPage && advance;
       if (previousRankingValid) previousRankingPage = rankingPage;
-      rankingPage.valid = standingsPage(snapshot, page, rankingPage);
+      rankingPage.valid = standingsPage(snap(), page, rankingPage);
       if (previousRankingValid && strcmp(rankingPage.competition, previousRankingPage.competition) == 0 &&
           rankingPage.firstPosition == previousRankingPage.firstPosition) previousRankingValid = false;
       if (firstPage || advance || (!hadPage && rankingPage.valid)) {

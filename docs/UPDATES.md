@@ -18,3 +18,8 @@ Settings, Advanced, "Update server": a base URL such as `http://192.168.7.77/ult
 - Build, sign and upload: `firmware/tools/publish-firmware.sh [face ...]`.
 - Self-hosters who build their own images must replace the public key in `UpdateTrust.h` with their own and sign with the matching private key.
 - Replay protection is kept per source, so test releases on a private server do not block GitHub releases.
+
+## Memory
+
+A face's static RAM (`.data` + `.bss`) is reserved in every boot, including the update-only boot that never loads the face, and it comes straight out of the heap the download needs. Every build therefore runs `firmware/tools/check-static-ram.py` and fails above 60 KB (`ULTIMATRIX_STATIC_RAM_KB`). Large objects (feed tickers, snapshots, caches) are allocated on the heap when the face starts, as the Football and F1/MotoGP faces do. The update-only boot also skips telnet and mDNS.
+

@@ -61,6 +61,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - build-bridge.sh: builds/packages the migration bridge image
 - build-webflasher.sh: merges full-flash images and ESP Web Tools manifests into web-flasher/firmware/ (generated)
 - package-firmware.py: packages application images and signed OTA manifests into dist/ (generated)
+- check-static-ram.py: post-build check that fails a face above the 60 KB static RAM budget (hooked in firmware/CMakeLists.txt)
 - gen_icons.py: renders BootScreen's U logo into web app icons
 - gen_tzdb.py, zones.csv: generate the build-time timezone table from zone rules
 - preview/faces.cpp, preview/faces.py, preview/faces-scenarios.h: native pixel-art face runner, GIF generation and scenarios
