@@ -61,11 +61,18 @@ struct HttpFile {
   bool open() {
     if (!handle) return false;
     for (int hop = 0; hop <= kMaxRedirects; ++hop) {
-      if (esp_http_client_open(handle, 0) != ESP_OK || esp_http_client_fetch_headers(handle) < 0) return false;
+      esp_err_t opened = esp_http_client_open(handle, 0);
+      int64_t headers = opened == ESP_OK ? esp_http_client_fetch_headers(handle) : -1;
+      if (opened != ESP_OK || headers < 0) {
+        consoleLog("[Update] hop %d: open %s, headers %d, free %u, largest %u\n", hop, esp_err_to_name(opened), (int)headers,
+                   (unsigned)esp_get_free_heap_size(), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+        return false;
+      }
       int code = esp_http_client_get_status_code(handle);
       if (code == 200) return true;
+      consoleLog("[Update] hop %d: HTTP %d\n", hop, code);
       bool redirect = code == 301 || code == 302 || code == 303 || code == 307 || code == 308;
-      if (!tls || !redirect || esp_http_client_set_redirection(handle) != ESP_OK) return false;
+      if (!tls || !redirect || esp_http_client_set_redirection(handle) != ESP_OK) { consoleLog("[Update] redirect not followed\n"); return false; }
       char next[9] = "";  // a redirect must stay on HTTPS
       esp_http_client_get_url(handle, next, sizeof(next));
       esp_http_client_close(handle);
