@@ -142,15 +142,20 @@ static void addDay(const char *day, WordPhrase &out) {
   out.small(pieces[1]);
 }
 
+// Flush right under the time; the first word of the date is white
 void sayDate(int language, int weekday, int day, int month, WordPhrase &out) {
   const DateWords &w = kDates[language];
   const char *weekdayName = w.weekdays[weekday % 7], *monthName = w.months[(month + 11) % 12], *dayName = w.days[(day + 30) % 31];
+  out.nextAlign = 2;
+  out.nextWhite = true;
   if (w.monthFirst) {
     out.small(monthName);
+    out.nextWhite = false;
     addDay(dayName, out);
     out.small(weekdayName);
   } else {
     out.small(weekdayName);
+    out.nextWhite = false;
     addDay(dayName, out);
     out.small(monthName);
   }

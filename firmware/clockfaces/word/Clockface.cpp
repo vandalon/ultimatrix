@@ -24,6 +24,8 @@ const int kReflowMs = kReflowOutMs + kReflowMoveMs;
 struct Line {
   char text[44];
   bool big;
+  bool white;
+  uint8_t align;  // 0 centred, 1 left, 2 right
   uint8_t scale;
   int8_t topRow, bottomRow;
   int16_t x, y;
@@ -66,19 +68,21 @@ void setText(Line &line, const char *text) {
   line.bottomRow = bottom;
 }
 
-void addLine(Layout &l, const char *text, bool big, int scale) {
+void addLine(Layout &l, const char *text, bool big, int scale, uint8_t align = 0, bool white = false) {
   if (l.count >= kMaxLines) return;
   Line &line = l.lines[l.count++];
   line.big = big;
+  line.align = align;
+  line.white = white;
   line.scale = scale;
   setText(line, text);
 }
 
 // A word on lines of its own: whole if it fits, otherwise broken at its break marks, otherwise smaller
-void addWord(Layout &l, const char *text, bool big, int scale) {
+void addWord(Layout &l, const char *text, bool big, int scale, uint8_t align = 0, bool white = false) {
   char whole[44];
   joinParts(text, 0, 99, false, whole, sizeof(whole));
-  if (wordfont::width(whole, false, scale) <= kMaxWidth) { addLine(l, whole, big, scale); return; }
+  if (wordfont::width(whole, false, scale) <= kMaxWidth) { addLine(l, whole, big, scale, align, white); return; }
   const int parts = partCount(text);
   if (parts > 1) {
     Layout trial;
@@ -95,7 +99,7 @@ void addWord(Layout &l, const char *text, bool big, int scale) {
         strlcpy(best, more, sizeof(best));
         to++;
       }
-      addLine(trial, best, big, scale);
+      addLine(trial, best, big, scale, align, white);
       from = to;
     }
     if (fits) {
@@ -103,8 +107,8 @@ void addWord(Layout &l, const char *text, bool big, int scale) {
       return;
     }
   }
-  if (scale > 1) addWord(l, text, big, 1);
-  else addLine(l, whole, big, 1);  // too wide even so: it is cut at the edge
+  if (scale > 1) addWord(l, text, big, 1, align, white);
+  else addLine(l, whole, big, 1, align, white);  // too wide even so: it is cut at the edge
 }
 
 void build(Layout &l, const WordPhrase &phrase, int bigScale) {
@@ -113,14 +117,15 @@ void build(Layout &l, const WordPhrase &phrase, int bigScale) {
   for (int i = 0; i < phrase.count; i++) {
     char whole[44];
     joinParts(phrase.text[i], 0, 99, false, whole, sizeof(whole));
-    if (phrase.big[i]) { addWord(l, phrase.text[i], true, bigScale); open = false; continue; }
-    if (open) {
+    if (phrase.big[i]) { addWord(l, phrase.text[i], true, bigScale, phrase.align[i], phrase.white[i]); open = false; continue; }
+    const Line *last = l.count ? &l.lines[l.count - 1] : nullptr;
+    if (open && last->align == phrase.align[i] && last->white == phrase.white[i]) {
       char joined[96];
       snprintf(joined, sizeof(joined), "%s %s", l.lines[l.count - 1].text, whole);
       if (wordfont::width(joined, false, 1) <= kMaxWidth) { setText(l.lines[l.count - 1], joined); continue; }
     }
     const int before = l.count;
-    addWord(l, phrase.text[i], false, 1);
+    addWord(l, phrase.text[i], false, 1, phrase.align[i], phrase.white[i]);
     open = l.count == before + 1;
   }
 }
@@ -140,7 +145,8 @@ void place(Layout &l, int top, int height, int squeeze = 0) {
   for (int i = 0; i < l.count; i++) {
     Line &line = l.lines[i];
     if (i) y += gap(i);
-    line.x = (W - wordfont::width(line.text, false, line.scale)) / 2;
+    const int textWidth = wordfont::width(line.text, false, line.scale);
+    line.x = line.align == 1 ? 2 : line.align == 2 ? W - 2 - textWidth : (W - textWidth) / 2;
     line.y = y;
     y += (line.bottomRow - line.topRow + 1) * line.scale;
   }
@@ -190,6 +196,7 @@ void makeLayout(Layout &l, int hour24, int minute, int language) {
 // The time in words with the date in words below it
 void makeDateLayout(Layout &l, int hour24, int minute, int language, int weekday, int day, int month) {
   WordPhrase phrase;
+  phrase.nextAlign = 1;  // the time flush left, the date flush right
   WORD_LANGUAGES[language].say(hour24, minute, phrase);
   sayDate(language, weekday, day, month, phrase);
   layOut(l, phrase, true);
@@ -262,7 +269,7 @@ void drawLine(MatrixPanel_I2S_DMA &d, const Line &line, const Theme &theme, word
     wordfont::draw(d, line.text, false, line.x + 1, line.y + 1, line.scale, line.topRow, mix(0, theme.big, 40), plot, ink);
     if (ink) ink->shadow = false;
   }
-  wordfont::draw(d, line.text, false, line.x, line.y, line.scale, line.topRow, line.big ? theme.big : theme.small, plot, ink);
+  wordfont::draw(d, line.text, false, line.x, line.y, line.scale, line.topRow, line.big || line.white ? theme.big : theme.small, plot, ink);
 }
 
 int letterCount(const char *text) {

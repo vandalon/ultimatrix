@@ -33,7 +33,8 @@ elseif(ULTIMATRIX_MODE MATCHES "^(word|mario|luigi|pacman)$")
     if(ULTIMATRIX_MODE STREQUAL "word")
         list(APPEND sources
             "${root}/clockfaces/word/WordFont.cpp"
-            "${root}/clockfaces/word/WordLanguages.cpp")
+            "${root}/clockfaces/word/WordLanguages.cpp"
+            "${root}/clockfaces/word/WordDates.cpp")
         set(mode_definitions UM_SIMPLE_FACE UM_WORD UM_MODE_NAME="Words")
     elseif(ULTIMATRIX_MODE STREQUAL "mario")
         set(mode_definitions UM_SIMPLE_FACE UM_MARIO UM_MODE_NAME="Mario")

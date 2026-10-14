@@ -11,7 +11,11 @@ struct WordPhrase {
   static const uint8_t MAX = 10;
   const char *text[MAX];
   bool big[MAX];
+  uint8_t align[MAX];  // 0 centred, 1 left, 2 right
+  bool white[MAX];     // a small word in the colour of the big ones
   uint8_t count = 0;
+  uint8_t nextAlign = 0;  // what the words added from here on get
+  bool nextWhite = false;
 
   void small(const char *t) { add(t, false); }
   void hour(const char *t) { add(t, true); }
@@ -19,6 +23,8 @@ struct WordPhrase {
     if (count < MAX) {
       text[count] = t;
       big[count] = isBig;
+      align[count] = nextAlign;
+      white[count] = nextWhite;
       count++;
     }
   }
