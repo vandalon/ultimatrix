@@ -377,6 +377,7 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
     default:
       now.level = pulse(pulsing ? clock_ : since, kLabelPeriodMs) >> 3;
       if (kind == Kind::Installing) {
+        now.level = 31;  // steady: the download keeps the CPU busy and a pulse turns choppy
         now.page = progress_ < 0 ? 255 : (uint8_t)(progress_ > 100 ? 100 : progress_);
         uint32_t step = (since / 60) % (2 * 30);  // the light travels along the bar and back: 30 positions each way
         now.mix = step < 30 ? step : 2 * 30 - step - 1;
