@@ -49,11 +49,20 @@ int main(int argc, char **argv) {
   screen.setAccessPoint("UM-SETUP", "", "192.168.4.1");  // the open access point the Wi-Fi manager starts
   play(screen, boot::Kind::Logo, "the U logo fades in", 1000);
   play(screen, boot::Kind::Connecting, "connecting: the U dims, the blue Wi-Fi icon pulses", 4800);
+  screen.setPlainBackdrop(true);
   play(screen, boot::Kind::Setup, "access point: scan to join, SSID and address fade in turn", 12000);
   play(screen, boot::Kind::Joined, "someone joined the access point", 3000);
+  screen.setPlainBackdrop(false);
   play(screen, boot::Kind::Connecting, "connecting again", 2400);
   play(screen, boot::Kind::Syncing, "linked, syncing the time: blue, address shown", 3000, "192.168.100.100");
   play(screen, boot::Kind::Connected, "linked and synced: green", 3000, "192.168.100.100");
+  play(screen, boot::Kind::Update, "a signed update is available", 10000);
+  screen.setSettingsUrl("HTTP://192.168.100.100/");
+  screen.setPlainBackdrop(true);
+  play(screen, boot::Kind::Welcome, "first setup: address and settings QR", 16000);
+  screen.setWelcomeVisited(true);
+  play(screen, boot::Kind::Welcome, "settings opened: start the clock", 3000);
+  screen.setPlainBackdrop(false);
   play(screen, boot::Kind::Error, "no time after a while: NTP error", 4800, "192.168.100.100");
   timing << "end\t" << virtualMs << '\n';
   return 0;

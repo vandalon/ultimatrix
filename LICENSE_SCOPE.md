@@ -21,4 +21,5 @@ unofficial fan project without any of their assets.
 
 Inherited code and third-party assets retain their original terms, including
 the MIT copyright notice in LICENSE. The product rename does not relicense them.
-The new runtime, settings, and display accessor use the root MIT terms.
+The new runtime, settings, and display accessor are Joris Vandalon's original contributions and carry the same PolyForm
+notice; any upstream-derived lines inside them keep the MIT terms.

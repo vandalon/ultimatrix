@@ -1,6 +1,9 @@
 // Project-authored portions: SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
+#include <algorithm>
+#include <iterator>
+#include <new>
 #include "F1LiveState.h"
 
 #include <stdlib.h>
@@ -187,9 +190,26 @@ bool F1LiveState::applyStream(int (*next)(void *), void *source, std::mutex *loc
   _statusFinished = false;
   _pendingRunning = false;
   _pendingUtc = 0;
-  JsonScan::read(next, source, feedLeaf, &feed);
+  if (!_backup) _backup.reset(new (std::nothrow) Backup);
+  Backup *b = _backup.get();
+  if (b) {  // only this thread changes the state, so it can be read here without the lock
+    std::copy(std::begin(_drivers), std::end(_drivers), b->drivers);
+    b->lap = _lap; b->totalLaps = _totalLaps; b->part = _part; b->flag = _flag; b->finished = _finished;
+    b->clockRunning = _clockRunning; b->finishedUtc = _finishedUtc; b->clockUtc = _clockUtc;
+    b->clockLeft = _clockLeft; b->clockMessages = _clockMessages;
+  }
+  bool parsed = JsonScan::read(next, source, feedLeaf, &feed);
   std::unique_lock<std::mutex> guard;
   if (lock) guard = std::unique_lock<std::mutex>(*lock);
+  if (!parsed) {  // truncated or invalid: publish nothing from it
+    if (b) {
+      std::copy(b->drivers, b->drivers + MAX_DRIVERS, _drivers);
+      _lap = b->lap; _totalLaps = b->totalLaps; _part = b->part; _flag = b->flag; _finished = b->finished;
+      _clockRunning = b->clockRunning; _finishedUtc = b->finishedUtc; _clockUtc = b->clockUtc;
+      _clockLeft = b->clockLeft; _clockMessages = b->clockMessages;
+    }
+    return false;
+  }
   if (_pendingClock) {  // a clock message: the time left, whether it ticks, and when that was
     _clockMessages++;
     _clockLeft = _pendingLeft;

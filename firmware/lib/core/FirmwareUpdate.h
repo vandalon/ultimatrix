@@ -26,8 +26,12 @@ public:
   bool setServer(const char *url);  // empty = GitHub; false if the URL is not acceptable
   void status(Status &out);
   void confirmBoot(bool healthy, uint32_t now, uint32_t failures);
-  // Call before a deliberate restart: a running image that is still pending verification is kept instead of rolled back.
-  static void confirmBeforeRestart();
+  // True while the running image is a new OTA image that has not yet proved itself; restarting then rolls it back.
+  static bool pendingVerification();
+  // Reboots into the previous image when the running one is still pending verification; otherwise returns.
+  static void rollbackIfPending();
+  // Before a restart into or out of Wi-Fi setup: keeps a pending image only when the diagnostic passes right now.
+  static void confirmForProvisioning(bool healthy);
   const char *version() const;
 private:
   static void task(void *self);

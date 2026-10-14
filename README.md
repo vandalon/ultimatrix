@@ -2,7 +2,7 @@
 
 Ultimatrix is an LED matrix clock for an ESP32 and a 64×64 HUB75 panel. It can show live sports, build the time from falling Tetris blocks, spell it out in words, or run an animated Mario, Luigi or Pac-Man scene.
 
-The original Clockwise project is an inspiration for Ultimatrix.
+Ultimatrix is inspired by the original [Clockwise](https://github.com/jnthas/clockwise) project by Jonathan Thas. Thank you for the idea and the groundwork.
 
 There are eight clock faces. Each has its own firmware image, so the clock runs one face at a time. You can switch faces from the local settings page by installing another signed image over Wi-Fi.
 
@@ -181,8 +181,6 @@ All eight faces have successful builds recorded during development. That does no
 Football has had initial device checks for boot, Wi-Fi, feeds, saved settings, mDNS and telnet. F1 has had a short device check of memory use and update checking.
 
 Still open: busy live matches, longer memory runs, the latest animations and colours on a panel, setup QR reliability across phones, update failure recovery, and the GitHub release/browser install path.
-
-[HANDOFF.txt](HANDOFF.txt) records the checks and their limits; its latest entries take precedence over older notes. [Architecture notes](docs/ARCHITECTURE.md) describe the code structure.
 
 ## Licences
 

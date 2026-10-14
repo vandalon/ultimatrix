@@ -148,6 +148,35 @@ def render(face, work):
     return output
 
 
+def panel_gaps():
+    mask = Image.new("L", (512, 512))
+    mask_dots = ImageDraw.Draw(mask)
+    for y in range(64):
+        for x in range(64):
+            mask_dots.ellipse((x * 8 + 1, y * 8 + 1, x * 8 + 6, y * 8 + 6), fill=255)
+    return ImageOps.invert(mask).convert("RGB")
+
+
+
+def panel_image(source, size, gaps=None):
+    source = source.convert("RGB")
+    if gaps is None:
+        gaps = panel_gaps()
+    canvas = Image.new("RGB", (512, 512), (8, 8, 10))
+    light = Image.new("RGB", canvas.size)
+    dots, glow = ImageDraw.Draw(canvas), ImageDraw.Draw(light)
+    for y in range(64):
+        for x in range(64):
+            color = source.getpixel((x, y))
+            bounds = (x * 8 + 1, y * 8 + 1, x * 8 + 6, y * 8 + 6)
+            dots.ellipse(bounds, fill=color if any(color) else (12, 12, 14))
+            if max(color) > 64:
+                glow.ellipse(bounds, fill=color)
+    light = light.filter(ImageFilter.GaussianBlur(1.2)).point(lambda c: round(c * 0.22))
+    light = ImageChops.multiply(light, gaps)
+    return ImageChops.add(canvas, light).resize((size, size), Image.Resampling.LANCZOS)
+
+
 def animate(frames, destination, size):
     timing = [line.split("\t") for line in (frames / "frames.tsv").read_text().splitlines()]
     # Merge identical holds; all animation frames keep their real timing.
@@ -162,28 +191,11 @@ def animate(frames, destination, size):
                 core_colors[color] += count
             previous = raw
     end = int(timing[-1][1])
-    mask = Image.new("L", (512, 512))
-    mask_dots = ImageDraw.Draw(mask)
-    for y in range(64):
-        for x in range(64):
-            mask_dots.ellipse((x * 8 + 1, y * 8 + 1, x * 8 + 6, y * 8 + 6), fill=255)
-    gaps = ImageOps.invert(mask).convert("RGB")
+    gaps = panel_gaps()
 
     def panel(name):
-        source = Image.open(frames / name).convert("RGB")
-        canvas = Image.new("RGB", (512, 512), (8, 8, 10))
-        light = Image.new("RGB", canvas.size)
-        dots, glow = ImageDraw.Draw(canvas), ImageDraw.Draw(light)
-        for y in range(64):
-            for x in range(64):
-                color = source.getpixel((x, y))
-                bounds = (x * 8 + 1, y * 8 + 1, x * 8 + 6, y * 8 + 6)
-                dots.ellipse(bounds, fill=color if any(color) else (12, 12, 14))
-                if max(color) > 64:
-                    glow.ellipse(bounds, fill=color)
-        light = light.filter(ImageFilter.GaussianBlur(1.2)).point(lambda c: round(c * 0.22))
-        light = ImageChops.multiply(light, gaps)
-        return ImageChops.add(canvas, light).resize((size, size), Image.Resampling.LANCZOS)
+        with Image.open(frames / name) as source:
+            return panel_image(source, size, gaps)
 
     # One palette for the whole replay keeps dim LEDs and glow steady between frames.
     samples = Image.new("RGB", (1024, 1024))

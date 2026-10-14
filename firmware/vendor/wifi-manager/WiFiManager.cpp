@@ -1106,7 +1106,6 @@ bool WiFiManager::wifiConnectNew(String ssid, String pass,bool connect){
   #ifdef WM_DEBUG_LEVEL
   // DEBUG_WM(WM_DEBUG_DEV,F("CONNECTED: "),WiFi.status() == WL_CONNECTED ? "Y" : "NO");
   DEBUG_WM(F("Connecting to NEW AP:"),ssid);
-  DEBUG_WM(WM_DEBUG_DEV,F("Using Password:"),pass);
   #endif
   WiFi_enableSTA(true,storeSTAmode); // storeSTAmode will also toggle STA on in default opmode (persistent) if true (default)
   WiFi.persistent(true);
@@ -1128,7 +1127,6 @@ bool WiFiManager::wifiConnectDefault(){
 
   #ifdef WM_DEBUG_LEVEL
   DEBUG_WM(F("Connecting to SAVED AP:"),WiFi_SSID(true));
-  DEBUG_WM(WM_DEBUG_DEV,F("Using Password:"),WiFi_psk(true));
   #endif
 
   ret = WiFi_enableSTA(true,storeSTAmode);
@@ -3446,7 +3444,6 @@ void WiFiManager::debugSoftAPConfig(){
     DEBUG_WM(F("SoftAP Configuration"));
     DEBUG_WM(FPSTR(D_HR));
     DEBUG_WM(F("ssid:            "),(char *) config.ssid);
-    DEBUG_WM(F("password:        "),(char *) config.password);
     DEBUG_WM(F("ssid_len:        "),config.ssid_len);
     DEBUG_WM(F("channel:         "),config.channel);
     DEBUG_WM(F("authmode:        "),config.authmode);
@@ -3540,7 +3537,6 @@ boolean WiFiManager::validApPassword(){
     }
     #ifdef WM_DEBUG_LEVEL
     DEBUG_WM(WM_DEBUG_VERBOSE,F("AccessPoint set password is VALID"));
-    DEBUG_WM(WM_DEBUG_DEV,"ap pass",_apPassword);
     #endif
   }
   return true;

@@ -260,7 +260,6 @@ void TelnetConsole::run(const char *line) {
     client_.print("Restarting.\r\n");
     client_.flush();
     delay(100);
-    FirmwareUpdate::confirmBeforeRestart();
     ESP.restart();
   } else if (!strncasecmp(command, "factory-reset", 13) && (!command[13] || command[13] == ' ')) {
     const char *arg = command + 13;

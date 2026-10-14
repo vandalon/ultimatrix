@@ -71,6 +71,7 @@ struct Scanner {
       take();
     }
     text[at] = 0;
+    if (at == 0) failed = true;  // a stray delimiter ahead: consuming nothing would loop forever
   }
 
   // One value whose key path is path[0..level)
@@ -110,7 +111,7 @@ struct Scanner {
       if (!failed && level <= JsonScan::MAX_DEPTH) leaf(sink, path, level, text, true);
     } else if (c >= 0) {
       bare();
-      if (level <= JsonScan::MAX_DEPTH) leaf(sink, path, level, text, false);
+      if (!failed && level <= JsonScan::MAX_DEPTH) leaf(sink, path, level, text, false);
     } else {
       failed = true;
     }

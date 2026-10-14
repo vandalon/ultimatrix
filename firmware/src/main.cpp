@@ -464,15 +464,46 @@ static void settingsResponse(int status, const char *message) {
   else server.send(status, "text/plain; charset=utf-8", message);
 }
 
+// Geo-IP lookup (time zone and location) on its own task: the HTTP call can take seconds, and the clock task also
+// draws the display and serves the settings page. The result is applied from loop().
+static std::atomic<int> geoState{0};  // 0 idle, 1 looking, 2 result waiting
+static String geoZone;
+static float geoLatitude = 0, geoLongitude = 0;
+static bool geoFound = false;
+static bool geoWanted = false;  // a lookup is wanted as soon as Wi-Fi is up
+static uint32_t geoRetryAt = 0, geoStartedAt = 0;
+static uint8_t geoFails = 0;
+static bool geoSettled = false;  // this boot has had an answer, or has given up
+
+static void geoTask(void *) {
+  String zone; float lat = 0, lon = 0;
+  bool found = ultime::detectZone(zone, &lat, &lon);
+  geoZone = zone; geoLatitude = lat; geoLongitude = lon; geoFound = found;
+  geoState = 2;
+  vTaskDelete(nullptr);
+}
+
+static void startGeo() {
+  if (geoState.load() != 0) return;
+  geoState = 1;
+  geoStartedAt = millis();
+  if (xTaskCreatePinnedToCore(geoTask, "geoip", 4096, nullptr, 1, nullptr, 0) != pdPASS) geoState = 0;
+}
+
 static void dismissWelcome() {
   Preferences prefs;
-  if (prefs.begin("ultimatrix", false)) { prefs.putBool("welcomeHidden", true); prefs.end(); }
+  bool saved = prefs.begin("ultimatrix", false) && prefs.putBool("welcomeHidden", true) > 0;
+  prefs.end();
+  if (!saved) { settingsResponse(500, "Could not save. Please try again."); return; }
   settingsResponse(200, "Welcome hidden.");
 }
 
 static void startClock() {
   Preferences prefs;
-  if (prefs.begin("ultimatrix", false)) { prefs.remove("welcomePending"); prefs.putBool("onboarded", true); prefs.end(); }
+  bool saved = prefs.begin("ultimatrix", false) && prefs.putBool("onboarded", true) > 0;  // first: if it fails, the welcome stays
+  if (saved) prefs.remove("welcomePending");
+  prefs.end();
+  if (!saved) { settingsResponse(500, "Could not save. Please try again."); return; }
   settingsResponse(200, "Starting the clock.");
   restartAt = millis() + 1000;
 }
@@ -553,14 +584,11 @@ static void saveSettings() {
     s.autoBrightness = server.hasArg("autoBrightness"); s.ldrPin = pin; s.ldrDark = dark; s.ldrLight = light;
     s.minimumBrightness = minimum; s.nightBrightness = night; s.nightEnabled = server.hasArg("nightEnabled");
     s.nightSun = server.hasArg("nightSun");
-    if (s.nightSun && !s.hasLocation) {  // sunrise and sunset need the network's location: look it up now
-      String zone; float lat = 0, lon = 0;
-      if (ultime::detectZone(zone, &lat, &lon)) { s.latitude = lat; s.longitude = lon; s.hasLocation = true; }
-    }
+    if (s.nightSun && !s.hasLocation) { geoWanted = true; geoFails = 0; }  // sunrise and sunset need the network's location: looked up in the background
     if (s.nightEnabled && !s.nightSun && s.nightStart == s.nightEnd) { settingsResponse(400, "Choose different start and end times for night mode."); return; }
   }
   s.brightness = bright; s.rotation = rotation;
-  if (autoZone) { String found; if (s.manualTimezone && ultime::detectZone(found)) s.timezone = found; }
+  if (autoZone) { if (s.manualTimezone) { geoWanted = true; geoFails = 0; } }  // the network's zone is applied once it has been looked up
   else s.timezone = zone;
   s.manualTimezone = !autoZone;
 #ifndef UM_SIMPLE_FACE
@@ -617,7 +645,7 @@ static void saveSettings() {
   bool timeChanged = previous.timezone != s.timezone || previous.use24h != s.use24h || previous.ntpServer != s.ntpServer;
   bool consoleChanged = previous.telnet != s.telnet;
   *Settings::getInstance() = candidate;
-  if (display) display->setRotation(s.rotation);
+  if (displayReady) display->setRotation(s.rotation);
   if (timeChanged && face) clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (consoleChanged) {
     if (s.telnet && !memoryShed) telnet.begin(telnetCommand, "  update  download signed application update\r\n  update-status  show update progress\r\n" UM_TELNET_HELP);
@@ -705,6 +733,36 @@ static void shedOnLowMemory() {
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 }
 
+// POST route with a body limit. The WebServer buffers a whole body before dispatch, so an oversized request is
+// answered through its raw-body path instead: the bytes are read in small chunks and dropped.
+class BoundedPost : public RequestHandler {
+public:
+  BoundedPost(const char *uri, WebServer::THandlerFunction fn) : _uri(uri), _fn(fn) {}
+  bool canHandle(WebServer &, HTTPMethod method, const String &uri) override { return method == HTTP_POST && uri == _uri; }
+  bool canRaw(WebServer &web, const String &) override { return web.clientContentLength() > kMaxBody; }
+  void raw(WebServer &, const String &, HTTPRaw &) override {}
+  bool handle(WebServer &web, HTTPMethod, const String &) override {
+    if (web.clientContentLength() > kMaxBody) { web.send(413, "text/plain", "Request too large."); return true; }
+    _fn();
+    return true;
+  }
+private:
+  static constexpr int kMaxBody = 8192;  // the largest settings form (selections are capped at 400 characters each) with room to spare
+  String _uri;
+  WebServer::THandlerFunction _fn;
+};
+
+static void postRoute(const char *uri, WebServer::THandlerFunction fn) { server.addHandler(new BoundedPost(uri, fn)); }
+
+// The startup diagnostic a new OTA image must pass: display up, heap left, and either Wi-Fi setup running or
+// the settings server up with the face drawing after its first time sync.
+static bool startupHealthy() {
+  return displayReady && heap_caps_get_free_size(MALLOC_CAP_8BIT) > 16384 &&
+      (portalActive || (settingsServerStarted && bootDone));
+}
+
+static bool provisioningRestart = false;  // the pending restart is into or out of Wi-Fi setup
+
 static void background() {
   wifi.process();
   if (portalCloseAt && (int32_t)(millis() - portalCloseAt) >= 0) {
@@ -719,7 +777,7 @@ static void background() {
     Serial.printf("[Portal] mode %d, stations %u, sta status %d, channel %u, heap %u, largest %u\n", (int)mode, (unsigned)WiFi.softAPgetStationNum(),
         (int)WiFi.status(), (unsigned)WiFi.channel(), (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
   }
-  if (setupRefresh && !welcomeMode && !portalNow && !restartAt) { restartAt = millis() + 1000; Serial.println("[Portal] setup over: restarting out of the fast display"); }  // setup is over: restart out of the fast display (the face needs the memory and colour depth)
+  if (setupRefresh && !welcomeMode && !portalNow && !restartAt) { restartAt = millis() + 1000; provisioningRestart = true; Serial.println("[Portal] setup over: restarting out of the fast display"); }  // setup is over: restart out of the fast display (the face needs the memory and colour depth)
   if (portalActive && !portalNow && WiFi.status() != WL_CONNECTED) WiFi.begin();
   portalActive = portalNow;
   if (!settingsServerStarted && WiFi.status() == WL_CONNECTED && !wifi.getConfigPortalActive()) {
@@ -735,8 +793,7 @@ static void background() {
     reconnectDelay = std::min<uint32_t>(reconnectDelay * 2, 60000);
   }
   if (!portalActive && WiFi.status() == WL_CONNECTED && !mdnsStarted && (int32_t)(now - mdnsRetryAt) >= 0) startMdns();
-  firmwareUpdate.confirmBoot(displayReady && (settingsServerStarted || portalActive) && heap_caps_get_free_size(MALLOC_CAP_8BIT) > 16384,
-      now, memoryAllocationFailures.load());
+  firmwareUpdate.confirmBoot(startupHealthy(), now, memoryAllocationFailures.load());
   FirmwareUpdate::Status updateStatus; firmwareUpdate.status(updateStatus);
   if (updateStatus.ready && !restartAt) restartAt = now + 1500;
   if (scheduledMode[0]) {
@@ -754,7 +811,11 @@ static void background() {
   shedOnLowMemory();
   telnet.poll();
   if (mdnsDue) { mdnsDue = false; startMdns(); }
-  if (restartAt && (int32_t)(millis() - restartAt) >= 0) { FirmwareUpdate::confirmBeforeRestart(); ESP.restart(); }
+  if (restartAt && (int32_t)(millis() - restartAt) >= 0) {
+    if (provisioningRestart) FirmwareUpdate::confirmForProvisioning(startupHealthy());
+    // A restart does not certify a new image: wait for its startup check (rolled back after the deadline)
+    if (!FirmwareUpdate::pendingVerification() || millis() > 90000) ESP.restart();
+  }
 }
 
 void setup() {
@@ -794,19 +855,24 @@ void setup() {
     panel.gpio.g1 = 27; panel.gpio.g2 = 13;
   }
   display = new MatrixPanel_I2S_DMA(panel);
-  if (!display->begin()) { consoleLog("Display allocation failed\n"); return; }
-  displayReady = true;
-  boot::setPlot888(plotDithered);
-  bootScreen.setPlainBackdrop(setupRefresh);  // the setup display: no dim U behind the icons
-  boot::setLevelMap(bootMap);
-  appliedBrightness = panelBrightness(s.brightness);
-  display->setBrightness8(appliedBrightness);
-  display->setRotation(s.rotation);
-  bootAt = millis();
-  if (setupRefresh) drawBoot(boot::Kind::Connecting);  // the setup display skips the logo
-  else {
-    while (millis() - bootAt < kLogoFadeMs) { drawBoot(boot::Kind::Logo); delay(10); }  // the fade-in is drawn here: setup below is too busy to tick it
-    drawBoot(boot::Kind::Logo);
+  if (display->begin()) {
+    displayReady = true;
+    boot::setPlot888(plotDithered);
+    bootScreen.setPlainBackdrop(setupRefresh);  // the setup display: no dim U behind the icons
+    boot::setLevelMap(bootMap);
+    appliedBrightness = panelBrightness(s.brightness);
+    display->setBrightness8(appliedBrightness);
+    display->setRotation(s.rotation);
+    bootAt = millis();
+    if (setupRefresh) drawBoot(boot::Kind::Connecting);  // the setup display skips the logo
+    else {
+      while (millis() - bootAt < kLogoFadeMs) { drawBoot(boot::Kind::Logo); delay(10); }  // the fade-in is drawn here: setup below is too busy to tick it
+      drawBoot(boot::Kind::Logo);
+    }
+  } else {
+    // No panel: a new image that cannot drive it goes back; a proven one stays up headless so Wi-Fi, settings and updates can repair it
+    consoleLog("Display allocation failed\n");
+    FirmwareUpdate::rollbackIfPending();
   }
   WiFi.setHostname("ultimatrix");
   WiFi.setAutoReconnect(true);
@@ -818,7 +884,7 @@ void setup() {
     consoleLog("Wi-Fi power save: %d (0 = off)\n", (int)ps);
     mdnsDue = true;
   }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
-  wifi.setDebugOutput(true, WM_DEBUG_DEV);  // portal requests, redirects and DNS setup on serial
+  wifi.setDebugOutput(true, WM_DEBUG_NOTIFY);  // portal requests and connection state on serial, never credentials
   WiFi.onEvent([](arduino_event_id_t id, arduino_event_info_t info) {
     switch (id) {
       case ARDUINO_EVENT_WIFI_AP_START: Serial.printf("[AP] started, ip %s\n", WiFi.softAPIP().toString().c_str()); break;
@@ -881,7 +947,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
       Preferences prefs;
       if (prefs.begin("ultimatrix", false)) { prefs.putBool("setupRefresh", true); prefs.end(); }
       consoleLog("[WiFi] Restarting into the fast display mode for the setup QR code\n");
-      FirmwareUpdate::confirmBeforeRestart();
+      FirmwareUpdate::confirmForProvisioning(startupHealthy());
       ESP.restart();
     }
   });
@@ -897,7 +963,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   if (forceSetup || setupRefreshRestart) wifi.startConfigPortal(kApName);  // after the restart for the fast display, go straight to the portal
   else wifi.autoConnect(kApName);
   server.on("/", HTTP_GET, settingsPage);
-  server.on("/settings", HTTP_POST, saveSettings);
+  postRoute("/settings", saveSettings);
   server.on("/theme.css", HTTP_GET, []() { server.send_P(200, "text/css; charset=utf-8", themeCss); });
   server.on("/settings.js", HTTP_GET, []() { server.send_P(200, "application/javascript; charset=utf-8", settingsJs); });
   server.on("/manifest.webmanifest", HTTP_GET, []() { server.send_P(200, "application/manifest+json", manifestJson); });
@@ -916,20 +982,20 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/faces/luigi.png", HTTP_GET, []() { sendIcon(luigiStart, luigiEnd); });
   server.on("/faces/pacman.png", HTTP_GET, []() { sendIcon(pacmanStart, pacmanEnd); });
   server.on("/api/settings", HTTP_GET, settingsState);
-  server.on("/api/settings", HTTP_POST, saveSettings);
+  postRoute("/api/settings", saveSettings);
   server.on("/api/catalog", HTTP_GET, selectionCatalog);
 #ifdef UM_FOOTBALL_ONLY
   server.on("/api/teams", HTTP_GET, footballTeams);
 #endif
   server.on("/api/timezones", HTTP_GET, timezones);
-  server.on("/api/wifi/setup", HTTP_POST, openWifiSetup);
-  server.on("/api/welcome/dismiss", HTTP_POST, dismissWelcome);
-  server.on("/api/welcome/start", HTTP_POST, startClock);
+  postRoute("/api/wifi/setup", openWifiSetup);
+  postRoute("/api/welcome/dismiss", dismissWelcome);
+  postRoute("/api/welcome/start", startClock);
   server.on("/api/firmware", HTTP_GET, firmwareStatus);
-  server.on("/api/firmware", HTTP_POST, requestFirmwareUpdate);
-  server.on("/api/firmware/reboot", HTTP_POST, rebootForFirmwareUpdate);
-  server.on("/api/firmware/check", HTTP_POST, checkFirmware);
-  server.on("/api/firmware/server", HTTP_POST, saveUpdateServer);
+  postRoute("/api/firmware", requestFirmwareUpdate);
+  postRoute("/api/firmware/reboot", rebootForFirmwareUpdate);
+  postRoute("/api/firmware/check", checkFirmware);
+  postRoute("/api/firmware/server", saveUpdateServer);
   if (s.telnet) telnet.begin(telnetCommand, "  update  download signed application update\r\n  update-status  show update progress\r\n" UM_TELNET_HELP);
   backgroundWork() = background;
 }
@@ -941,16 +1007,32 @@ void loop() {
   if (portalActive && backgroundMs > 40) Serial.printf("[Portal] background() took %u ms\n", (unsigned)backgroundMs);
   if (!displayReady) { delay(50); return; }
   uint32_t now = millis();
-  if (!face && !portalActive && !welcomeMode && WiFi.status() == WL_CONNECTED) {
+  if (WiFi.status() == WL_CONNECTED && !portalActive && !welcomeMode) {
     auto &s = *Settings::getInstance();
-    String zone;  // unless a zone was typed in on the settings page, the network's location decides; the page shows the result
-    float lat = 0, lon = 0;
-    if ((!s.manualTimezone || !s.hasLocation) && ultime::detectZone(zone, &lat, &lon)) {
-      bool changed = !s.manualTimezone && zone != s.timezone;
-      if (changed) s.timezone = zone;
-      if (!s.hasLocation || fabsf(lat - s.latitude) > 0.05f || fabsf(lon - s.longitude) > 0.05f) { s.latitude = lat; s.longitude = lon; s.hasLocation = true; changed = true; }
-      if (changed) s.save();
+    if (!geoSettled && !geoWanted && geoState.load() == 0) {  // once per start: the network's zone and location
+      geoSettled = !(!s.manualTimezone || !s.hasLocation);
+      geoWanted = !geoSettled;
     }
+    if (geoWanted && geoState.load() == 0 && (int32_t)(now - geoRetryAt) >= 0) { geoWanted = false; startGeo(); }
+    if (geoState.load() == 2) {
+      if (geoFound) {
+        bool changed = false, zoneChanged = false;
+        if (!s.manualTimezone && geoZone != s.timezone) { s.timezone = geoZone; changed = zoneChanged = true; }
+        if (!s.hasLocation || fabsf(geoLatitude - s.latitude) > 0.05f || fabsf(geoLongitude - s.longitude) > 0.05f) {
+          s.latitude = geoLatitude; s.longitude = geoLongitude; s.hasLocation = true; changed = true;
+        }
+        if (changed) s.save();
+        if (zoneChanged && face) clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
+        geoSettled = true; geoFails = 0;
+      } else if (++geoFails < 5) { geoWanted = true; geoRetryAt = now + 60000; }
+      else geoSettled = true;
+      geoState = 0;
+    }
+  }
+  // Without a known location (the first start) the face waits a few seconds for the lookup, so it does not start in the wrong zone
+  bool geoHold = !Settings::getInstance()->hasLocation && !geoSettled && now - geoStartedAt < 6000 && geoState.load() != 2;
+  if (!face && !portalActive && !welcomeMode && WiFi.status() == WL_CONNECTED && !geoHold) {
+    auto &s = *Settings::getInstance();
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
     face = new Clockface(display);
     face->setup(&clockTime);

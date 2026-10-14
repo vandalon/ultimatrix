@@ -1,6 +1,7 @@
-Scope: This MIT licence applies except to project-authored Football/Formula 1
-material identified in LICENSE_SCOPE.md and material with its own third-party
-licence. The existing upstream copyright and MIT terms below are preserved.
+Scope: This MIT licence applies only to upstream-derived code. Project-authored
+material identified in LICENSE_SCOPE.md is under PolyForm Noncommercial 1.0.0,
+and third-party material keeps its own licence. The existing upstream copyright
+and MIT terms below are preserved.
 
 MIT License
 

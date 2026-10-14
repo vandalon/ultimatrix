@@ -170,7 +170,6 @@ static void logf(const char *format, ...) {
 #ifdef UM_FOOTBALL_ONLY
 static bool cacheReady = false;
 static std::mutex cacheLock;
-static const uint32_t CACHE_MAGIC = 0x46424331;
 
 struct CachedMatch {
   char home[8], away[8], league[24], label[8], id[20], detail[32];
@@ -191,6 +190,9 @@ struct CachedOverview {
   uint16_t favouriteResults, comingToday;
   uint8_t finishedCount, upcomingCount, slot;
 };
+
+// The cache's tag folds in the sizes of what is stored, so a changed layout reads as no cache. Bump the base for changes that keep every size.
+static const uint32_t CACHE_MAGIC = 0x46424331 ^ ((uint32_t)sizeof(CachedMatch) << 20) ^ ((uint32_t)sizeof(FootballTicker::Event) << 12) ^ ((uint32_t)sizeof(CachedTeam) << 6) ^ (uint32_t)sizeof(CachedOverview);
 
 static String displayCachePath(const char *kind, uint8_t slot) { return String("/um-fb-") + kind + (slot ? "-b" : "-a"); }
 
@@ -383,7 +385,7 @@ void FootballTicker::releaseCachedMatches() {
 void FootballTicker::setResultWindow(uint32_t secs) {
   if (secs == _resultWindowSecs) return;
   _resultWindowSecs = secs;
-  _footballNextAt = 0;  // download again now: a longer window needs the boards of the days before
+  _refreshNow = true;  // download again now: a longer window needs the boards of the days before
 }
 
 void FootballTicker::begin(ClockTime *dateTime, bool withRace, bool extras, uint32_t resultWindowSecs) {
@@ -535,7 +537,9 @@ unsigned long FootballTicker::refresh() {
 #endif
   // The task also wakes up for the F1 timer: only refresh when football is due
   unsigned long start = millis();
-  if (_footballNextAt && (long)(start - _footballNextAt) < 0) return _footballNextAt - start;
+  if (_refreshNow.exchange(false)) _footballNextAt = 0;
+  unsigned long due = _footballNextAt;
+  if (due && (long)(start - due) < 0) return due - start;
 
   time_t today = _dateTime->localNow();
   uint32_t todayNr = today / SECS_PER_DAY;
@@ -674,6 +678,7 @@ unsigned long FootballTicker::refresh() {
   logf("[Football] refreshed, data free %u, largest block %u, stack left %u\n", (unsigned)dataFree(), (unsigned)dataBlock(),
        (unsigned)uxTaskGetStackHighWaterMark(nullptr));
   setStatus(OK);
+  if (_refreshNow) wait = std::min<unsigned long>(wait, 1000);  // asked for again while this one ran
   _footballNextAt = millis() + wait;
   return wait;
 }

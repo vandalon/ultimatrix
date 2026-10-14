@@ -3,6 +3,7 @@
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #pragma once
 
+#include <memory>
 #include <mutex>
 #include <stdint.h>
 
@@ -31,7 +32,8 @@ class F1LiveState {
     // One message, read a character at a time (next returns -1 at its end): the answer to Subscribe
     // ({"type":3,"result":{...}}) or a live update ({"type":1,"target":"feed","arguments":[...]}). Nothing is
     // kept but what is used, so even a snapshot of the whole grid takes a few hundred bytes. lock, when given,
-    // is held while the state changes, not while waiting for characters. Returns true when it held data.
+    // is held while the state changes, not while waiting for characters. Returns true when it held data. A message
+    // that does not parse leaves the state as it was and returns false.
     bool applyStream(int (*next)(void *), void *source, std::mutex *lock = nullptr);
 
     // The first places. tag: 'R' race, 'S' sprint, 'P' practice, 'Q' qualifying. Returns how many rows are filled
@@ -77,6 +79,17 @@ class F1LiveState {
 
     Driver *driver(int number);
     void leaf(const char (*path)[JsonScan::KEY], int n, const char *value, bool text);
+
+    // What a message may change, kept to put back when the message turns out to be broken
+    struct Backup {
+      Driver drivers[MAX_DRIVERS];
+      int lap, totalLaps, part;
+      char flag;
+      bool finished, clockRunning;
+      long finishedUtc, clockUtc, clockLeft;
+      unsigned clockMessages;
+    };
+    std::unique_ptr<Backup> _backup;
 
     Driver _drivers[MAX_DRIVERS];
     int _lap = 0, _totalLaps = 0, _part = 0;

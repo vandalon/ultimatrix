@@ -156,7 +156,11 @@ const char *fetchManifest(const char *target, Manifest &out, const esp_partition
     Preferences history;
     if (!history.begin("um-updates", false)) return "Cannot open update history.";
     char key[24]; historyKey(key, sizeof(key), target);
-    out.replayed = out.release <= history.getUInt(key, 0);
+    uint32_t accepted = history.getUInt(key, 0);
+    uint8_t digest[32]; char digestKey[28]; snprintf(digestKey, sizeof(digestKey), "%sd", key);
+    bool known = history.getBytes(digestKey, digest, sizeof(digest)) == sizeof(digest);
+    // The same authenticated release may be installed again (switching back to a face); older ones, or other content under the same number, may not
+    out.replayed = out.release < accepted || (out.release == accepted && known && memcmp(digest, out.elfSha256, sizeof(digest)));
     history.end();
   }
   return nullptr;
@@ -301,16 +305,14 @@ void FirmwareUpdate::run() {
     message("Firmware transfer or checksum failed. Current image retained.", true); return;
   }
   esp_err_t result = esp_ota_end(write.handle); write.active = false;
-  if (result == ESP_OK) {
-    // Record the authenticated release before activation, rejecting replay of
-    // an older signed release. A failed activation requires a new publication.
-    if (!history.begin("um-updates", false)) { message("Cannot save update history.", true); return; }
-    char key[24]; historyKey(key, sizeof(key), _target);
-    bool recorded = history.putUInt(key, releaseId) == sizeof(uint32_t);
-    history.end();
-    if (!recorded) { message("Cannot save update history.", true); return; }
-  }
   if (result != ESP_OK || esp_ota_set_boot_partition(partition) != ESP_OK) { message("Firmware validation failed. Current image retained.", true); return; }
+  // Record the authenticated release only once the image is active, so a failed activation does not use the release up.
+  if (history.begin("um-updates", false)) {
+    char key[24]; historyKey(key, sizeof(key), _target);
+    char digestKey[28]; snprintf(digestKey, sizeof(digestKey), "%sd", key);
+    if (releaseId >= history.getUInt(key, 0)) { history.putUInt(key, releaseId); history.putBytes(digestKey, elfHash, sizeof(info.elfSha256)); }
+    history.end();
+  }
   if (history.begin("um-updates", false)) {  // the cached "update available" is about the build that was just replaced
     history.remove("availElf"); history.remove("availVer"); history.remove("chk"); history.end();
   }
@@ -319,6 +321,7 @@ void FirmwareUpdate::run() {
 }
 
 namespace {
+constexpr uint32_t kConfirmDeadlineMs = 180000;  // a pending image that is not healthy by now is rolled back
 constexpr uint32_t kCheckEveryMs = 12 * 3600 * 1000UL;  // twice a day
 constexpr uint32_t kRetryMs = 30 * 60 * 1000UL;
 constexpr uint32_t kFirstCheckS = 45;  // after the clock has settled
@@ -483,8 +486,17 @@ void FirmwareUpdate::check() {
   if (available) consoleLog("[Firmware] Update available: %s\n", info.version);
 }
 
-void FirmwareUpdate::confirmBeforeRestart() {
-  esp_ota_mark_app_valid_cancel_rollback();  // no-op error when the image is already valid
+bool FirmwareUpdate::pendingVerification() {
+  esp_ota_img_states_t state;
+  return esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) == ESP_OK && state == ESP_OTA_IMG_PENDING_VERIFY;
+}
+
+void FirmwareUpdate::rollbackIfPending() {
+  if (pendingVerification()) esp_ota_mark_app_invalid_rollback_and_reboot();
+}
+
+void FirmwareUpdate::confirmForProvisioning(bool healthy) {
+  if (healthy && pendingVerification()) esp_ota_mark_app_valid_cancel_rollback();
 }
 
 void FirmwareUpdate::confirmBoot(bool healthy, uint32_t now, uint32_t failures) {
@@ -494,6 +506,10 @@ void FirmwareUpdate::confirmBoot(bool healthy, uint32_t now, uint32_t failures) 
     _checkedBoot = true;
   }
   if (!_pendingBoot) return;
+  if (now > kConfirmDeadlineMs && !(healthy && failures == _lastFailures)) {  // never became healthy: go back to the previous image
+    consoleLog("[Firmware] New image failed its startup check. Rolling back.\n");
+    esp_ota_mark_app_invalid_rollback_and_reboot();
+  }
   if (!healthy || failures != _lastFailures) { _healthySince = 0; _lastFailures = failures; return; }
   if (!_healthySince) _healthySince = now;
   if (now - _healthySince >= 30000 && esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {

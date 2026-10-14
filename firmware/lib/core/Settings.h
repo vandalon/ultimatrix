@@ -27,6 +27,7 @@ struct Settings {
   uint8_t matchSecs = 8;
   uint16_t resultMins = 120;
   uint8_t timeStyle = 2;  // Sports clock effect. Words: 0 none, 1 shuffle, 2 rotate all, 3 lift, 4 dissolve, 5 wipe.
+  uint8_t faceOptions[5] = {1, 1, 1, 2, 2};  // each face's own numberFont/timeStyle value (see Settings.cpp); only the running face's pair is in numberFont and timeStyle
   uint8_t numberFont = 1;  // Football: alternative score digits. Time in Words: the language, an index into WORD_LANGUAGES (1 is Dutch)
   uint8_t color = 0, dotColor = 0;
   uint8_t pacmanClockColor = 0;  // default keeps off-white hours and green minutes

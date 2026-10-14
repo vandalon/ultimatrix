@@ -41,5 +41,12 @@ then
   cmake -S "$firmware_root" -B "$firmware_root/build/$mode" \
     "-DPYTHON=$build_python" "-DULTIMATRIX_MODE=$mode"
 fi
+# An older build directory keeps its saved SDK config, which ignores later changes to sdkconfig.defaults. The updater
+# and feeds need the TLS options set there, so a saved config without them is dropped and regenerated.
+saved_config="$firmware_root/build/$mode/sdkconfig"
+if [ -f "$saved_config" ] && ! grep -q '^CONFIG_ESP_TLS_INSECURE=y' "$saved_config"; then
+  echo "Regenerating $saved_config: it predates the TLS settings in sdkconfig.defaults." >&2
+  rm -f "$saved_config"
+fi
 exec "$build_python" "$IDF_PATH/tools/idf.py" -C "$firmware_root" \
   -B "$firmware_root/build/$mode" "-DULTIMATRIX_MODE=$mode" "$@"

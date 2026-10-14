@@ -6,9 +6,11 @@
 
 #include <algorithm>
 #include <memory>
+#include <new>
 #include <HTTPClient.h>
 #include <Console.h>
 #include <Preferences.h>
+#include <CacheBlob.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <TimeService.h>
@@ -189,7 +191,14 @@ void F1Ticker::task(void *self) {
       stopFeedTask();
     }
     // in slices, so an update that starts meanwhile is seen within a second
-    for (unsigned long left = ticker->refresh(); left > 0 && !firmwareUpdating && !f1Park;) {
+    unsigned long wait = RETRY_MS;
+    try {
+      wait = ticker->refresh();
+    } catch (const std::exception &e) {  // std::bad_alloc: keep the data of the last round
+      memoryAllocationFailures.fetch_add(1, std::memory_order_relaxed);
+      consoleLog("[F1] out of memory in a refresh (%s), keeping the last data\n", e.what());
+    }
+    for (unsigned long left = wait; left > 0 && !firmwareUpdating && !f1Park;) {
       if (ticker->_feedPaced && !ticker->_live.fresh()) {  // the live feed went quiet: back to ESPN every 15 s
         ticker->_feedPaced = false;
         ticker->_weekendAt = millis();
@@ -211,6 +220,8 @@ static unsigned long until(unsigned long at) {
 // The standings and the next race change slowly, so the last download is kept in flash: it shows right after
 // a boot (the standings dimmed, as they are downloaded again at the first refresh) and the next race's HTTPS
 // download only runs once it is older than its refresh time
+static const uint16_t CACHE_VERSION = 1;  // bump when a cached struct's layout or meaning changes
+
 void F1Ticker::loadCache() {
   _cacheLoaded = true;
   Preferences prefs;
@@ -220,17 +231,18 @@ void F1Ticker::loadCache() {
   Standing standings[STANDINGS];
   uint8_t count = prefs.getUChar("standN", 0);
   time_t at = prefs.getUInt("standAt", 0);
-  if (count > 0 && count <= STANDINGS && prefs.getBytesLength("stand") == sizeof(standings) && at && (!synced || now >= at)) {
-    prefs.getBytes("stand", standings, sizeof(standings));
+  if (count > 0 && count <= STANDINGS && at && (!synced || now >= at) && cacheblob::get(prefs, "stand", standings, CACHE_VERSION)) {
+    for (Standing &standing : standings) { cacheblob::terminate(standing.code); cacheblob::terminate(standing.name); }
     std::lock_guard<std::mutex> guard(_lock);
     for (int i = 0; i < count; i++) _snap.standings[i] = standings[i];
     _snap.standingsCount = count;
     _snap.standingsStale = true;  // shown dimmed until the download at the first refresh
     _version++;
   }
-  if (prefs.getBytesLength("liveRows") == sizeof(_saved)) {
-    SavedRows saved;  // read before taking the lock: flash reads are slow and the display thread waits for it
-    prefs.getBytes("liveRows", &saved, sizeof(saved));
+  SavedRows saved;  // read before taking the lock: flash reads are slow and the display thread waits for it
+  if (cacheblob::get(prefs, "liveRows", saved, CACHE_VERSION) && saved.count <= ROWS) {
+    cacheblob::terminate(saved.name);
+    for (Row &row : saved.rows) { cacheblob::terminate(row.code); cacheblob::terminate(row.time); }
     std::lock_guard<std::mutex> guard(_lock);
     _saved = saved;
     // Older firmware inferred retirement from missing times, including lapped finishers.
@@ -239,16 +251,16 @@ void F1Ticker::loadCache() {
       if (!strcmp(row.time, "DNF") || !strcmp(row.time, "RETIRED")) row.time[0] = 0;
     _savedFromFlash = true;
   }
-  if (prefs.getBytesLength("cars") == sizeof(_cars)) {
-    prefs.getBytes("cars", _cars, sizeof(_cars));
+  if (cacheblob::get(prefs, "cars", _cars, CACHE_VERSION)) {
     _carCount = prefs.getUChar("carN", 0);
     _carEvent = prefs.getUInt("carEvent", 0);
     if (_carCount > CARS) _carCount = 0;
+    for (auto &car : _cars) cacheblob::terminate(car.code);
   }
   Race race;
   at = prefs.getUInt("raceAt", 0);
-  if (prefs.getBytesLength("race") == sizeof(race) && at && (!synced || now >= at)) {
-    prefs.getBytes("race", &race, sizeof(race));
+  if (at && (!synced || now >= at) && cacheblob::get(prefs, "race", race, CACHE_VERSION)) {
+    cacheblob::terminate(race.city); cacheblob::terminate(race.place); cacheblob::terminate(race.circuit);
     unsigned long age = synced ? now - at : 0;  // seconds
     if (race.city[0] && (!synced || race.start > now)) {
       std::lock_guard<std::mutex> guard(_lock);
@@ -276,7 +288,7 @@ void F1Ticker::persistLive() {
   }
   Preferences prefs;
   if (!prefs.begin("um-f1cache", false)) return;
-  prefs.putBytes("liveRows", &copy, sizeof(copy));
+  cacheblob::put(prefs, "liveRows", copy, CACHE_VERSION);
   prefs.end();
   f1log("[F1] saved the order of session %lu (%d places)\n", (unsigned long)copy.id, copy.count);
 }
@@ -521,7 +533,12 @@ struct WeekendScan {
 
 unsigned long F1Ticker::fetchWeekend() {
   f1At("fetch weekend");
-  std::unique_ptr<WeekendScan> scanHeap(new WeekendScan);  // big: not on the task's stack
+  std::unique_ptr<WeekendScan> scanHeap(new (std::nothrow) WeekendScan);  // big: not on the task's stack
+  if (!scanHeap) {
+    memoryAllocationFailures.fetch_add(1, std::memory_order_relaxed);
+    consoleLog("[F1] not enough memory for a refresh, keeping the last data\n");
+    return RETRY_MS;
+  }
   WeekendScan &scan = *scanHeap;
   scan.nowUtc = ultime::now();
   memcpy(scan.delayed, _delayed, sizeof(_delayed));
@@ -739,7 +756,7 @@ unsigned long F1Ticker::fetchStandings() {
   // Flash writes are slow: not while the display thread waits for the lock
   Preferences prefs;
   if (prefs.begin("um-f1cache", false)) {
-    prefs.putBytes("stand", standings, sizeof(scan.standings));  // the whole array: standings is a pointer
+    cacheblob::put(prefs, "stand", scan.standings, CACHE_VERSION);  // the whole array: standings is a pointer
     prefs.putUChar("standN", count);
     prefs.putUInt("standAt", ultime::now());
     prefs.end();
@@ -947,7 +964,7 @@ bool F1Ticker::fetchCarNumbers(uint32_t sessionKey) {
   }
   Preferences prefs;
   if (prefs.begin("um-f1cache", false)) {
-    prefs.putBytes("cars", _cars, sizeof(_cars));
+    cacheblob::put(prefs, "cars", _cars, CACHE_VERSION);
     prefs.putUChar("carN", _carCount);
     prefs.putUInt("carEvent", _carEvent);
     prefs.end();
@@ -1143,7 +1160,7 @@ unsigned long F1Ticker::fetchSeason() {
   }
   Preferences prefs;
   if (prefs.begin("um-f1cache", false)) {
-    prefs.putBytes("race", &upcoming, sizeof(upcoming));
+    cacheblob::put(prefs, "race", upcoming, CACHE_VERSION);
     prefs.putUInt("raceAt", ultime::now());
     prefs.end();
   }

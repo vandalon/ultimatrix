@@ -8,3 +8,7 @@ firmware/local_config.h
 dist/
 firmware/tools/publish-firmware.sh
 web-flasher/firmware/
+
+# Local agent handoff
+HANDOFF.txt
+WORKLOG.txt

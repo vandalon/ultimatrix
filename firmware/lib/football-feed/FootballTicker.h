@@ -136,7 +136,7 @@ class FootballTicker {
     bool _showRankings = false;
     bool _cacheRestored = false;
 #endif
-    uint32_t _resultWindowSecs = 0;
+    std::atomic<uint32_t> _resultWindowSecs{0};  // set from the clock task, read by the feed task
     // Parse buffer, allocated once at startup so a fragmented heap later on
     // can't make a download fail.
 
@@ -170,7 +170,7 @@ class FootballTicker {
     };
     std::vector<const FootballLeague *> _leagues;
     std::vector<Favourite> _favourites;
-    volatile uint32_t _pageMs = 8000;  // how long a match is shown, from the settings (read by the display)
+    std::atomic<uint32_t> _pageMs{8000};  // how long a match is shown, from the settings (read by the display)
 
 #ifndef UM_FOOTBALL_ONLY
     // The Formula 1 race, shown as one more page of the ticker while it runs
@@ -179,7 +179,8 @@ class FootballTicker {
     unsigned long _raceNextAt = 0;    // millis() of the next download, 0 = now
 #endif
     uint32_t _day = 0;                // local day number the scores on show are from, 0 = not known yet
-    unsigned long _footballNextAt = 0;  // millis() of the next football refresh, 0 = now
+    std::atomic<bool> _refreshNow{false};  // asked for from the clock task; the feed task owns _footballNextAt
+    std::atomic<unsigned long> _footballNextAt{0};  // millis() of the next football refresh, 0 = now
 
     // Only used by the background task (extras)
     // ESPN league code -> its groups (a league is one group), each the team abbreviations from the top
@@ -194,8 +195,8 @@ class FootballTicker {
     football::Snapshot _staging;      // only used by the background task
     bool _standingsDirty = true;      // the tables changed: _staging gets them again
     uint32_t _version = 0;            // guarded by _lock
-    volatile bool _fetching = false;
-    volatile unsigned long _fetchEnded = 0;  // millis() of the last download's end
+    std::atomic<bool> _fetching{false};
+    std::atomic<unsigned long> _fetchEnded{0};  // millis() of the last download's end
     Status _status = LOADING;         // guarded by _lock
     void setStatus(Status status);
     std::vector<Goal> _goals;         // guarded by _lock
