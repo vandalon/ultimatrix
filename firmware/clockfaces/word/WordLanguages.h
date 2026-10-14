@@ -8,7 +8,7 @@
 // WordLayout puts them on the panel, in the order given.
 // The text is UTF-8; a '|' marks where a long word may be broken with a hyphen.
 struct WordPhrase {
-  static const uint8_t MAX = 6;
+  static const uint8_t MAX = 10;
   const char *text[MAX];
   bool big[MAX];
   uint8_t count = 0;
@@ -36,3 +36,6 @@ struct WordLanguage {
 // a new language goes at the end, here and on the page.
 extern const WordLanguage WORD_LANGUAGES[];
 extern const uint8_t WORD_LANGUAGE_COUNT;
+
+// The date as a phrase: the weekday (0 is Sunday), the day (1-31) and the month (1-12) said the way the language says them
+void sayDate(int language, int weekday, int day, int month, WordPhrase &out);

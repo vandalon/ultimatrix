@@ -15,13 +15,17 @@ There are eight clock faces. Each has its own firmware image, so the clock runs 
 | <img src="docs/previews/motogp.gif" alt="MotoGP clock" width="128" height="128"> | MotoGP | `motogp` | Race weekends, results, standings and live timing, using the same display layout as F1. |
 | <img src="docs/previews/tetris.gif" alt="Tetris clock" width="128" height="128"> | Tetris | `tetris` | Falling pieces that form the time and date. |
 | <img src="docs/previews/word.gif" alt="Words clock" width="128" height="128"> | Words | `word` | The time in 16 languages, with a weekday, date and minute bar. Choose letter shuffle, letter lift, pixel dissolve, soft wipe, all four in rotation, or no transition. |
-| <img src="docs/previews/mario.gif" alt="Mario clock" width="128" height="128"> | Mario | `mario` | Mario jumps to update the clock blocks, collects coins and gets a 1-UP at the hour change. Nine worlds and a flagpole, castle and fireworks scene at noon. |
-| <img src="docs/previews/luigi.gif" alt="Luigi clock" width="128" height="128"> | Luigi | `luigi` | The same clock-block idea and nine worlds, with a taller Luigi, flutter jumps, a Subcon jar and a Shy Guy. It also has the noon finale. |
+| <img src="docs/previews/mario.gif" alt="Mario clock" width="128" height="128"> | Mario | `mario` | Mario walks through scrolling worlds, jumps over pipes and ledges, and collects coins, 1-UP mushrooms and stars. Fixed clock blocks update when he hits them. A flagpole, castle and fireworks scene plays at noon. |
+| <img src="docs/previews/luigi.gif" alt="Luigi clock" width="128" height="128"> | Luigi | `luigi` | The same scrolling worlds and fixed clock blocks, with a taller Luigi, flutter jumps, a Subcon jar and a Shy Guy. He collects items and has the same noon finale. |
 | <img src="docs/previews/pacman.gif" alt="Pac-Man clock" width="128" height="128"> | Pac-Man | `pacman` | A game that plays itself, with a new maze each level and four ghosts. The clock sits over a dimmed part of the maze. Clock, border, dots and each ghost have separate colour choices. |
 
 Football starts with Eredivisie and KNVB Cup selected, and the Dutch national team as a favourite. Competitions are grouped by country, and favourite teams have a searchable picker.
 
 Mario and Luigi can rotate to a different world each hour, stay in one world, or cycle through them in demo mode. The worlds are Overground, Underground, Castle, Snow, Underwater, Cloud top, Ghost house, Lava and Airship.
+
+Both characters walk automatically, with occasional running bursts at twice the walking speed. The ground and nearby objects scroll faster than distant scenery. They jump over pipes, Piranha Plants and ledges, and collect items along a repeating course. Coins add to the counter, mushrooms show a 1-UP, and stars flash the character's colours. High jumps use tucked, forward-facing legs and pass in front of the fixed clock blocks. Scene animations run 20% faster at about 30 frames per second.
+
+Before a minute change, the character walks under the minute block and pauses briefly before jumping. At an hour change, the minute block is hit first, then the hour block. After landing, the character walks off to the right. A quick swipe brings in the next world, and the character enters from the left. A pinned world uses the same walk-out sequence and keeps the selected world. Each minute hit releases either a green 1-UP or a red Super Mushroom. It slides off the block, falls to the ground and travels toward the character for pickup. After landing, the character keeps walking forward at the usual pace while the camera catches up smoothly and brings them back to the middle of the screen.
 
 ## Hardware
 
@@ -116,7 +120,7 @@ Changes tied to sunrise and sunset need a detected location. Automatic brightnes
 
 ## Updates and switching faces
 
-The clock checks for updates at startup when its cached check is missing or more than 12 hours old, then about every 12 hours while running. Checking does not install anything. Available updates appear on the boot screen and settings page; installation starts when you choose it.
+The clock checks for updates at startup when its cached check is missing or more than 12 hours old, then about every 12 hours while running. Checking does not install anything. During installation, Mario and Luigi stand still and show "Updating..." instead of the date and coin count. Their scene resumes if installation fails. Available updates appear on the boot screen and settings page; installation starts when you choose it.
 
 In **Advanced**, use **Check for updates** or **Install update**. The face picker installs another face using the same update system. The clock refuses updates while live sports data is active. If there is too little memory, the page can offer a restart before installation.
 
@@ -170,6 +174,8 @@ For one animated preview, use `--face football` with `showcase.py`, or `--face p
 
 Browse the saved previews: [Football](docs/previews/football.gif), [F1](docs/previews/f1.gif), [MotoGP](docs/previews/motogp.gif), [Tetris](docs/previews/tetris.gif), [Words](docs/previews/word.gif), [Mario](docs/previews/mario.gif), [Luigi](docs/previews/luigi.gif), [Pac-Man](docs/previews/pacman.gif) and [boot screens](docs/previews/boot.gif). More recent examples cover [Words transitions](docs/previews/word-transitions.gif) and [Pac-Man clock colours](docs/previews/pacman-clock-colours.png).
 
+The complete hour-change sequences have separate previews: [Mario](docs/previews/mario-hour.gif) and [Luigi](docs/previews/luigi-hour.gif).
+
 These images were rendered from the current code on 14 October 2026. They help review the drawing; they do not establish how it looks or behaves on a real panel.
 
 ## Development status
@@ -177,6 +183,8 @@ These images were rendered from the current code on 14 October 2026. They help r
 As of 14 October 2026, the firmware builds with ESP-IDF and Arduino as a component. The shared runtime, local setup and settings, brightness controls, night display, signed updater and eight faces are implemented. The drawing and feed code are still being cleaned up.
 
 All eight faces have successful builds recorded during development. That does not mean the latest source has been rebuilt for every face. The recent Words transitions and Pac-Man changes have been checked in native previews and browser mocks; the latest Pac-Man clock-colour change has not had a firmware build or device check.
+
+The latest Mario and Luigi walking poses, pipes, jumps and hour-change sequences have been checked in native previews. This revision has not had a firmware build or panel check.
 
 Football has had initial device checks for boot, Wi-Fi, feeds, saved settings, mDNS and telnet. F1 has had a short device check of memory use and update checking.
 

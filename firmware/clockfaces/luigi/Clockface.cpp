@@ -4,6 +4,7 @@
 #include "Clockface.h"
 #include <MiniFont.h>
 #include <PlumberSprites.h>
+#include <PlumberWorld.h>
 #include <Settings.h>
 
 using namespace facekit;
@@ -50,27 +51,35 @@ int pinnedWorld() {
 }
 
 const int kGround = 58;             // first row of the ground
-const int kJarTop = kGround - 16;   // the Subcon jar stands on the ground
 const int kPlumberY = kGround - 22;  // Luigi is six rows taller than Mario
-const int kBlockX[2] = {9, 31};            // hours and minutes, 4 px apart so one jump under the gap touches both
+const int kBlockX[2] = {9, 31};            // hours and minutes, hit separately
 const int kBlockTop = 11, kBlockSize = 19;   // square; its bottom edge is where Luigi's head meets it
-const int kMinX = 4, kMaxX = 36;     // where Luigi strolls (the jar is on the right)
-const int kHitMinutesX = 34, kHitBothX = 23;  // under the minute block; under the gap between the two
+const int kWalkX = 24;             // the camera follows here during the walk
+const int kHitMinutesX = 34, kHitHourX = kBlockX[0] + kBlockSize / 2 - 6;
 const int kHitJumpMs = 520, kHitHeight = 6;
+const float kApproachSpeed = 9.5f;
+const int kPreJumpWaitMs = 200, kSwipeHalfMs = 140;
+const float kExitSpeed = 28;
 
-enum class Mode : uint8_t { Walk, Pause, Approach, Wait, Hit, Stomp, Hop, FlagRun, FlagJump, FlagSlide, FlagWait, FinaleWalk, FinaleHidden, FinaleDone };
+enum class Mode : uint8_t { Walk, TravelJump, WorldExit, WorldEnter, Pause, Approach, Wait, Hit, Stomp, Hop, FlagRun, FlagJump, FlagSlide, FlagWait, FinaleWalk, FinaleHidden, FinaleDone };
 const int kPoleX = 44, kPoleTop = 19, kLuigiPoleX = 31, kCastleX = 50, kFlagSlideMs = 1700, kFlagJumpMs = 350;
 
 struct Plumber {
-  float x = 30, fromX = 0, vx = 0, distance = 0;
+  float x = kWalkX, fromX = 0, vx = 0, distance = 0;
   int8_t dir = 1;
   Mode mode = Mode::Walk;
   uint32_t since = 0;
   uint32_t pauseMs = 0;
   int32_t approachedMinute = -1;
   float hitX = kHitMinutesX;
-  bool both = false, catchUp = false, touched = false;
+  uint8_t hitBlock = 1;
+  bool hourAfterMinute = false, catchUp = false, touched = false;
+  int travelHeight = 16;
+  bool exitJumping = false;
+  uint32_t exitJumpAt = 0;
 } mario;
+plumberworld::Course course;
+plumberworld::BlockMushroom blockMushroom;
 
 struct Goomba {
   float x = 0;
@@ -84,8 +93,8 @@ struct Goomba {
 // Two digits per block; the digits only change when Luigi hits the block
 struct Block { int8_t shown[2], target[2]; uint32_t bumpAt; };
 Block blocks[2];
-struct { bool pending, both; } touch;  // Luigi's head met the block(s) this frame
-uint32_t lastNow = 0;
+struct { bool pending; uint8_t block; } touch;  // Luigi's head met one block this frame
+uint32_t lastNow = 0, sceneNow = 0, animationRemainder = 0;
 bool night = false;
 int world = Overground, pendingWorld = -1;  // the world on show, and the one the curtain is about to bring
 bool wiping = false;
@@ -151,7 +160,7 @@ void drawBricks(MatrixPanel_I2S_DMA &d, int top, int bottom, const Theme &t, boo
     for (int x = 0; x < W; x++) {
       uint16_t c = t.brick;
       if (inRow == 5) c = t.mortar;
-      else if ((x + (row % 2 ? 4 : 0)) % 8 == 7) c = t.mortar;
+      else if ((x + (world == Finale ? 0 : (int)course.camera) + (row % 2 ? 4 : 0)) % 8 == 7) c = t.mortar;
       else if (lit && y == top) c = t.brickLight;
       put(d, x, y, c);
     }
@@ -184,19 +193,15 @@ void drawHill(MatrixPanel_I2S_DMA &d, int left, int base, bool dark, bool snow) 
 }
 
 // The Subcon jar of Super Luigi Bros. 2: red with white bands
-void drawJar(MatrixPanel_I2S_DMA &d) {
-  const uint16_t red = rgb(200, 40, 32), light = rgb(232, 80, 64), dark = rgb(140, 24, 16), white = rgb(248, 244, 238);
-  const int j = kJarTop;
-  box(d, 50, j, 14, 3, red); box(d, 50, j, 14, 1, white); box(d, 50, j + 2, 14, 1, dark);
-  box(d, 52, j + 3, 10, 3, red); box(d, 50, j + 6, 14, 10, red);
-  box(d, 50, j + 6, 2, 10, light); box(d, 62, j + 6, 2, 10, dark);
-  box(d, 50, j + 8, 14, 1, white); box(d, 50, j + 10, 14, 1, white);
-  for (int x = 52; x < 62; x += 4) { put(d, x, j + 12, white); put(d, x + 1, j + 13, white); put(d, x, j + 14, white); put(d, x + 2, j + 12, white); }
-  box(d, 51, j + 15, 12, 1, dark);
+void drawJar(MatrixPanel_I2S_DMA &d, int x) {
+  static const char *const ROWS[8] = {"wwwwwwwwwwwwww", "rrrrrrrrrrrrrr", "..rrrrrrrrrr..", "llrrrrrrrrrrdd",
+                                     "wwwwwwwwwwwwww", "llrrrrrrrrrrdd", "llrwwrwwrwwrdd", ".dddddddddddd."};
+  static const Swatch PAL[] = {{'r', rgb(200, 40, 32)}, {'l', rgb(232, 80, 64)}, {'d', rgb(140, 24, 16)}, {'w', rgb(248, 244, 238)}};
+  sprite(d, ROWS, 8, x, kGround - 8, PAL, 4);
 }
 
 // A Shy Guy rises out of the jar, bobs about for a while and ducks back in every twelve seconds
-void drawJarAndShyGuy(MatrixPanel_I2S_DMA &d, uint32_t now) {
+void drawJarAndShyGuy(MatrixPanel_I2S_DMA &d, uint32_t now, int x) {
   static const char *const SHY[10] = {"..rrrrrr..", ".rrrrrrrr.", "rrwwwwwwrr", "rrwkwwkwrr", "rrwwwwwwrr", "rrwwkkwwrr", ".rrrwwrrr.", "..rrrrrr..", "..rrrrrr..", "..yy..yy.."};
   static const Swatch PAL[] = {{'r', rgb(216, 40, 24)}, {'w', rgb(244, 244, 244)}, {'k', rgb(16, 16, 16)}, {'y', rgb(240, 160, 32)}};
   const int t = now % 12000;
@@ -204,15 +209,16 @@ void drawJarAndShyGuy(MatrixPanel_I2S_DMA &d, uint32_t now) {
   if (t >= 3000 && t < 4200) rise = 10 * ease(t - 3000, 1200) / 1000;
   else if (t >= 4200 && t < 7500) rise = 10;
   else if (t >= 7500 && t < 8700) rise = 10 - 10 * ease(t - 7500, 1200) / 1000;
-  if (rise > 0) sprite(d, SHY, 10, 52 + (rise == 10 ? (int)lroundf(1.5f * sinf(now / 260.0f)) : 0), kJarTop + 1 - rise, PAL, 4);
-  drawJar(d);
+  if (rise > 0 && (x > mario.x + 35 || x + 14 < mario.x - 10)) sprite(d, SHY, 10, x + 2 + (rise == 10 ? (int)lroundf(1.5f * sinf(now / 260.0f)) : 0), kGround - 7 - rise, PAL, 4);
+  drawJar(d, x);
 }
 
 // Bushes beside the hill
 void drawBushes(MatrixPanel_I2S_DMA &d, bool dark, bool snow) {
   const int level = dark ? 80 : 255;
   const uint16_t fill = dim(snow ? rgb(236, 246, 255) : rgb(24, 172, 32), level), shade = dim(snow ? rgb(190, 215, 240) : rgb(10, 96, 16), level);
-  for (const int x : {35, 41}) {
+  for (const int anchor : {35, 73}) {
+    const int x = plumberworld::sceneryX(anchor, course.camera);
     for (int i = 0; i < 3; i++) { const int cx = x + 3 + i * 5; for (int y = -3; y <= 3; y++) for (int dx = -3; dx <= 3; dx++) if (dx * dx + y * y <= 10) put(d, cx + dx, kGround - 5 + y - (i == 1), fill); }
     box(d, x, kGround - 5, 16, 4, fill); box(d, x + 2, kGround - 2, 12, 1, shade);
   }
@@ -221,20 +227,25 @@ void drawBushes(MatrixPanel_I2S_DMA &d, bool dark, bool snow) {
 // Luigi: Mario's head under a taller cap dome, then a longer, slimmer body and legs (22 rows tall, 13 columns wide)
 const char *const kLuigiDome = ".....rrr.....";
 const char *const kLuigiTorsoStand[7] = {"...rrurrrr...", "...rrurrurr..", "..rrruuuurrr.", "..ssruyuuyurs", "..sssuuuuuss.", "....uuuuuuu..", "....uuuuuuu.."};
+const char *const kLuigiTorsoWalk1[7] = {"...rrurrrr...", "...rrurrurr..", "..rrruuuurrs.", "..ssuyuuyuss.", "..sssuuuuu...", "....uuuuuuu..", "....uuuuuuu.."};
+const char *const kLuigiTorsoWalk3[7] = {"...rrurrrr...", "...rrurrurrr.", "..srruuuurrss", "..ssuyuuyurss", "....uuuuuuss.", "....uuuuuuu..", "....uuuuuuu.."};
 const char *const kLuigiTorsoJump[7] = {"ss.rrurrrr.ss", "sss.rurrur.ss", "sssruuuuuurs.", ".s.ruyuuyur..", "...uuuuuuuu..", "....uuuuuuu..", "....uuuuuuu.."};
 const char *const kLuigiLegsStand[7] = {"...uuu.uuu...", "...uuu.uuu...", "...uuu.uuu...", "...uuu.uuu...", "...uuu.uuu...", "..bbbb.bbbb..", "..bbbbb.bbbbb"};
-const char *const kLuigiLegsWalk1[7] = {"...uuuuuuu...", "...uuuuuuu...", "...uuuuuuu...", "....uuuuuu...", "...uuuuuuubb.", "..bbbb.uuubbb", "..bbb...bbbb."};
-const char *const kLuigiLegsWalk2[7] = {"...uuuuuuu...", "...uuuuuuu...", "...uuuuuuu...", "...uuu.uuu...", "..bbuu..uuu..", "..bbbb...bbb.", "...bbb..bbbb."};
-const char *const kLuigiLegsJump[7] = {"...uuu.uuu...", "...uuu.uuu...", "...uuu.uuu...", "...uuu.uuuu..", "..uuu...uuuu.", "bbbb.....bbb.", "bbb.......bb."};
+const char *const kLuigiLegsWalk1[7] = {"....uuu.uuu..", "....uuu.uuu..", "...uuu..uuu..", "..uuuu...uuu.", "..uubbb..uuu.", ".........uubb", ".........ubbb"};
+const char *const kLuigiLegsWalk2[7] = {"...uuuuuu....", "....uuuuu....", "....uuuuu....", "....uuuubb...", "....uuubbbb..", "....uuuu.....", "....ubbbb...."};
+const char *const kLuigiLegsWalk3[7] = {"...uuuuuuu...", "...uuu.uuu...", "..uuu...uuu..", "..uuu...uuuu.", "..uuu....uubb", ".uuuu....ubbb", ".ubbbb......."};
+const char *const kLuigiLegsJump[7] = {"...uuuuuuu...", "...uuuuuuu...", "....uuu.uu...", "....uuu.ubb..", "...uuuu.bbbb.", "..uuuu.......", "..uubbb......"};
 
 void drawLuigi(MatrixPanel_I2S_DMA &d, int x, int y, Pose pose, bool faceLeft, const PlumberColors &c) {
   const char *rows[22];
   int n = 0;
   rows[n++] = kLuigiDome;
   for (const char *r : plumber::HEAD) rows[n++] = r;
-  const char *const *torso = pose == Pose::Jump ? kLuigiTorsoJump : kLuigiTorsoStand;
+  const char *const *torso = pose == Pose::Jump ? kLuigiTorsoJump : pose == Pose::Walk1 ? kLuigiTorsoWalk1
+                           : pose == Pose::Walk3 ? kLuigiTorsoWalk3 : kLuigiTorsoStand;
   for (int i = 0; i < 7; i++) rows[n++] = torso[i];
-  const char *const *legs = pose == Pose::Walk1 ? kLuigiLegsWalk1 : pose == Pose::Walk2 ? kLuigiLegsWalk2 : pose == Pose::Jump ? kLuigiLegsJump : kLuigiLegsStand;
+  const char *const *legs = pose == Pose::Walk1 ? kLuigiLegsWalk1 : pose == Pose::Walk2 ? kLuigiLegsWalk2 : pose == Pose::Walk3 ? kLuigiLegsWalk3
+                          : pose == Pose::Jump ? kLuigiLegsJump : kLuigiLegsStand;
   for (int i = 0; i < 7; i++) rows[n++] = legs[i];
   const Swatch palette[] = {{'r', c.cap}, {'s', c.skin}, {'b', c.hair}, {'u', c.overalls}, {'y', c.button}, {'k', c.eye}};
   sprite(d, rows, n, x, y, palette, 6, faceLeft);
@@ -266,9 +277,9 @@ void drawKoopa(MatrixPanel_I2S_DMA &d, int x, int y, bool shell, bool step) {
   sprite(d, rows, 11, x, y, PAL, 7);
 }
 
-void drawMushroom(MatrixPanel_I2S_DMA &d, int x, int y) {
+void drawMushroom(MatrixPanel_I2S_DMA &d, int x, int y, bool red = false) {
   static const char *const ROWS[8] = {"..gggg..", ".ggwwgg.", "ggwwwwgg", "gwwggwwg", "gggggggg", ".ssssss.", ".ssksks.", "..ssss.."};
-  static const Swatch PAL[] = {{'g', rgb(0, 200, 40)}, {'w', rgb(255, 255, 255)}, {'s', rgb(252, 224, 168)}, {'k', rgb(16, 8, 8)}};
+  const Swatch PAL[] = {{'g', red ? rgb(232, 40, 24) : rgb(0, 200, 40)}, {'w', rgb(255, 255, 255)}, {'s', rgb(252, 224, 168)}, {'k', rgb(16, 8, 8)}};
   sprite(d, ROWS, 8, x, y, PAL, 4);
 }
 
@@ -317,7 +328,7 @@ void drawWall(MatrixPanel_I2S_DMA &d, int x0, int y0, int w, int h, const Theme 
     const int fromBottom = h - 1 - y;
     const int shift = ((fromBottom > 0 ? (fromBottom - 1) / 6 : 0) % 2 == 0) ? 4 : 0;  // the course above the floor is staggered half a stone
     for (int x = 0; x < w; x++) {
-      const bool mortar = fromBottom % 6 == 0 || (x0 + x + shift) % 8 == 7;
+      const bool mortar = fromBottom % 6 == 0 || (x0 + x + shift + (int)(course.camera / 2)) % 8 == 7;
       put(d, x0 + x, y0 + y, dim(mortar ? t.mortar : t.brick, level));
     }
   }
@@ -351,32 +362,28 @@ void disc(MatrixPanel_I2S_DMA &d, int cx, int cy, int r, uint16_t c) {
 // Deep water: light shafts, swaying seaweed, rising bubbles and a Blooper pulsing past
 void drawUnderwater(MatrixPanel_I2S_DMA &d, uint32_t now) {
   box(d, 0, 0, W, 20, rgb(16, 72, 192));
-  for (int i = 0; i < 5; i++) box(d, 6 + i * 13 + (int)((now / 1500) % 2), 0, 3, kGround, rgb(24, 80, 200));
-  for (const int x : {4, 34, 44})
-    for (int y = 0; y < 14; y++) put(d, x + 1 + (int)lroundf(sinf(y / 2.0f + now / 400.0f)), kGround - 1 - y, rgb(32, 184, 88));
+  for (int i = 0; i < 5; i++) box(d, plumberworld::sceneryX(6 + i * 20, course.camera, 4), 0, 3, kGround, rgb(24, 80, 200));
+  for (const int x : {20, 28, 50, 84})
+    for (int y = 0; y < 14; y++) put(d, plumberworld::sceneryX(x, course.camera) + 1 + (int)lroundf(sinf(y / 2.0f + now / 400.0f)), kGround - 1 - y, rgb(32, 184, 88));
   for (int i = 0; i < 7; i++) {
     const int y = 50 - (int)((now * 8 / 1000 + hash(i * 3 + 9) % 48) % 48);
     box(d, hash(i * 5 + 1) % 60 + 2 + (int)lroundf(sinf(now / 500.0f + i)), y, 2, 2, rgb(168, 216, 255));
   }
   static const char *const BLOOPER[9] = {"..wwww..", ".wwwwww.", "wwkwwkww", "wwwwwwww", ".wwwwww.", "..wwww..", ".w.ww.w.", "w..ww..w", "w.w..w.w"};
   static const Swatch PAL[] = {{'w', rgb(244, 244, 244)}, {'k', rgb(32, 32, 32)}};
-  sprite(d, BLOOPER, 9, 44 + (int)lroundf(8 * sinf(now / 1800.0f)), 22 + (int)lroundf(5 * sinf(now / 700.0f)), PAL, 2);
+  sprite(d, BLOOPER, 9, plumberworld::sceneryX(44, course.camera) + (int)lroundf(8 * sinf(now / 1800.0f)), 22 + (int)lroundf(5 * sinf(now / 700.0f)), PAL, 2);
 }
 
-// Bright sky, drifting clouds and floating coins
+// Bright sky and distant clouds
 void drawCloudTop(MatrixPanel_I2S_DMA &d, uint32_t now, bool dark) {
-  drawCloud(d, 62 - (int)((now / 2600) % 80), 7, dark);
-  drawCloud(d, 40 - (int)((now / 3300) % 80) + 60, 31, dark);
-  drawCloud(d, 10 - (int)((now / 4100) % 80) + 60, 22, dark);
-  for (const int y : {26, 36}) {
-    drawCoin(d, 59, y + (int)(sinf(now / 500.0f + y) * 1.5f + 1.5f), coinWidth(now + y * 20));
-    drawCoin(d, 5, y + 4 + (int)(sinf(now / 500.0f + y + 2) * 1.5f + 1.5f), coinWidth(now + y * 20 + 300));
-  }
+  drawCloud(d, plumberworld::sceneryX(62, course.camera + now / 650.0f, 4), 7, dark);
+  drawCloud(d, plumberworld::sceneryX(100, course.camera + now / 825.0f, 4), 31, dark);
+  drawCloud(d, plumberworld::sceneryX(70, course.camera + now / 1025.0f, 4), 22, dark);
 }
 
 // An arched window in the wall with the night outside: a small crescent and a couple of stars
-void drawGhostWindow(MatrixPanel_I2S_DMA &d) {
-  const int x = 1, y = 7, w = 10, h = 18;
+void drawGhostWindow(MatrixPanel_I2S_DMA &d, int x) {
+  const int y = 7, w = 10, h = 18;
   const uint16_t frame = rgb(120, 96, 148), glass = rgb(12, 12, 44);
   box(d, x, y + 2, w, h - 2, frame); box(d, x + 2, y, w - 4, 2, frame);  // the arched stone frame
   box(d, x + 1, y + 3, w - 2, h - 3, glass); box(d, x + 2, y + 1, w - 4, 2, glass);
@@ -396,26 +403,27 @@ void drawGhostHouse(MatrixPanel_I2S_DMA &d, uint32_t now, const Theme &t) {
   Theme wall = t;
   wall.brick = rgb(52, 32, 76); wall.mortar = rgb(32, 16, 52);
   drawWall(d, 0, 0, W, kGround, wall, 255);
-  drawGhostWindow(d);
+  drawGhostWindow(d, plumberworld::sceneryX(53, course.camera));
   static const char *const BOO[9] = {"..wwwww..", ".wwwwwww.", "wwkwwwkww", "wwkwwwkww", "wwwwwwwww", "wwwrrrwww", "wwwrrrwww", ".wwwwwww.", "..w...w.."};
   const Swatch near[] = {{'w', rgb(244, 240, 255)}, {'k', rgb(32, 32, 64)}, {'r', rgb(232, 64, 96)}};
   const Swatch far[] = {{'w', rgb(168, 152, 208)}, {'k', rgb(32, 32, 64)}, {'r', rgb(160, 64, 96)}};
-  sprite(d, BOO, 9, 51 + (int)lroundf(2 * sinf(now / 1800.0f)), 26 + (int)lroundf(2 * sinf(now / 1100.0f)), far, 3);
-  sprite(d, BOO, 9, 38 + (int)lroundf(3 * sinf(now / 1500.0f)), 24 + (int)lroundf(2 * sinf(now / 900.0f + 1)), near, 3);
+  sprite(d, BOO, 9, plumberworld::sceneryX(2, course.camera) + (int)lroundf(2 * sinf(now / 1800.0f)), 26 + (int)lroundf(2 * sinf(now / 1100.0f)), far, 3);
+  sprite(d, BOO, 9, plumberworld::sceneryX(47, course.camera) + (int)lroundf(3 * sinf(now / 1500.0f)), 24 + (int)lroundf(2 * sinf(now / 900.0f + 1)), near, 3);
 }
 
 // A red sky over a glowing volcano, with embers drifting up
 void drawVolcano(MatrixPanel_I2S_DMA &d, uint32_t now) {
+  const int vx = plumberworld::sceneryX(22, course.camera, 4);
   static const uint16_t BANDS[6] = {rgb(48, 8, 8), rgb(64, 12, 8), rgb(80, 16, 8), rgb(96, 20, 8), rgb(112, 24, 8), rgb(128, 32, 8)};
   for (int i = 0; i < 6; i++) box(d, 0, i * 9, W, 9, BANDS[i]);
   box(d, 0, 54, W, 10, BANDS[5]);
   for (int x = 0; x < 30; x++) {
     const float u = (x - 14.5f) / 15.0f, shape = 1.0f - u * u;
     const int top = kGround - 1 - (int)lroundf(24 * (shape > 0 ? powf(shape, 0.7f) : 0));
-    box(d, 22 + x, top, 1, kGround - top, rgb(28, 12, 12)); put(d, 22 + x, top, rgb(60, 28, 28));
+    box(d, vx + x, top, 1, kGround - top, rgb(28, 12, 12)); put(d, vx + x, top, rgb(60, 28, 28));
   }
-  box(d, 33, 28, 6, 2, rgb(255, 112, 24)); box(d, 34, 27, 4, 1, rgb(255, 192, 64));
-  box(d, 35, 30, 1, 10, rgb(232, 64, 16)); box(d, 31, 34, 1, 8, rgb(232, 64, 16)); box(d, 40, 36, 1, 10, rgb(232, 64, 16));
+  box(d, vx + 11, 28, 6, 2, rgb(255, 112, 24)); box(d, vx + 12, 27, 4, 1, rgb(255, 192, 64));
+  box(d, vx + 13, 30, 1, 10, rgb(232, 64, 16)); box(d, vx + 9, 34, 1, 8, rgb(232, 64, 16)); box(d, vx + 18, 36, 1, 10, rgb(232, 64, 16));
   for (int i = 0; i < 14; i++) {
     const int y = 50 - (int)((now * 10 / 1000 + hash(i * 3 + 9) % 50) % 50);
     put(d, hash(i * 5 + 1) % 64, y, (now / 140 + i) % 2 ? rgb(255, 176, 48) : rgb(255, 112, 24));
@@ -429,19 +437,21 @@ void drawPodoboo(MatrixPanel_I2S_DMA &d, uint32_t now) {
   static const char *const BALL[6] = {"..oo..", ".oyyo.", "oyyyyo", "oyyyyo", ".oyyo.", "..oo.."};
   static const Swatch PAL[] = {{'o', rgb(255, 96, 16)}, {'y', rgb(255, 208, 64)}};
   const float p = t / 1400.0f;
-  sprite(d, BALL, 6, 12, 60 - (int)(26 * 4 * p * (1 - p)), PAL, 2);
+  sprite(d, BALL, 6, plumberworld::sceneryX(49, course.camera, 1), 60 - (int)(26 * 4 * p * (1 - p)), PAL, 2);
 }
 
 // A dusk sky over the deck: a mast with a sail, and a Bullet Bill flying by
 void drawAirship(MatrixPanel_I2S_DMA &d, uint32_t now) {
+  const int mast = plumberworld::sceneryX(6, course.camera);
+  const int cannon = plumberworld::sceneryX(52, course.camera);
   box(d, 0, 30, W, 22, rgb(122, 96, 120)); box(d, 0, 44, W, 8, rgb(140, 106, 116));
-  for (const int x : {4, 44}) { box(d, x, 36, 14, 2, rgb(154, 132, 152)); box(d, x + 2, 35, 10, 1, rgb(154, 132, 152)); }
-  box(d, 6, 20, 2, 32, rgb(108, 60, 16)); box(d, 7, 20, 1, 32, rgb(156, 92, 32));  // the mast
-  box(d, 8, 30, 10, 14, rgb(224, 216, 200)); box(d, 8, 30, 10, 1, rgb(255, 255, 255));
-  for (int i = 0; i < 13; i++) put(d, 8 + i / 3, 31 + i, rgb(160, 152, 136));
-  box(d, 52, 42, 10, 10, rgb(48, 48, 56)); box(d, 50, 44, 3, 6, rgb(32, 32, 40)); box(d, 53, 43, 8, 1, rgb(88, 88, 92));
+  for (const int anchor : {4, 44}) { const int x = plumberworld::sceneryX(anchor, course.camera, 4); box(d, x, 36, 14, 2, rgb(154, 132, 152)); box(d, x + 2, 35, 10, 1, rgb(154, 132, 152)); }
+  box(d, mast, 20, 2, 32, rgb(108, 60, 16)); box(d, mast + 1, 20, 1, 32, rgb(156, 92, 32));  // the mast
+  box(d, mast + 2, 30, 10, 14, rgb(224, 216, 200)); box(d, mast + 2, 30, 10, 1, rgb(255, 255, 255));
+  for (int i = 0; i < 13; i++) put(d, mast + 2 + i / 3, 31 + i, rgb(160, 152, 136));
+  box(d, cannon, 42, 10, 10, rgb(48, 48, 56)); box(d, cannon - 2, 44, 3, 6, rgb(32, 32, 40)); box(d, cannon + 1, 43, 8, 1, rgb(88, 88, 92));
   const uint32_t t = now % 6000;
-  if (t < 700) disc(d, 48 - (int)(t / 120), 46 - (int)(t / 220), 1 + (int)(t / 250), rgb(216, 216, 224));  // the cannon's smoke
+  if (t < 700) disc(d, cannon - 4 - (int)(t / 120), 46 - (int)(t / 220), 1 + (int)(t / 250), rgb(216, 216, 224));  // the cannon's smoke
   if (t < 2900) {
     static const char *const BILL[6] = {".kkkk...", "kkkkkkk.", "kkwkkkkk", "kkkkkkkk", "kkkkkkk.", ".kkkk..."};
     static const Swatch PAL[] = {{'k', rgb(32, 32, 40)}, {'w', rgb(255, 255, 255)}};
@@ -507,12 +517,6 @@ void drawFireworks(MatrixPanel_I2S_DMA &d, int32_t age) {
   }
 }
 
-// Brick pillar and a row of coins for the underground
-void drawWallAndCoins(MatrixPanel_I2S_DMA &d, const Theme &t) {
-  drawWall(d, 0, 0, W, kGround, t, 38);  // the cave wall, dim, ending on the floor stones
-  for (int x = 14; x <= 34; x += 5) { box(d, x, kGround - 6, 4, 4, rgb(255, 200, 32)); box(d, x + 1, kGround - 5, 2, 2, rgb(200, 112, 0)); }
-}
-
 void drawDigit(MatrixPanel_I2S_DMA &d, int digit, int x, int y, uint16_t color) {
   for (int row = 0; row < 7; row++)
     for (int col = 0; col < 7; col++)
@@ -552,7 +556,7 @@ int bumpOffset(const Block &b, uint32_t now) {
   return -(int)(3.2f * sinf(3.14159f * t / 380.0f) + 0.5f);
 }
 
-// ---- The stroller ----
+// ---- Walking the course and updating the clock ----
 
 // Whether the clock shows other digits than the blocks are heading for
 bool minutesBehind(ClockTime *c) { return blocks[1].target[0] != c->getMinute() / 10 || blocks[1].target[1] != c->getMinute() % 10; }
@@ -561,6 +565,7 @@ bool hoursBehind(ClockTime *c) { return blocks[0].target[0] != c->getHour() / 10
 void startHit(Plumber &m, uint32_t now) { m.mode = Mode::Hit; m.since = now; m.touched = false; }
 
 bool free0(const Plumber &m) { return m.mode == Mode::Walk || m.mode == Mode::Pause; }
+bool changingWorld() { return pendingWorld >= 0 || wiping || mario.mode == Mode::WorldExit || mario.mode == Mode::WorldEnter; }
 
 float jumpHeight(uint32_t t, uint32_t total, int height) {
   const float p = (float)t / total;
@@ -571,9 +576,10 @@ void step(ClockTime *clock, uint32_t now, float dt) {
   const int32_t ms = msOfMinute(clock);
   const int32_t minute = minuteOfDay(clock);
   Plumber &m = mario;
+  if (wiping) return;
 
   // A Goomba (minute 1 of 3) or a Koopa (minute 2 of 3) comes by in the second half of the minute
-  if (goomba.state == 0 && minute % 3 != 0 && ms >= 16000 && ms < 36000 && goomba.spawnedMinute != minute && mario.x < 30 && free0(mario)) {
+  if (goomba.state == 0 && minute % 3 != 0 && ms >= 16000 && ms < 36000 && goomba.spawnedMinute != minute && world != Finale && !changingWorld() && free0(mario)) {
     goomba = {66, 1, now, minute, 0, minute % 3 == 2};
   }
   if (goomba.state == 1) {
@@ -600,16 +606,22 @@ void step(ClockTime *clock, uint32_t now, float dt) {
     }
   }
   // At noon: the finale
-  if (free && goomba.state == 0 && finaleStage == FinaleStage::None && !finaleWanted &&
+  if (free && !changingWorld() && !minutesBehind(clock) && !hoursBehind(clock) &&
+      goomba.state == 0 && finaleStage == FinaleStage::None && !finaleWanted &&
       ((clock->getHour24() == 12 && clock->getMinute() == 0 && flagDay != clock->getDay()) || demoFlagWanted)) {
     flagDay = clock->getDay();
     demoFlagWanted = false;
     finaleWanted = true;  // update() wipes to the finale scene, then Luigi runs
   }
-  if (free && m.mode != Mode::Stomp && ms >= 52000 && m.approachedMinute != minute && goomba.state == 0) {
+  // Walk to the block just in time, leaving a short pause before takeoff.
+  const bool hourTurn = clock->getMinute() == 59;
+  const float hitX = kHitMinutesX;
+  const int approachMs = (int)(1000.0f * fabsf(m.x - hitX) / (kApproachSpeed * plumberworld::kAnimationSpeed));
+  if (free && !changingWorld() && m.mode != Mode::Stomp && ms >= 60000 - (kHitJumpMs / 2 + kPreJumpWaitMs) / plumberworld::kAnimationSpeed - approachMs &&
+      m.approachedMinute != minute && goomba.state == 0) {
     m.approachedMinute = minute;
-    m.both = clock->getMinute() == 59;  // the hour turns too
-    m.hitX = m.both ? kHitBothX : kHitMinutesX;
+    m.hitBlock = 1; m.hourAfterMinute = hourTurn;
+    m.hitX = hitX;
     m.catchUp = false;
     m.mode = Mode::Approach;
   }
@@ -617,33 +629,75 @@ void step(ClockTime *clock, uint32_t now, float dt) {
   static uint32_t behindSince = 0;
   if (!(minutesBehind(clock) || hoursBehind(clock))) behindSince = 0;
   else if (behindSince == 0) behindSince = now;
-  if (free && goomba.state == 0 && behindSince && now - behindSince > 1500 && m.mode != Mode::Stomp) {
+  if (free && !changingWorld() && goomba.state == 0 && behindSince && now - behindSince > 1500 && m.mode != Mode::Stomp) {
     m.catchUp = true;
-    m.both = hoursBehind(clock);
-    m.hitX = m.both ? kHitBothX : kHitMinutesX;
+    m.hitBlock = minutesBehind(clock) ? 1 : 0;
+    m.hourAfterMinute = m.hitBlock == 1 && hoursBehind(clock);
+    m.hitX = m.hitBlock == 1 ? kHitMinutesX : kHitHourX;
     m.mode = Mode::Approach;
     behindSince = now;
   }
 
   switch (m.mode) {
-    case Mode::Walk:
-      m.x += m.dir * 7.0f * dt; m.distance += 7.0f * dt;
-      if (goomba.state == 1) {
-        // Waiting for it, facing it
-        if (m.x >= 30) { m.x = 30; m.mode = Mode::Pause; m.since = now; m.pauseMs = 30000; }
-        break;
+    case Mode::Walk: {
+      if (goomba.state == 1 || wiping || finaleWanted) { m.dir = 1; break; }
+      if (fabsf(m.x - kWalkX) > 0.5f) {
+        m.dir = 1;
+        const float move = plumberworld::kWalkSpeed * dt;
+        if (m.x > kWalkX) {
+          // Walk forward at the usual pace while the camera gently catches up.
+          const float remaining = m.x - kWalkX;
+          float pan = (4 + remaining * 2) * dt;
+          if (pan >= remaining - 0.5f) pan = remaining;
+          course.advance(move + pan); m.x -= pan; m.distance += move;
+        } else {
+          const float remaining = kWalkX - m.x;
+          const float step = move < remaining ? move : remaining;
+          m.x += step; m.distance += step;
+        }
+      } else {
+        m.x = kWalkX; m.dir = 1;
+        const int height = course.jumpAhead(m.x, (course.lap + world) % 2 == 0);
+        if (height && ms + plumberworld::kJumpMs / plumberworld::kAnimationSpeed >= 60000 - kHitJumpMs / (2 * plumberworld::kAnimationSpeed)) {
+          m.approachedMinute = minute; m.hitBlock = 1; m.hourAfterMinute = hourTurn;
+          m.hitX = kHitMinutesX; m.catchUp = false; m.mode = Mode::Approach;
+        } else if (height) { m.mode = Mode::TravelJump; m.since = now; m.travelHeight = height + 2; }
+        else {
+          const float speed = course.groundSpeed(dt);
+          course.advance(speed * dt); m.distance += speed * dt;
+        }
       }
-      if (m.x >= kMaxX) { m.x = kMaxX; m.dir = -1; m.mode = Mode::Pause; m.since = now; m.pauseMs = 1200 + hash(minute + (int)now / 7000) % 1500; }
-      else if (m.x <= kMinX) { m.x = kMinX; m.dir = 1; m.mode = Mode::Pause; m.since = now; m.pauseMs = 900 + hash(minute * 3 + (int)now / 9000) % 1800; }
+      break;
+    }
+    case Mode::TravelJump:
+      course.advance(plumberworld::kJumpSpeed * dt);
+      if (now - m.since >= plumberworld::kJumpMs) { m.mode = Mode::Walk; m.dir = 1; }
+      break;
+    case Mode::WorldExit:
+      if (!m.exitJumping) {
+        for (int i = 0; i < 2; i++) {
+          const float gap = course.x(plumberworld::OBSTACLES[i]) - (m.x + 13);
+          if (world != Finale && gap >= 0 && gap <= 10) {
+            m.exitJumping = true; m.exitJumpAt = now;
+            m.travelHeight = i == 0 ? 28 : 16;
+            break;
+          }
+        }
+      }
+      m.x += kExitSpeed * dt; m.distance += kExitSpeed * dt;
+      if (m.exitJumping && now - m.exitJumpAt >= plumberworld::kJumpMs) m.exitJumping = false;
+      break;
+    case Mode::WorldEnter:
+      m.x += kExitSpeed * dt; m.distance += kExitSpeed * dt;
+      if (m.x >= kWalkX) { m.x = kWalkX; m.mode = Mode::Walk; }
       break;
     case Mode::Pause:
       if (now - m.since >= m.pauseMs) m.mode = Mode::Walk;
       break;
     case Mode::Approach: {
       if (!m.catchUp && ms < 40000) { m.mode = Mode::Walk; break; }
-      const float speed = 9.5f;
       m.dir = m.hitX > m.x ? 1 : -1;
-      m.x += m.dir * speed * dt; m.distance += speed * dt;
+      m.x += m.dir * kApproachSpeed * dt; m.distance += kApproachSpeed * dt;
       if ((m.dir > 0 && m.x >= m.hitX) || (m.dir < 0 && m.x <= m.hitX)) { m.x = m.hitX; m.dir = 1; m.mode = Mode::Wait; }
       break;
     }
@@ -651,16 +705,24 @@ void step(ClockTime *clock, uint32_t now, float dt) {
       if (m.catchUp) { startHit(m, now); break; }
       if (ms < 40000) { m.mode = Mode::Pause; m.dir = -1; m.since = now; m.pauseMs = 300; break; }  // the minute turned before he got there
       // Start the jump so that his head meets the block as the minute turns
-      if (ms >= 60000 - kHitJumpMs / 2 && ms < 60000) startHit(m, now);
+      if (ms >= 60000 - kHitJumpMs / (2 * plumberworld::kAnimationSpeed) && ms < 60000) startHit(m, now);
       break;
     case Mode::Hit: {
       const uint32_t t = now - m.since;
       // Head against the block: now the digits change (once the clock has turned, or soon after anyway)
-      if (!m.touched && t >= (uint32_t)kHitJumpMs / 2 && (minutesBehind(clock) || t >= (uint32_t)kHitJumpMs * 3 / 4)) {
+      const bool blockBehind = m.hitBlock == 1 ? minutesBehind(clock) : hoursBehind(clock);
+      if (!m.touched && t >= (uint32_t)kHitJumpMs / 2 && (blockBehind || t >= (uint32_t)kHitJumpMs * 3 / 4)) {
         m.touched = true;
-        touch = {true, m.both};
+        touch = {true, m.hitBlock};
       }
-      if (t >= (uint32_t)kHitJumpMs) { m.mode = Mode::Pause; m.dir = -1; m.since = now; m.pauseMs = 500; m.catchUp = false; }
+      if (t >= (uint32_t)kHitJumpMs) {
+        if (m.hitBlock == 1 && m.hourAfterMinute) {
+          m.hitBlock = 0; m.hourAfterMinute = false; m.hitX = kHitHourX;
+          m.catchUp = true; m.mode = Mode::Approach;
+        } else {
+          m.mode = Mode::Pause; m.dir = 1; m.since = now; m.pauseMs = 200; m.catchUp = false;
+        }
+      }
       break;
     }
     case Mode::Stomp: {
@@ -698,8 +760,10 @@ void step(ClockTime *clock, uint32_t now, float dt) {
       if (now - m.since >= 320) { m.mode = Mode::Walk; m.dir = 1; }
       break;
   }
-  if (m.x < 0) m.x = 0;
-  if (m.x > 51) m.x = 51;  // (the finale walk ends at 49)
+  if (m.mode != Mode::WorldExit && m.mode != Mode::WorldEnter && m.mode != Mode::FlagRun) {
+    if (m.x < 0) m.x = 0;
+    if (m.x > 51) m.x = 51;
+  }
 }
 
 }  // namespace
@@ -708,12 +772,21 @@ Clockface::Clockface(MatrixPanel_I2S_DMA* display) { _display = display; }
 
 void Clockface::setNight(bool value) { night = value; }
 
+void Clockface::setUpdating(bool value) {
+  if (_updating == value) return;
+  _updating = value; _updateDrawn = false;
+  lastNow = millis();
+}
+
+
 void Clockface::setup(ClockTime *dateTime) {
   _dateTime = dateTime;
-  lastNow = millis();
+  lastNow = millis(); sceneNow = 0; animationRemainder = 0;
   mario = Plumber();
+  course = plumberworld::Course();
+  blockMushroom = plumberworld::BlockMushroom();
   goomba = Goomba();
-  touch = {false, false};
+  touch = {false, 1};
   pendingWorld = -1;
   wiping = false;
   mushroomOn = false;
@@ -726,10 +799,14 @@ void Clockface::setup(ClockTime *dateTime) {
 
 void Clockface::update() {
   MatrixPanel_I2S_DMA &d = *_display;
-  const uint32_t now = millis();
-  float dt = (now - lastNow) / 1000.0f;
+  const uint32_t realNow = millis(), elapsed = realNow - lastNow;
+  lastNow = realNow;
+  if (_updating && _updateDrawn) return;
+  const uint64_t scaled = _updating ? 0 : (uint64_t)elapsed * 6 + animationRemainder;
+  sceneNow += scaled / 5; animationRemainder = scaled % 5;
+  const uint32_t now = sceneNow;
+  float dt = _updating ? 0 : elapsed * plumberworld::kAnimationSpeed / 1000.0f;
   if (dt > 0.2f) dt = 0.2f;
-  lastNow = now;
   if (!primed) {
     // The first frame comes after the time sync (the boot screens run until then): start from the real time
     primed = true;
@@ -757,79 +834,93 @@ void Clockface::update() {
     picked = &tinted;
   }
   const Theme &theme = *picked;
+  const bool lightSky = world == Snow || world == CloudTop || world == Finale;  // popups need dark ink here
   const int hour = _dateTime->getHour(), minute = _dateTime->getMinute();
   const int digits[4] = {hour / 10, hour % 10, minute / 10, minute % 10};
   const bool hideTens = !_dateTime->is24hFormat() && hour < 10;
 
-  step(_dateTime, now, dt);
-
-  // Luigi hit the block(s): they take the clock's digits and bump
-  if (touch.pending) {
-    for (int i = touch.both ? 0 : 1; i < 2; i++) {
-      blocks[i].target[0] = digits[i * 2];
-      blocks[i].target[1] = digits[i * 2 + 1];
-      blocks[i].bumpAt = now;
-    }
-    // The coin counter; it starts over each day. Both blocks hit means the hour turned: a 1-UP for Luigi
+  if (!_updating) {
     if (coinDay != _dateTime->getDay()) { coinDay = _dateTime->getDay(); coins = 0; }
-    coins = (coins + (touch.both ? 2 : 1)) % 100;
-    if (touch.both) {
-      mushroomOn = true; mushroomAt = now;
-      if (pinnedWorld() < 0 && !demoWorlds()) {
-        // A new world, never the same twice in a row: the curtain swaps it in
-        pendingWorld = nextWorld(now ^ (_dateTime->getDay() * 24 + _dateTime->getHour24()), night);
-        wiping = true; wipeAt = now;
+    step(_dateTime, now, dt);
+
+    // Each jump updates one block. At an hour turn, the minute block is hit first.
+    if (touch.pending) {
+      const int i = touch.block;
+      blocks[i].target[0] = digits[i * 2]; blocks[i].target[1] = digits[i * 2 + 1];
+      blocks[i].bumpAt = now;
+      coins = (coins + 1) % 100;
+      if (i == 1) blockMushroom.spawn(kBlockX[1], kBlockTop, course.camera, now,
+                                    (hash(minuteOfDay(_dateTime) + _dateTime->getDay() * 1440) & 1) != 0);
+      if (i == 0) {
+        mushroomOn = true; mushroomAt = now;
+        if (_dateTime->getHour24() == 12 && minute == 0 && flagDay != _dateTime->getDay()) {
+          flagDay = _dateTime->getDay(); finaleWanted = true;
+        } else {
+          // Every hour ends with a walk out. A pinned world is entered again.
+          pendingWorld = pinnedWorld() >= 0 ? pinnedWorld() : demoWorlds() ? (world + 1) % kWorlds
+                       : nextWorld(now ^ (_dateTime->getDay() * 24 + _dateTime->getHour24()), night);
+        }
       }
+      touch.pending = false;
     }
-    touch.pending = false;
-  }
-  if (mushroomOn && now - mushroomAt >= 3700) mushroomOn = false;
-  // A world picked while the clock runs (telnet): wipe over to it
-  if (pinnedWorld() >= 0 && world != pinnedWorld() && !wiping && finaleStage == FinaleStage::None && world != Finale) { pendingWorld = pinnedWorld(); wiping = true; wipeAt = now; }
-  // The demo: Luigi slides down the flagpole in every world, and every 8 seconds it is on to the next world, in order
-  if (demoWorlds() && world == Overground && !demoFlagDone && !wiping && finaleStage == FinaleStage::None && now - worldSince >= 1500) { demoFlagWanted = true; demoFlagDone = true; }
-  if (demoWorlds() && !wiping && finaleStage == FinaleStage::None && world != Finale && now - worldSince >= 8000) {
-    pendingWorld = (world + 1) % kWorlds; demoFlagDone = false; wiping = true; wipeAt = now;
-  }
-  // Night falls while a bright world is on show: move on to another world right away
-  if (night && brightWorld(world) && pinnedWorld() < 0 && !demoWorlds() && !wiping) { pendingWorld = nextWorld(now, true); wiping = true; wipeAt = now; }
-  if (wiping) {
-    const uint32_t wt = now - wipeAt;
-    if (wt >= 300 && pendingWorld >= 0) { world = pendingWorld; pendingWorld = -1; worldSince = now; }
-    if (wt >= 600) wiping = false;
-  }
-  // The noon finale: wipe to its scene, let Luigi play it, wipe back to the world that was on show
-  if (finaleWanted && finaleStage == FinaleStage::None && !wiping) {
-    finaleWanted = false;
-    worldBefore = world;
-    pendingWorld = Finale; wiping = true; wipeAt = now;
-    finaleStage = FinaleStage::Out;
-  } else if (finaleStage == FinaleStage::Out && world == Finale) {
-    mario.x = 4; mario.dir = 1; mario.mode = Mode::FlagRun; mario.since = now;  // Luigi starts his run at the left edge
-    goomba.state = 0;
-    finaleStage = FinaleStage::Playing;
-  } else if (finaleStage == FinaleStage::Playing && mario.mode == Mode::FinaleDone && !wiping) {
-    pendingWorld = worldBefore; wiping = true; wipeAt = now;
-    finaleStage = FinaleStage::Back;
-  } else if (finaleStage == FinaleStage::Back && world == worldBefore) {
-    mario.x = 18; mario.dir = 1; mario.mode = Mode::Walk;
-    finaleStage = FinaleStage::None;
-  }
-  for (int i = 0; i < 2; i++) {
-    if (now >= blocks[i].bumpAt + 150) { blocks[i].shown[0] = blocks[i].target[0]; blocks[i].shown[1] = blocks[i].target[1]; }
+    if (mushroomOn && now - mushroomAt >= 3700) mushroomOn = false;
+    if (pinnedWorld() >= 0 && world != pinnedWorld() && !changingWorld() && finaleStage == FinaleStage::None && world != Finale)
+      pendingWorld = pinnedWorld();
+    // The demo visits each world and plays the finale once per round.
+    if (demoWorlds() && world == Overground && !demoFlagDone && !changingWorld() && finaleStage == FinaleStage::None && now - worldSince >= 1500) {
+      demoFlagWanted = true; demoFlagDone = true;
+    }
+    if (demoWorlds() && !changingWorld() && finaleStage == FinaleStage::None && world != Finale && now - worldSince >= 8000) {
+      pendingWorld = (world + 1) % kWorlds; demoFlagDone = false;
+    }
+    if (night && brightWorld(world) && pinnedWorld() < 0 && !demoWorlds() && !changingWorld())
+      pendingWorld = nextWorld(now, true);
+
+    if (finaleWanted && finaleStage == FinaleStage::None && !wiping) {
+      finaleWanted = false; worldBefore = world; pendingWorld = Finale;
+      finaleStage = FinaleStage::Out;
+    } else if (finaleStage == FinaleStage::Playing && mario.mode == Mode::FinaleDone && !changingWorld()) {
+      pendingWorld = worldBefore; finaleStage = FinaleStage::Back;
+    }
+
+    if (pendingWorld >= 0 && !blockMushroom.active && !wiping && (free0(mario) || mario.mode == Mode::FinaleDone)) {
+      mario.mode = Mode::WorldExit; mario.dir = 1; mario.exitJumping = false;
+      goomba.state = 0;
+    }
+    // Only swipe when six pixels of the departing character remain on screen.
+    if (mario.mode == Mode::WorldExit && mario.x >= W - 6 && !wiping) { wiping = true; wipeAt = now; }
+    if (wiping) {
+      const uint32_t wt = now - wipeAt;
+      if (wt >= kSwipeHalfMs && pendingWorld >= 0) {
+        world = pendingWorld; pendingWorld = -1; worldSince = now;
+        course = plumberworld::Course(); blockMushroom.active = false; goomba.state = 0;
+        mario.x = -13; mario.dir = 1; mario.exitJumping = false;
+        if (finaleStage == FinaleStage::Out && world == Finale) {
+          mario.mode = Mode::FlagRun; finaleStage = FinaleStage::Playing;
+        } else {
+          mario.mode = Mode::WorldEnter;
+          if (finaleStage == FinaleStage::Back) finaleStage = FinaleStage::None;
+        }
+      }
+      if (wt >= 2 * kSwipeHalfMs) wiping = false;
+    }
+    for (int i = 0; i < 2; i++) {
+      if (now >= blocks[i].bumpAt + 150) { blocks[i].shown[0] = blocks[i].target[0]; blocks[i].shown[1] = blocks[i].target[1]; }
+    }
   }
 
   d.fillScreen(theme.sky);
 
   // Scenery
   switch (world) {
-    case Underground: drawWallAndCoins(d, theme); break;
+    case Underground: drawWall(d, 0, 0, W, kGround, theme, 38); break;
     case Castle: {
       Theme wall = kCastle;
       wall.brick = rgb(44, 20, 24); wall.mortar = rgb(20, 6, 8);
       drawWall(d, 0, 0, W, kGround, wall, 255);
-      drawCastleDecor(d, now, 5, 2);
-      drawCastleDecor(d, now, 54, 62);
+      const int wx = plumberworld::sceneryX(2, course.camera);
+      drawCastleDecor(d, now, wx, wx + 7);
+      drawCastleDecor(d, now, wx + 48, wx + 41);
       break;
     }
     case Underwater: drawUnderwater(d, now); break;
@@ -838,23 +929,31 @@ void Clockface::update() {
     case Lava: drawVolcano(d, now); break;
     case Airship: drawAirship(d, now); break;
     case Finale:
-      drawCloud(d, 62 - (int)((now / 2600) % 80), 7, false);
-      drawCloud(d, 40 - (int)((now / 3300) % 80) + 60, 31, false);
-      drawCloud(d, 10 - (int)((now / 4100) % 80) + 60, 22, false);
+      drawCloud(d, plumberworld::sceneryX(62, course.camera + now / 650.0f, 4), 7, false);
+      drawCloud(d, plumberworld::sceneryX(100, course.camera + now / 825.0f, 4), 31, false);
+      drawCloud(d, plumberworld::sceneryX(70, course.camera + now / 1025.0f, 4), 22, false);
       if (mario.mode == Mode::FinaleHidden || mario.mode == Mode::FinaleDone) drawFireworks(d, (int32_t)(now - finaleHiddenAt) - 900);
       break;
     default:  // Overground and Snow
       if (nightNow) drawNightSky(d, now);
-      drawCloud(d, 62 - (int)((now / 2600) % 80), 7, nightNow);
-      drawCloud(d, 20 - (int)((now / 3900) % 90) + 60, 29, nightNow);
+      drawCloud(d, plumberworld::sceneryX(62, course.camera + now / 650.0f, 4), 7, nightNow);
+      drawCloud(d, plumberworld::sceneryX(80, course.camera + now / 975.0f, 4), 29, nightNow);
       if (world == Snow) drawFlakes(d, now);
-      drawHill(d, 1, kGround - 1, nightNow, world == Snow);
+      drawHill(d, plumberworld::sceneryX(22, course.camera), kGround - 1, nightNow, world == Snow);
       drawBushes(d, nightNow, world == Snow);
       break;
   }
-  if (world != CloudTop && world != Airship && world != Finale) drawJarAndShyGuy(d, now);
   const uint16_t snowWhite = nightNow ? rgb(70, 82, 130) : rgb(255, 255, 255);
-  if (world == Snow) box(d, 51, kJarTop - 2, 12, 2, snowWhite);  // snow on the jar's rim
+  if (world != Finale) {
+    const int x = course.x(plumberworld::OBSTACLES[0]);
+    const bool tubeHere = (course.lap + world) % 2 == 0;
+    if (tubeHere) {
+      const auto &tube = world == Underground ? plumberworld::CYAN_TUBE : world == Castle || world == Lava ? plumberworld::GREY_TUBE
+                       : world == Underwater ? plumberworld::TEAL_TUBE : world == GhostHouse ? plumberworld::GHOST_TUBE : plumberworld::GREEN_TUBE;
+      plumberworld::drawTube(d, x, kGround, tube, now, true);
+    } else drawJarAndShyGuy(d, now, x);
+    if (world == Snow) box(d, x + 1, kGround - (tubeHere ? 13 : 9), 12, 1, snowWhite);
+  }
   drawBricks(d, kGround, H - 1, theme, true);
   if (world == Castle || world == Lava) {
     box(d, 0, 60, W, 4, rgb(232, 64, 16));
@@ -863,10 +962,99 @@ void Clockface::update() {
     box(d, 0, kGround, W, 2, snowWhite);
   } else if (world == CloudTop || world == Finale) {
     box(d, 0, kGround - 2, W, 2, snowWhite);  // the puffs along the top of the cloud ground
-    for (int x = 2; x < W; x += 8) { box(d, x, kGround - 3, 5, 1, snowWhite); box(d, x + 1, kGround - 4, 3, 1, snowWhite); }
+    for (int x = 2 - (world == Finale ? 0 : (int)course.camera % 8); x < W; x += 8) { box(d, x, kGround - 3, 5, 1, snowWhite); box(d, x + 1, kGround - 4, 3, 1, snowWhite); }
   } else if (world == Airship) {
-    for (int x = 3; x < W; x += 16) { disc(d, x, 56, 1, rgb(60, 32, 8)); put(d, x, 56, rgb(200, 200, 208)); }
+    for (int x = 3 - (int)course.camera % 16; x < W; x += 16) { disc(d, x, 56, 1, rgb(60, 32, 8)); put(d, x, 56, rgb(200, 200, 208)); }
   }
+
+  if (world != Finale) {
+    plumberworld::drawLedge(d, course.x(plumberworld::OBSTACLES[1]), kGround, theme.brick, theme.brickLight, theme.mortar);
+    for (int i = 0; i < 8; i++) {
+      if (course.collected & (1 << i)) continue;
+      const auto &item = plumberworld::ITEMS[i];
+      const int x = course.x(item.x), y = kGround - item.height;
+      if (item.kind == plumberworld::Coin) drawCoin(d, x, y, coinWidth(now + i * 170));
+      else if (item.kind == plumberworld::Mushroom) drawMushroom(d, x - 4, y);
+      else plumberworld::drawStar(d, x - 4, y, now);
+    }
+  }
+
+  // The Goomba, and its score once it is flat
+  if (goomba.state == 1) {
+    if (goomba.koopa) drawKoopa(d, (int)goomba.x, kGround - 11, false, (now / 220) % 2);
+    else drawGoomba(d, (int)goomba.x, kGround - 12, false, (now / 220) % 2, theme);
+  } else if (goomba.state == 2) {
+    if (goomba.koopa) drawKoopa(d, (int)goomba.x, kGround - 5, true, false);
+    else drawGoomba(d, (int)goomba.x, kGround - 12, true, false, theme);
+    if (now - goomba.since < 1000) {
+      char score[8];
+      snprintf(score, sizeof(score), "%d", goomba.score);
+      miniText(d, score, (int)goomba.x - 2, kGround - 16 - (int)((now - goomba.since) / 110), lightSky ? rgb(20, 52, 130) : rgb(255, 255, 255));
+    }
+  }
+
+  const bool flagging = world == Finale && mario.mode != Mode::Walk && mario.mode != Mode::Pause;
+  if (flagging) {
+    const uint32_t ft = now - mario.since;
+    drawFlagpole(d, mario.mode == Mode::FlagSlide ? (int)(1000 * ft / kFlagSlideMs) : mario.mode == Mode::FlagRun || mario.mode == Mode::FlagJump ? 0 : 1000);
+  }
+
+  // Luigi
+  Pose pose = Pose::Stand;
+  int lift = 0;
+  switch (mario.mode) {
+    case Mode::Walk:
+      pose = goomba.state == 1 || finaleWanted ? Pose::Stand : walkPose(mario.distance);
+      break;
+    case Mode::WorldExit:
+      pose = mario.exitJumping ? Pose::Jump : walkPose(mario.distance);
+      if (mario.exitJumping) lift = (int)(jumpHeight(now - mario.exitJumpAt, plumberworld::kJumpMs, mario.travelHeight) + 0.5f);
+      break;
+    case Mode::WorldEnter: case Mode::Approach: case Mode::FlagRun: case Mode::FinaleWalk: {
+      pose = walkPose(mario.distance);
+      break;
+    }
+    case Mode::Hit: pose = ((now - mario.since) / 70) % 2 ? Pose::Walk2 : Pose::Jump;  // Luigi's flutter kick
+     lift = (int)(jumpHeight(now - mario.since, kHitJumpMs, kHitHeight) + 0.5f); break;
+    case Mode::TravelJump: pose = Pose::Jump; lift = (int)(jumpHeight(now - mario.since, plumberworld::kJumpMs, mario.travelHeight) + 0.5f); break;
+    case Mode::Stomp: pose = Pose::Jump; lift = (int)(jumpHeight(now - mario.since, 560, 12) + 0.5f); break;
+    case Mode::Hop: pose = Pose::Jump; lift = (int)(jumpHeight(now - mario.since, 320, 7) + 0.5f); break;
+    case Mode::FlagJump: pose = Pose::Jump; lift = 14 * ease(now - mario.since, kFlagJumpMs) / 1000; break;
+    case Mode::FlagSlide: pose = Pose::Jump; lift = 14 - 14 * (int)(now - mario.since) / kFlagSlideMs; break;
+    default: break;
+  }
+  // The classic Luigi of the NES game: green cap and shirt, blue overalls
+  PlumberColors colors = {rgb(24, 190, 48), rgb(252, 188, 120), rgb(100, 52, 8), rgb(40, 72, 232), rgb(255, 224, 40), rgb(16, 16, 16)};
+  if (!_updating && world != Finale && !wiping && (mario.mode == Mode::Walk || mario.mode == Mode::TravelJump))
+    coins = (coins + course.collect(mario.x, kPlumberY - lift, kGround - kPlumberY, kGround, now)) % 100;
+  if (_updating) { pose = Pose::Stand; lift = 0; }
+  const int pickup = _updating ? -1 : blockMushroom.update(now, dt, course.camera, kGround, mario.x, kGround - lift);
+  if (pickup >= 0 && !wiping) {
+    course.pickup = (plumberworld::Item)pickup; course.pickupAt = now; course.hasPickup = true;
+  }
+  const uint32_t pt = now - mushroomAt;
+  if ((mushroomOn && pt >= 1100 && pt < 3700) || (course.hasStar && now - course.starAt < 3700)) {
+    // The star: his colours flash for a couple of seconds
+    switch ((now / 70) % 4) {
+      case 0: colors.cap = rgb(255, 224, 40); colors.overalls = rgb(228, 32, 24); break;
+      case 1: colors.cap = rgb(24, 190, 48); colors.overalls = rgb(255, 224, 40); break;
+      case 2: colors.cap = rgb(255, 255, 255); colors.overalls = rgb(120, 200, 255); break;
+      default: break;
+    }
+  }
+  if (world != Finale && course.hasPickup && now - course.pickupAt < 900 && course.pickup != plumberworld::Coin) {
+    const char *label = course.pickup == plumberworld::Mushroom ? "1UP" : course.pickup == plumberworld::SuperMushroom ? "SUPER" : "1000";
+    miniText(d, label, (int)mario.x + 14, kGround - 18 - (now - course.pickupAt) / 150,
+             course.pickup == plumberworld::Mushroom ? (lightSky ? rgb(0, 120, 32) : rgb(0, 224, 64)) : course.pickup == plumberworld::SuperMushroom ? rgb(232, 40, 24) : (lightSky ? rgb(150, 90, 0) : rgb(255, 224, 40)));
+  }
+
+  // Swipe the scenery; the clock remains visible in its fixed position
+  if (wiping && !_updating) {
+    const uint32_t wt = now - wipeAt;
+    if (wt < kSwipeHalfMs) box(d, 0, 0, W * wt / kSwipeHalfMs, H, rgb(0, 0, 0));
+    else box(d, W * (wt - kSwipeHalfMs) / kSwipeHalfMs, 0, W - W * (wt - kSwipeHalfMs) / kSwipeHalfMs, H, rgb(0, 0, 0));
+  }
+
 
   // The date, small, up in the sky like the score line of the game: weekday top left, day and month top right
   {
@@ -876,10 +1064,10 @@ void Clockface::update() {
     snprintf(day, sizeof(day), "%d", _dateTime->getDay());
     const char *month = MONTHS[(_dateTime->getMonth() + 11) % 12];
     miniText(d, DAYS[_dateTime->getWeekday() % 7], 1, 1, theme.text);
-    // Right-aligned, with 2 px between the day number and the month
+    // Right-aligned month; the day number sits one pixel farther left
     const int monthX = W - 1 - miniWidth(month);
     miniText(d, month, monthX, 1, theme.text);
-    miniText(d, day, monthX - 2 - miniWidth(day), 1, theme.text);
+    miniText(d, day, monthX - 3 - miniWidth(day), 1, theme.text);
   }
 
   // The coin counter between the weekday and the date
@@ -897,82 +1085,36 @@ void Clockface::update() {
     const uint32_t pt = now - mushroomAt;
     const int mx = kBlockX[0] + kBlockSize / 2 - 4;
     if (pt < 1100) drawMushroom(d, mx, kBlockTop - (pt < 500 ? 8 * ease(pt, 500) / 1000 : 8));
-    else if (pt < 1800) miniText(d, "1UP", kBlockX[0] + kBlockSize / 2 - miniWidth("1UP") / 2 - 1, 1, rgb(0, 224, 64));
+    else if (pt < 1800) miniText(d, "1UP", kBlockX[0] + kBlockSize / 2 - miniWidth("1UP") / 2 - 1, 1, lightSky ? rgb(0, 120, 32) : rgb(0, 224, 64));
   }
+
+  if (blockMushroom.active) drawMushroom(d, (int)blockMushroom.x, blockMushroom.y, blockMushroom.red);
 
   // The question blocks; the coin pops out from behind each one (so it is drawn first) and drops back in
   for (int i = 0; i < 2; i++) {
     const int lift = bumpOffset(blocks[i], now);
     const int32_t since = (int32_t)(now - blocks[i].bumpAt);
-    if (since >= 0 && since < 700) {
+    if (i == 0 && since >= 0 && since < 700) {
       const int p = since < 350 ? ease(since, 350) : 1000 - ease(since - 350, 350);
       drawCoin(d, kBlockX[i] + kBlockSize / 2, kBlockTop - 5 * p / 1000, coinWidth(since * 2));
     }
     drawBlock(d, kBlockX[i], kBlockTop + lift, i == 0 && hideTens ? -1 : blocks[i].shown[0], blocks[i].shown[1], !theme.overground);
   }
 
-  // The Goomba, and its score once it is flat
-  if (goomba.state == 1) {
-    if (goomba.koopa) drawKoopa(d, (int)goomba.x, kGround - 11, false, (now / 220) % 2);
-    else drawGoomba(d, (int)goomba.x, kGround - 12, false, (now / 220) % 2, theme);
-  } else if (goomba.state == 2) {
-    if (goomba.koopa) drawKoopa(d, (int)goomba.x, kGround - 5, true, false);
-    else drawGoomba(d, (int)goomba.x, kGround - 12, true, false, theme);
-    if (now - goomba.since < 1000) {
-      char score[8];
-      snprintf(score, sizeof(score), "%d", goomba.score);
-      miniText(d, score, (int)goomba.x - 2, kGround - 16 - (int)((now - goomba.since) / 110), rgb(255, 255, 255));
-    }
-  }
 
-  const bool flagging = world == Finale && mario.mode != Mode::Walk && mario.mode != Mode::Pause;
-  if (flagging) {
-    const uint32_t ft = now - mario.since;
-    drawFlagpole(d, mario.mode == Mode::FlagSlide ? (int)(1000 * ft / kFlagSlideMs) : mario.mode == Mode::FlagRun || mario.mode == Mode::FlagJump ? 0 : 1000);
-  }
-
-  // Luigi
-  Pose pose = Pose::Stand;
-  int lift = 0;
-  switch (mario.mode) {
-    case Mode::Walk: case Mode::Approach: case Mode::FlagRun: case Mode::FinaleWalk: {
-      static const Pose CYCLE[4] = {Pose::Walk1, Pose::Stand, Pose::Walk2, Pose::Stand};
-      pose = CYCLE[((int)(mario.distance / 2.6f)) % 4];
-      break;
-    }
-    case Mode::Hit: pose = ((now - mario.since) / 70) % 2 ? Pose::Walk2 : Pose::Jump;  // Luigi's flutter kick
-     lift = (int)(jumpHeight(now - mario.since, kHitJumpMs, kHitHeight) + 0.5f); break;
-    case Mode::Stomp: pose = Pose::Jump; lift = (int)(jumpHeight(now - mario.since, 560, 12) + 0.5f); break;
-    case Mode::Hop: pose = Pose::Jump; lift = (int)(jumpHeight(now - mario.since, 320, 7) + 0.5f); break;
-    case Mode::FlagJump: pose = Pose::Jump; lift = 14 * ease(now - mario.since, kFlagJumpMs) / 1000; break;
-    case Mode::FlagSlide: pose = Pose::Jump; lift = 14 - 14 * (int)(now - mario.since) / kFlagSlideMs; break;
-    default: break;
-  }
-  // The classic Luigi of the NES game: green cap and shirt, blue overalls
-  PlumberColors colors = {rgb(24, 190, 48), rgb(252, 188, 120), rgb(100, 52, 8), rgb(40, 72, 232), rgb(255, 224, 40), rgb(16, 16, 16)};
-  const uint32_t pt = now - mushroomAt;
-  if (mushroomOn && pt >= 1100 && pt < 3700) {
-    // The star: his colours flash for a couple of seconds
-    switch ((now / 70) % 4) {
-      case 0: colors.cap = rgb(255, 224, 40); colors.overalls = rgb(228, 32, 24); break;
-      case 1: colors.cap = rgb(24, 190, 48); colors.overalls = rgb(255, 224, 40); break;
-      case 2: colors.cap = rgb(255, 255, 255); colors.overalls = rgb(120, 200, 255); break;
-      default: break;
-    }
-  }
-  if (mario.mode != Mode::FinaleHidden && mario.mode != Mode::FinaleDone)
-    drawLuigi(d, (int)(mario.x + 0.5f), kPlumberY - lift, pose, mario.dir < 0, colors);
-  if (world == Finale) {  // the castle stands in front of Luigi, so he walks in behind it
+  if (_updating || (!wiping && mario.mode != Mode::FinaleHidden && mario.mode != Mode::FinaleDone))
+    drawLuigi(d, (int)((_updating ? kWalkX : mario.x) + 0.5f), kPlumberY - lift, pose, !_updating && mario.dir < 0, colors);
+  if (world == Finale && (!wiping || _updating)) {  // the castle stands in front of Luigi, so he walks in behind it
     const bool inside = mario.mode == Mode::FinaleHidden || mario.mode == Mode::FinaleDone;
     drawCastle(d, inside ? 8 * ease((int32_t)(now - finaleHiddenAt) - 200, 1400) / 1000 : 0);
   }
-  if (world == Lava) drawPodoboo(d, now);  // in front of Luigi
+  if (world == Lava && !wiping) drawPodoboo(d, now);  // in front of Luigi
 
-  // The curtain between two worlds: black sweeps across, the new world is revealed behind it
-  if (wiping) {
-    const uint32_t wt = now - wipeAt;
-    if (wt < 300) box(d, 0, 0, W * wt / 300, H, rgb(0, 0, 0));
-    else box(d, W * (wt - 300) / 300, 0, W - W * (wt - 300) / 300, H, rgb(0, 0, 0));
+  if (_updating) {
+    // Draw once: DMA keeps this still scene visible while flash writes stall the CPU.
+    box(d, 0, 0, W, 7, theme.sky);
+    miniText(d, "Updating...", (W - miniWidth("Updating...")) / 2, 1, theme.text);
+    _updateDrawn = true;
   }
 
   d.flipDMABuffer();

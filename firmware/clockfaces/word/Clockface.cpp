@@ -11,12 +11,14 @@ using namespace facekit;
 
 namespace {
 
+const int kMaxLines = 10;
 const int kMaxWidth = 62;           // widest line
 const int kAreaTop = 3, kAreaHeight = 50;
 const int kOutMs = 380, kInMs = 650, kInDelayMs = 240;
 const int kLetterStaggerMs = 180, kLineStaggerMs = 35;
 const int kTransitionMs = kInDelayMs + kLetterStaggerMs + 7 * kLineStaggerMs + kInMs;
 const int kReflowOutMs = 180, kReflowMoveMs = 320;
+const int kDatePageFromMs = 20000, kDatePageToMs = 28000;  // when the date in words is up, in the minute
 const int kReflowMs = kReflowOutMs + kReflowMoveMs;
 
 struct Line {
@@ -27,7 +29,7 @@ struct Line {
   int16_t x, y;
 };
 struct Layout {
-  Line lines[8];
+  Line lines[kMaxLines];
   uint8_t count = 0;
   int16_t height = 0;
 };
@@ -65,7 +67,7 @@ void setText(Line &line, const char *text) {
 }
 
 void addLine(Layout &l, const char *text, bool big, int scale) {
-  if (l.count >= 8) return;
+  if (l.count >= kMaxLines) return;
   Line &line = l.lines[l.count++];
   line.big = big;
   line.scale = scale;
@@ -97,7 +99,7 @@ void addWord(Layout &l, const char *text, bool big, int scale) {
       from = to;
     }
     if (fits) {
-      for (int i = 0; i < trial.count && l.count < 8; i++) l.lines[l.count++] = trial.lines[i];
+      for (int i = 0; i < trial.count && l.count < kMaxLines; i++) l.lines[l.count++] = trial.lines[i];
       return;
     }
   }
@@ -123,33 +125,39 @@ void build(Layout &l, const WordPhrase &phrase, int bigScale) {
   }
 }
 
-// Stacks the lines and centres the block in the area of the panel for words
-void place(Layout &l) {
+// Stacks the lines and centres the block in the area of the panel for words. `squeeze` takes pixels out of the gaps.
+void place(Layout &l, int top, int height, int squeeze = 0) {
+  auto gap = [&](int i) { const int g = ((l.lines[i].big || l.lines[i - 1].big) ? 4 : 3) - squeeze; return g < 1 ? 1 : g; };
   int total = 0;
   for (int i = 0; i < l.count; i++) {
     Line &line = l.lines[i];
     total += (line.bottomRow - line.topRow + 1) * line.scale;
-    if (i) total += (line.big || l.lines[i - 1].big) ? 4 : 3;
+    if (i) total += gap(i);
   }
   l.height = total;
-  int y = kAreaTop + (kAreaHeight - total) / 2;
+  int y = top + (height - total) / 2;
   if (y < 1) y = 1;
   for (int i = 0; i < l.count; i++) {
     Line &line = l.lines[i];
-    if (i) y += (line.big || l.lines[i - 1].big) ? 4 : 3;
+    if (i) y += gap(i);
     line.x = (W - wordfont::width(line.text, false, line.scale)) / 2;
     line.y = y;
     y += (line.bottomRow - line.topRow + 1) * line.scale;
   }
 }
 
-void layOut(Layout &l, const WordPhrase &phrase) {
+// The time alone has the area above the date line; with the date in words (`tall`) the words have the whole panel
+void layOut(Layout &l, const WordPhrase &phrase, bool tall = false) {
+  const int top = tall ? 1 : kAreaTop, height = tall ? 61 : kAreaHeight;
   build(l, phrase, 2);
-  place(l);
-  if (l.height > kAreaHeight) {  // too many lines for big letters: everything at the small size
+  place(l, top, height);
+  bool mixed = false;  // the big words of one phrase all have the same size
+  for (int i = 1; i < l.count; i++) if (l.lines[i].big && l.lines[i - 1].big && l.lines[i].scale != l.lines[i - 1].scale) mixed = true;
+  if (mixed || l.height > height) {  // too many lines for big letters: everything at the small size
     build(l, phrase, 1);
-    place(l);
+    place(l, top, height);
   }
+  for (int squeeze = 1; squeeze <= 2 && l.height > height; squeeze++) place(l, top, height, squeeze);
 }
 
 // ---- Colours: the football and F1 scheme (off-white hours, green minutes), the same all day ----
@@ -169,7 +177,7 @@ enum class Transition : uint8_t { Shuffle, Lift, Dissolve, Wipe };
 enum class Animation : uint8_t { None, Shuffle, Rotate, Lift, Dissolve, Wipe };  // saved timeStyle values
 Transition transition = Transition::Shuffle;
 uint8_t nextTransition = 0;
-int8_t matched[8], sourceLine[8];  // incoming lines' unchanged matches and previous text
+int8_t matched[kMaxLines], sourceLine[kMaxLines];  // incoming lines' unchanged matches and previous text
 
 int phraseKey(int hour, int minute, int language) { return (language * 24 + hour) * 60 + minute; }
 
@@ -179,8 +187,16 @@ void makeLayout(Layout &l, int hour24, int minute, int language) {
   layOut(l, phrase);
 }
 
+// The time in words with the date in words below it
+void makeDateLayout(Layout &l, int hour24, int minute, int language, int weekday, int day, int month) {
+  WordPhrase phrase;
+  WORD_LANGUAGES[language].say(hour24, minute, phrase);
+  sayDate(language, weekday, day, month, phrase);
+  layOut(l, phrase, true);
+}
+
 void matchLines() {
-  bool used[8] = {};
+  bool used[kMaxLines] = {};
   reflow = false;
   for (int i = 0; i < coming.count; i++) {
     matched[i] = sourceLine[i] = -1;
@@ -237,7 +253,7 @@ void transitionPixel(MatrixPanel_I2S_DMA &d, int x, int y, uint16_t color, void 
     if (!ink.shadow && edge < 110) color = mix(color, rgb(245, 255, 245), (110 - edge) * 160 / 110);
   }
   y += ink.offsetY;
-  if ((unsigned)x < W && y >= 1 && y < 55) d.drawPixel(x, y, color);
+  if ((unsigned)x < W && y >= 1 && y < 63) d.drawPixel(x, y, color);
 }
 
 void drawLine(MatrixPanel_I2S_DMA &d, const Line &line, const Theme &theme, wordfont::Plot plot = nullptr, Ink *ink = nullptr) {
@@ -362,16 +378,25 @@ void Clockface::update() {
   const uint32_t now = millis();
   const auto &settings = *Settings::getInstance();
   int language = settings.numberFont;
-  const Animation animation = static_cast<Animation>(settings.timeStyle <= 5 ? settings.timeStyle : 2);
+  const uint8_t savedAnimation = settings.timeStyle & 15, dateMode = settings.timeStyle >> 4;  // dateMode: 0 numbers, 1 none, 2 the date in words with the time
+  const Animation animation = static_cast<Animation>(savedAnimation <= 5 ? savedAnimation : 2);
   if (language >= WORD_LANGUAGE_COUNT) language = 1;
   const int hour24 = _dateTime->getHour24(), minute = _dateTime->getMinute();
-  const int key = phraseKey(hour24, minute, language);
+  // With the date in words, the time and the date in words take the place of the time alone for a few seconds of every minute
+  const int ms = msOfMinute(_dateTime);
+  const bool datePage = dateMode == 2 && ms >= kDatePageFromMs && ms < kDatePageToMs;
+  const int weekday = _dateTime->getWeekday() % 7, day = _dateTime->getDay(), month = _dateTime->getMonth();
+  const int key = datePage ? (1 << 28) | (phraseKey(hour24, minute, language) << 9) | (month << 5) | day : phraseKey(hour24, minute, language);
+  auto fill = [&](Layout &l) {
+    if (datePage) makeDateLayout(l, hour24, minute, language, weekday, day, month);
+    else makeLayout(l, hour24, minute, language);
+  };
   if (shownKey < 0) {
-    makeLayout(shown, hour24, minute, language);
+    fill(shown);
     shownKey = key;
   } else if (key != (changing ? comingKey : shownKey)) {
     if (changing) { shown = coming; shownKey = comingKey; }
-    makeLayout(coming, hour24, minute, language);
+    fill(coming);
     comingKey = key;
     matchLines();
     switch (animation) {
@@ -401,17 +426,17 @@ void Clockface::update() {
   }
   drawWords(d, theme, changing ? (int)age : 0);
 
-  // The date, small: the weekday and the day and month in the order of the language
-  const WordLanguage &lang = WORD_LANGUAGES[language];
-  char date[24], numbers[12];
-  const int day = _dateTime->getDay(), month = _dateTime->getMonth();
-  snprintf(numbers, sizeof(numbers), lang.dateFormat, lang.monthFirst ? month : day, lang.monthFirst ? day : month);
-  snprintf(date, sizeof(date), "%s %s", lang.weekdays[_dateTime->getWeekday() % 7], numbers);
-  const int dateWidth = wordfont::width(date, true, 1);
-  wordfont::draw(d, date, true, (W - dateWidth) / 2, 57, 1, 0, theme.faint);
+  // The date, small: the weekday and the day and month in the order of the language (not when it is in words or hidden)
+  if (dateMode == 0) {
+    const WordLanguage &lang = WORD_LANGUAGES[language];
+    char date[24], numbers[12];
+    snprintf(numbers, sizeof(numbers), lang.dateFormat, lang.monthFirst ? month : day, lang.monthFirst ? day : month);
+    snprintf(date, sizeof(date), "%s %s", lang.weekdays[_dateTime->getWeekday() % 7], numbers);
+    const int dateWidth = wordfont::width(date, true, 1);
+    wordfont::draw(d, date, true, (W - dateWidth) / 2, 57, 1, 0, theme.faint);
+  }
 
   // The minute as a thin line along the bottom
-  const int ms = msOfMinute(_dateTime);
   const int filled = ms * W / 60000;
   box(d, 0, 63, W, 1, rgb(10, 12, 24));
   box(d, 0, 63, filled, 1, dim(theme.small, 120));

@@ -380,7 +380,7 @@ static void settingsState() {
   json += ",\"numberFont\":" + String(s.numberFont == 1 ? "true" : "false");
   json += ",\"wordLanguage\":" + String(s.numberFont);
 #ifdef UM_WORD
-  json += ",\"wordAnimation\":" + String(s.timeStyle);
+  json += ",\"wordAnimation\":" + String(s.timeStyle & 15) + ",\"wordDate\":" + String(s.timeStyle >> 4);
 #endif
 #ifdef UM_PACMAN
   json += ",\"color\":" + String(s.color) + ",\"dotColor\":" + String(s.dotColor);
@@ -610,7 +610,12 @@ static void saveSettings() {
   if (server.hasArg("wordAnimation")) {
     long animation;
     if (!number("wordAnimation", 0, 5, animation)) { settingsResponse(400, "Choose a word animation from the list."); return; }
-    s.timeStyle = animation;
+    s.timeStyle = (s.timeStyle & 0xF0) | animation;
+  }
+  if (server.hasArg("wordDate")) {
+    long date;
+    if (!number("wordDate", 0, 2, date)) { settingsResponse(400, "Choose a date style from the list."); return; }
+    s.timeStyle = (s.timeStyle & 15) | (date << 4);
   }
 #endif
 #ifdef UM_PACMAN
@@ -1046,8 +1051,14 @@ void loop() {
     bootTick();  // before the check below: it stamps connectedAt on the connect
     if (face && !portalActive && !bootDone && syncedAt && bootHoldOver(now)) { bootDone = true; Serial.printf("[Boot] done at %u ms\n", (unsigned)now); }
     if (bootDone) {  // keeps drawing during an update: the feeds are parked, the face shows its last snapshot
+      bool installing = false;
+#if defined(UM_MARIO) || defined(UM_LUIGI)
+      FirmwareUpdate::Status updateState; firmwareUpdate.status(updateState);
+      installing = updateState.busy || updateState.ready;
+      face->setUpdating(installing);
+#endif
       // A face that paints its own night (Mario, Luigi) follows the sun for its sky and only gives way to the red clock in a dark room
-      if (face->handlesNight() ? displayControl.roomDark() : displayControl.nightActive()) {
+      if (!installing && (face->handlesNight() ? displayControl.roomDark() : displayControl.nightActive())) {
         nightClock.draw(*display, clockTime.getHour(), clockTime.getMinute(), clockTime.is24hFormat());
         nightShown = true;
       } else {
@@ -1059,6 +1070,8 @@ void loop() {
 #ifdef UM_FOOTBALL_ONLY
     // The goal animation paces itself (40 ms frames by wall time): poll fast so no frame is late or skipped
     nextFrame = millis() + (face && face->animating() ? 4 : layout::frameMs);
+#elif defined(UM_MARIO) || defined(UM_LUIGI)
+    nextFrame = millis() + 33;  // smoother plumber animation at about 30 frames per second
 #else
     nextFrame = millis() + layout::frameMs;
 #endif

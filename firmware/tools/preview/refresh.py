@@ -113,6 +113,8 @@ def refresh(out, web_out, work, reuse):
 
     # Refresh the shorter examples too, using the same current Pac-Man/Words replay.
     for name, face, start, end in (
+        ('mario-hour', 'mario', 42000, 64000),
+        ('luigi-hour', 'luigi', 42000, 64000),
         ('pacman-refined', 'pacman', 0, 25000),
         ('pacman-transparent-clock', 'pacman', 0, 16000),
         ('word-transitions', 'word', 19200, 35200),

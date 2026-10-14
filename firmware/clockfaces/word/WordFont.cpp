@@ -44,6 +44,7 @@ const Letter kLetters[] = {
   {'?', 0, "###./...#/.##./..../.#.."},
   {'\x01', 0, "#/#/#/#/#"},                 // a letter i without its dot
   {'\x02', -2, "#../#../#.#/##./#../#../#.."},  // l with a stroke
+  {'\x03', -2, "##/#./#./#./#./#./#."},         // l with a hook
 };
 
 enum Mark : uint8_t { Acute, Grave, Circumflex, Caron, Diaeresis, Ring, Breve, DoubleAcute, Tilde, Ogonek, Cedilla, ApostropheRight, Slash };
@@ -54,6 +55,10 @@ const Accent kAccents[] = {
   {0xFC, 'u', Diaeresis}, {0x103, 'a', Breve}, {0x105, 'a', Ogonek}, {0x107, 'c', Acute}, {0x10D, 'c', Caron}, {0x119, 'e', Ogonek},
   {0x11B, 'e', Caron}, {0x142, '\x02', Slash}, {0x151, 'o', DoubleAcute}, {0x159, 'r', Caron}, {0x15B, 's', Acute}, {0x161, 's', Caron},
   {0x165, 't', ApostropheRight}, {0x16F, 'u', Ring}, {0x219, 's', Cedilla}, {0x21B, 't', Cedilla},
+  // The date in words
+  {0xE8, 'e', Grave}, {0xEB, 'e', Diaeresis}, {0xEC, '\x01', Grave}, {0xEE, '\x01', Circumflex}, {0xF4, 'o', Circumflex},
+  {0xF8, 'o', Slash}, {0xF9, 'u', Grave}, {0xFB, 'u', Circumflex}, {0xFD, 'y', Acute}, {0x13E, '\x03', Slash},
+  {0x17A, 'z', Acute}, {0x17E, 'z', Caron},
   // The capitals of the date line
   {0xC1, 'A', Acute}, {0xC2, 'A', Circumflex}, {0xC5, 'A', Ring}, {0xC9, 'E', Acute}, {0xD6, 'O', Diaeresis}, {0xD8, 'O', Slash},
   {0xDA, 'U', Acute}, {0xDC, 'U', Diaeresis}, {0x104, 'A', Ogonek}, {0x10C, 'C', Caron}, {0x15A, 'S', Acute}, {0x160, 'S', Caron},

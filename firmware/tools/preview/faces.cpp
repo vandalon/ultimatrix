@@ -53,7 +53,11 @@ static void setTime(time_t utc, long ms) {
   clockTime.hour = date.tm_hour; clockTime.minute = date.tm_min; clockTime.second = date.tm_sec; clockTime.weekday = date.tm_wday;
 }
 
-static const unsigned long kFrameMs = 50;  // the face is called at layout::frameMs
+#if defined(FACE_MARIO) || defined(FACE_LUIGI)
+static const unsigned long kFrameMs = 33;
+#else
+static const unsigned long kFrameMs = 50;
+#endif
 static Clockface *face;
 #ifdef FACE_NIGHT_AWARE
 static bool night = false;
