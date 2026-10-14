@@ -230,7 +230,7 @@ static void telnetWatch(Print *out) {
   if (!out) { telnetUpdate = TelnetUpdate::None; return; }  // nobody connected: forget the pending question
   if (telnetUpdate != TelnetUpdate::Watching) return;
   FirmwareUpdate::Status status; firmwareUpdate.status(status);
-  if (status.lowMemory) { telnetUpdate = TelnetUpdate::Asking; out->printf("%s (y/n)\r\n> ", status.message); }
+  if (status.lowMemory) { telnetUpdate = TelnetUpdate::None; firmwareUpdate.scheduleAfterReboot(nullptr); restartAt = millis() + 1000; out->printf("%s\r\n", status.message); }
   else if (status.ready || (!status.busy && status.failed)) { telnetUpdate = TelnetUpdate::None; out->printf("%s\r\n> ", status.message); }
   else if (!status.busy) telnetUpdate = TelnetUpdate::None;
 }
@@ -248,7 +248,7 @@ static bool telnetCommand(const char *c, Print &out) {
     bool accepted = firmwareUpdate.request();
     FirmwareUpdate::Status status; firmwareUpdate.status(status);
     if (accepted) { telnetUpdate = TelnetUpdate::Watching; out.print("Update started: checking memory. The result follows here.\r\n"); }
-    else if (status.lowMemory) { telnetUpdate = TelnetUpdate::Asking; out.printf("%s (y/n)\r\n", status.message); }
+    else if (status.lowMemory) { firmwareUpdate.scheduleAfterReboot(nullptr); restartAt = millis() + 1000; out.printf("%s\r\n", status.message); }
     else out.printf("Update not started: %s\r\n", status.message);
     return true;
   }

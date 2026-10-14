@@ -314,9 +314,9 @@ async function refreshFirmware() {
   } catch (_) { if (updatePolling) setTimeout(refreshFirmware, 1500); }
 }
 let updateMode = '';
+// The install question already warned about the restart, so low memory restarts straight away.
 async function offerReboot(text) {
   document.querySelector('#firmware-status').textContent = text;
-  if (!window.confirm(text)) return;
   const reboot = await fetch('/api/firmware/reboot' + (updateMode ? '?mode=' + encodeURIComponent(updateMode) : ''), {method:'POST'}); const result = await reboot.json();
   if (!reboot.ok) throw new Error(result.message);
   busy = true; controls.disabled = true; save.disabled = true; message('Restarting to install the update. This page will reconnect automatically.'); setTimeout(reconnect, 2500);

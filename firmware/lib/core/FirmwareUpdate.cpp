@@ -256,7 +256,7 @@ void FirmwareUpdate::task(void *self) {
     // Feed tasks and their stacks have already been reclaimed by service().
     std::unique_lock<std::mutex> gate(networkBudget());
     if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < minFreeBlock()) {
-      update.message("Not enough free memory to update while the clock is running. Reboot and update?", true);
+      update.message("Not enough free memory while the clock is running. Restarting to install the update.", true);
       std::lock_guard<std::mutex> guard(update._lock); update._status.lowMemory = true;
     } else update.run();
   }
@@ -430,7 +430,7 @@ void FirmwareUpdate::service(uint32_t now) {
     if (checking) strlcpy(_latest.error, "Not enough free memory to check right now.", sizeof(_latest.error));
     else {
       _status.failed = true; _status.lowMemory = true;
-      strlcpy(_status.message, "Not enough free memory. Reboot and update?", sizeof(_status.message));
+      strlcpy(_status.message, "Not enough free memory. Restarting to install the update.", sizeof(_status.message));
     }
     firmwareUpdating = false;
   }
