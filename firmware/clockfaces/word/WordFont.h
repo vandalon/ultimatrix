@@ -28,6 +28,9 @@ int width(const char *s, bool capital, int scale);
 void extent(const char *s, bool capital, int &topRow, int &bottomRow);
 
 // y is the screen row of the top of `topRow`. Returns the x after the last letter
-int draw(MatrixPanel_I2S_DMA &d, const char *s, bool capital, int x, int y, int scale, int topRow, uint16_t color);
+// A custom plot can fade, move or reveal glyph pixels during a word transition.
+using Plot = void (*)(MatrixPanel_I2S_DMA &, int x, int y, uint16_t color, void *context);
+int draw(MatrixPanel_I2S_DMA &d, const char *s, bool capital, int x, int y, int scale, int topRow, uint16_t color,
+         Plot plot = nullptr, void *context = nullptr);
 
 }  // namespace wordfont

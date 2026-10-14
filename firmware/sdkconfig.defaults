@@ -62,3 +62,6 @@ CONFIG_MBEDTLS_KEY_EXCHANGE_PSK=y
 CONFIG_LWIP_SNTP_MAX_SERVERS=3
 
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+# TLS without certificate verification (updates and feeds are public data; updates are signed).
+CONFIG_ESP_TLS_INSECURE=y
+CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y

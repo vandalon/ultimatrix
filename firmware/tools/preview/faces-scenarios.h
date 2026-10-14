@@ -16,9 +16,10 @@ static void scenarios() {
 #endif
 #if defined(FACE_LUIGI)
 static void scenarios() {
-  show("a quiet minute and a digit change", 30000, at(2026, 10, 12, 21, 44, 40));
-  show("the hour: lightning", 9000, at(2026, 10, 12, 21, 59, 58), false);
-  show("later", 25000, at(2026, 10, 12, 22, 0, 30), false);
+  show("an ordinary minute: strolling, then the 14:41 block hit", 62000, at(2026, 10, 12, 14, 40, 0));
+  show("hour change", 12000, at(2026, 10, 12, 14, 59, 50), false);
+  night = true;
+  show("night", 20000, at(2026, 10, 12, 23, 20, 40));
 }
 #endif
 #if defined(FACE_WORD)

@@ -60,11 +60,32 @@ class MazeBuilder {
   // Opens a wall and, to keep the maze mirrored, its mirror image
   static void openRight(Maze &m, int c, int r) { m.right[r] |= 1 << c; m.right[r] |= 1 << (COLS - 2 - c); }
   static void openDown(Maze &m, int c, int r) { m.down[r] |= 1 << c; m.down[r] |= 1 << (COLS - 1 - c); }
-  static void openEdge(Maze &m, int c, int r, int d) {
+  static void openEdgeUnchecked(Maze &m, int c, int r, int d) {
     if (d == Right) openRight(m, c, r);
     else if (d == Left) openRight(m, c - 1, r);
     else if (d == Down) openDown(m, c, r);
     else openDown(m, c, r - 1);
+  }
+  // A fully open 2x2 block joins parallel corridors into a double-width passage.
+  // The ghost house is a room, not part of the walkable corridors.
+  static bool hasWideCorridor(const Maze &m) {
+    for (int r = 0; r < ROWS - 1; r++)
+      for (int c = 0; c < COLS - 1; c++) {
+        if (isHouse(c, r) || isHouse(c + 1, r) || isHouse(c, r + 1) || isHouse(c + 1, r + 1)) continue;
+        if ((m.right[r] >> c & 1) && (m.right[r + 1] >> c & 1) &&
+            (m.down[r] >> c & 1) && (m.down[r] >> (c + 1) & 1)) return true;
+      }
+    return false;
+  }
+  static bool canOpenEdge(const Maze &m, int c, int r, int d) {
+    Maze candidate = m;
+    openEdgeUnchecked(candidate, c, r, d);  // check the mirrored opening at the same time
+    return !hasWideCorridor(candidate);
+  }
+  static bool openEdge(Maze &m, int c, int r, int d) {
+    if (!canOpenEdge(m, c, r, d)) return false;
+    openEdgeUnchecked(m, c, r, d);
+    return true;
   }
   static int degree(const Maze &m, int c, int r) {
     int n = 0;
@@ -90,7 +111,7 @@ class MazeBuilder {
       int options[4], n = 0;
       for (int d = 0; d < 4; d++) {
         const int nc = c + DX[d], nr = r + DY[d];
-        if (nc < 0 || nc >= half || nr < 0 || nr >= ROWS || seen[nr][nc] || isHouse(nc, nr)) continue;
+        if (nc < 0 || nc >= half || nr < 0 || nr >= ROWS || seen[nr][nc] || isHouse(nc, nr) || !canOpenEdge(m, c, r, d)) continue;
         options[n++] = d;
       }
       if (!n) { top--; continue; }
@@ -101,16 +122,16 @@ class MazeBuilder {
       stack[top][0] = nc; stack[top][1] = nr; top++;
     }
     // 2. The two halves meet on a few rows, and the ghosts' door opens above the house
-    m.right[1] |= 1 << (half - 1);
-    m.right[ROWS - 2] |= 1 << (half - 1);
-    for (int r = 0; r < ROWS; r++) if (below(3) == 0) m.right[r] |= 1 << (half - 1);
-    m.down[HOUSE_ROW - 1] |= (1 << HOUSE_LEFT) | (1 << HOUSE_RIGHT);
+    openEdge(m, half - 1, 1, Right);
+    openEdge(m, half - 1, ROWS - 2, Right);
+    for (int r = 0; r < ROWS; r++) if (below(3) == 0) openEdge(m, half - 1, r, Right);
+    openEdge(m, HOUSE_LEFT, HOUSE_ROW - 1, Down);
     // 3. Loops: the arcade mazes are full of them
     for (int r = 0; r < ROWS; r++)
       for (int c = 0; c < half; c++) {
         if (isHouse(c, r)) continue;
-        if (c + 1 < half && !isHouse(c + 1, r) && below(100) < 28) openRight(m, c, r);
-        if (r + 1 < ROWS && !isHouse(c, r + 1) && below(100) < 28) openDown(m, c, r);
+        if (c + 1 < half && !isHouse(c + 1, r) && below(100) < 28) openEdge(m, c, r, Right);
+        if (r + 1 < ROWS && !isHouse(c, r + 1) && below(100) < 28) openEdge(m, c, r, Down);
       }
     // 4. The tunnel, on the row of the house
     m.tunnelRow = HOUSE_ROW;
@@ -124,7 +145,7 @@ class MazeBuilder {
           int options[4], n = 0;
           for (int d = 0; d < 4; d++) {
             const int nc = c + DX[d], nr = r + DY[d];
-            if (m.open(c, r, d) || nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS || isHouse(nc, nr)) continue;
+            if (m.open(c, r, d) || nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS || isHouse(nc, nr) || !canOpenEdge(m, c, r, d)) continue;
             options[n++] = d;
           }
           if (!n) continue;
@@ -143,6 +164,7 @@ class MazeBuilder {
 
   // Everything can be reached from where Pac-Man starts, and nothing dead-ends
   static bool valid(const Maze &m) {
+    if (hasWideCorridor(m)) return false;
     bool seen[ROWS][COLS] = {};
     int stack[ROWS * COLS][2], top = 0, count = 0;
     stack[top][0] = HOUSE_LEFT; stack[top][1] = START_ROW; top++;

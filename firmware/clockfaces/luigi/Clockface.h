@@ -8,7 +8,8 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #define CLOCKFACE_NAME "luigi"
 
-// Night in the mansion's garden: the time in green glowing digits, Luigi with his flashlight, and a shy Boo
+// The time in two question blocks (hours, minutes) that change only when Luigi hits them, and the date above. Luigi walks the ground, jumps at the blocks as the minute turns, stomps a Goomba now
+// and then, and at night the world turns underground (World 1-2).
 class Clockface: public IClockface {
   private:
     ClockTime* _dateTime;
@@ -19,4 +20,6 @@ class Clockface: public IClockface {
     void setup(ClockTime *dateTime);
     void update();
     void invalidate() {}
+    bool handlesNight() const { return true; }
+    void setNight(bool night);
 };

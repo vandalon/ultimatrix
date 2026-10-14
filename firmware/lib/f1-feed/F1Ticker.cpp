@@ -2,6 +2,7 @@
 // Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #include "F1Ticker.h"
+#include <NetworkBudget.h>
 
 #include <algorithm>
 #include <memory>
@@ -32,8 +33,6 @@ static const time_t MOVED_MIN_SECS = 5 * 60;  // a start this much later than fi
 static const time_t DELAY_MAX_SECS = 6 * 60 * 60;  // and is forgotten this long after
 static const time_t WEEKEND_TAIL_SECS = 3 * 60 * 60;  // without a clock, the weekend lasts this long after the race started
 
-extern volatile bool firmwareUpdating;  // main.cpp
-extern volatile bool liveEventOn;       // main.cpp: no automatic update while true
 extern volatile bool faceBootDone;      // main.cpp: the first update check waits for the first refresh
 
 uint16_t F1Ticker::driverColor(const char *code) { return f1DriverColor(code); }
@@ -61,16 +60,17 @@ void F1Ticker::begin(ClockTime *dateTime) {
   _dateTime = dateTime;
   loadCache();
   // Core 0, so downloading never stalls the display loop on core 1
-  xTaskCreatePinnedToCore(task, "f1", TASK_STACK, this, 1, &_task, 0);
+  resume();
 }
 
 // After an update check the task is gone (see task()): start it again once the update is over
 void F1Ticker::resume() {
   if (!_started || _task || firmwareUpdating || f1Park) return;
-  if (xTaskCreatePinnedToCore(task, "f1", TASK_STACK, this, 1, &_task, 0) == pdPASS) return;
+  if (createFeedTask(task, "f1", TASK_STACK, this, 1, &_task, 0) == pdPASS) return;
   static unsigned long loggedAt = 0;
   if (!loggedAt || millis() - loggedAt > 10000) {
     loggedAt = millis();
+    memoryAllocationFailures.fetch_add(1, std::memory_order_relaxed);  // tells main's guard to shed telnet and mDNS
     f1log("[F1] task cannot restart (data RAM free %u, largest block %u)\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
   }
@@ -177,6 +177,7 @@ uint32_t F1Ticker::version() {
 }
 
 void F1Ticker::task(void *self) {
+  waitForFeedRegistration();
   F1Ticker *ticker = static_cast<F1Ticker *>(self);
   f1TaskUp = true;
   for (;;) {
@@ -185,7 +186,7 @@ void F1Ticker::task(void *self) {
       // The data stays in the ticker; resume() starts the task again after the update.
       ticker->_task = nullptr;
       f1TaskUp = false;
-      vTaskDelete(nullptr);
+      stopFeedTask();
     }
     // in slices, so an update that starts meanwhile is seen within a second
     for (unsigned long left = ticker->refresh(); left > 0 && !firmwareUpdating && !f1Park;) {
@@ -305,7 +306,7 @@ unsigned long F1Ticker::refresh() {
   if (until(_weekendAt) == 0) _weekendAt = millis() + fetchWeekend();
   // The two Jolpica downloads are HTTPS
   // The live feed's connection holds the TLS memory: these wait until it's closed (they are not urgent)
-  bool liveOpen = _live.connected();
+  bool liveOpen = liveDataActive();
   if (until(_standingsAt) == 0 && !liveOpen) {
     _standingsAt = millis() + fetchStandings();
   }
@@ -597,7 +598,7 @@ unsigned long F1Ticker::fetchWeekend() {
   if (snap.last.valid) {
     if (_lastTimed.valid && _lastTimed.id == snap.last.id) {
       snap.last = _lastTimed;
-    } else if (!snap.live.valid) {  // leave historical results downloads until the live session ends
+    } else if (!snap.live.valid && !liveFeedReading) {  // leave historical results downloads until the live session ends
       // Everyone: the result lists show them all. Practice and qualifying come in a few requests from OpenF1, the rest
       // (or when it has nothing yet) one request per driver from ESPN
       if (!((snap.last.tag == 'P' || snap.last.tag == 'Q') && fetchOpenF1(snap.last))) fetchTimes(snap.last, ROWS);
@@ -636,7 +637,7 @@ unsigned long F1Ticker::fetchWeekend() {
     bool race = snap.last.tag == 'R' || snap.last.tag == 'S';
     bool have = false;
     for (const Row &row : snap.last.rows) have = have || row.fastest;
-    if (!snap.live.valid && race && !have && (_fastestId != snap.last.id || millis() - _fastestAt > 10 * 60 * 1000UL)) {
+    if (!snap.live.valid && !liveFeedReading && race && !have && (_fastestId != snap.last.id || millis() - _fastestAt > 10 * 60 * 1000UL)) {
       _fastestId = snap.last.id;
       _fastestAt = millis();
       if (fetchFastest(snap.last) && _lastTimed.valid && _lastTimed.id == snap.last.id) _lastTimed = snap.last;
@@ -1152,6 +1153,7 @@ unsigned long F1Ticker::fetchSeason() {
 bool F1Ticker::getScan(const char *url, JsonScan::Leaf leaf, void *sink) {
   bool secure = strncmp(url, "https", 5) == 0;
   std::lock_guard<std::mutex> download(f1TlsLock);
+  if (firmwareUpdating) return false;
   WiFiClient plain;
   WiFiClientSecure tls;
   if (secure) tls.setInsecure();  // public data, nothing to protect

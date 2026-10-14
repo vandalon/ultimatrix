@@ -210,7 +210,9 @@ void buildIcon(IconCache &cache, Icon icon) {
 
 // Draws an icon in colour c over the backdrop; level 0..255 is how far it has faded in. The colour runs from
 // lighter at the top to deeper at the bottom.
-void drawIcon(Adafruit_GFX &gfx, IconCache &cache, Icon icon, Rgb c, unsigned level, unsigned glow, bool plain = false) {
+// logo: the Wi-Fi symbol wears the logo's own cyan-to-blue gradient (by panel row) instead of a tinted blue, blending
+// towards green's gradient by toGreen 0..31.
+void drawIcon(Adafruit_GFX &gfx, IconCache &cache, Icon icon, Rgb c, unsigned level, unsigned glow, bool plain = false, bool logo = false, unsigned toGreen = 0) {
   if (cache.icon != icon) buildIcon(cache, icon);
   if (plain) {  // the setup display (2 bit): solid white, no gradient or backdrop, so it never shows stray colours
     if (level < 128) return;  // no fade: the in-between greys quantise to different R/G/B steps and show as colours
@@ -221,6 +223,12 @@ void drawIcon(Adafruit_GFX &gfx, IconCache &cache, Icon icon, Rgb c, unsigned le
   }
   for (int y = cache.top; y <= cache.bottom; ++y) {
     Rgb g = tint(c, (float)(y - cache.top) / (cache.bottom - cache.top));
+    if (logo) {
+      unsigned t = 255 * y / kSize;
+      Rgb lg{(uint8_t)(kCyan.r + (kBlue.r - kCyan.r) * (int)t / 255), (uint8_t)(kCyan.g + (kBlue.g - kCyan.g) * (int)t / 255),
+             (uint8_t)(kCyan.b + (kBlue.b - kCyan.b) * (int)t / 255)};
+      g = mixRgb(lg, g, toGreen);
+    }
     for (int x = 0; x < kSize; ++x) {
       unsigned w = cache.cover[y * kSize + x] * level / 255;  // 0..255
       if (!w) continue;
@@ -387,10 +395,10 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
     case Kind::Logo:  // just the U, faded in
       break;
     case Kind::Connecting:  // blue and pulsing until the network is up
-      drawIcon(gfx, icon_, kWifi, kBlue, level, glow, plain_);
+      drawIcon(gfx, icon_, kWifi, kGreen, level, glow, plain_, true, 0);
       break;
     case Kind::Syncing:  // linked, waiting for the time: blue fading to green, pulsing
-      drawIcon(gfx, icon_, kWifi, mixRgb(kBlue, kGreen, now.mix), level, glow, plain_);
+      drawIcon(gfx, icon_, kWifi, kGreen, level, glow, plain_, true, now.mix);
       blockText(gfx, now.text, 54, kAddress);
       break;
     case Kind::Connected:  // linked and time synced: green

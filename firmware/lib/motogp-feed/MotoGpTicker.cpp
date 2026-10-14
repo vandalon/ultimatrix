@@ -18,7 +18,6 @@
 #include <TimeService.h>
 #include "MotoGpScan.h"
 
-extern volatile bool firmwareUpdating;  // main.cpp
 
 namespace {
 void say(const char *format, ...) {
@@ -45,12 +44,12 @@ void F1Ticker::begin(ClockTime *dateTime) {
   if (_started) return;
   _started = true;
   _dateTime = dateTime;
-  xTaskCreatePinnedToCore(task, "motogp", kTaskStack, this, 1, &_task, 0);  // core 0: downloading never stalls the display
+  resume();  // core 0: downloading never stalls the display
 }
 
 void F1Ticker::resume() {
   if (!_started || _task || firmwareUpdating) return;
-  xTaskCreatePinnedToCore(task, "motogp", kTaskStack, this, 1, &_task, 0);
+  createFeedTask(task, "motogp", kTaskStack, this, 1, &_task, 0);
 }
 
 uint32_t F1Ticker::version() {
@@ -66,6 +65,7 @@ void F1Ticker::snapshot(Snapshot &out, bool) {
 
 bool F1Ticker::getScan(const char *url, JsonScan::Leaf leaf, void *sink) {
   std::lock_guard<std::mutex> download(networkBudget());
+  if (firmwareUpdating) return false;
   WiFiClientSecure tls;
   tls.setInsecure();  // public data, nothing to protect
   HTTPClient http;
@@ -163,6 +163,7 @@ unsigned long F1Ticker::fetchWeekend() {
       _version++;
     }
     sessionCount = 0;
+    liveEventOn = false;
     weekendEvent[0] = 0;
     return 5 * 60 * 1000UL;
   }
@@ -199,6 +200,7 @@ unsigned long F1Ticker::fetchWeekend() {
     if (over) lastDone = i;
     else if (nextOne < 0 && s.start > now) nextOne = i;
   }
+  liveEventOn = on >= 0;
   bool near = on >= 0 || (nextOne >= 0 && sessions[nextOne].start - now < 15 * 60);
   if (near) sessionsDueAt = std::min<unsigned long>(sessionsDueAt, millis() + kSessionsBusyMs);
 
@@ -255,7 +257,7 @@ unsigned long F1Ticker::fetchWeekend() {
     last = _snap.last;
     haveLast = last.valid;
   }
-  if (lastDone >= 0) {
+  if (lastDone >= 0 && !liveDataActive()) {
     const Sess &s = sessions[lastDone];
     if (strcmp(lastId, s.id) || !lastReady) {
       ResultScan scan;
@@ -349,16 +351,18 @@ unsigned long F1Ticker::fetchWeekend() {
 unsigned long F1Ticker::refresh() {
   if (ultime::timeStatus() != timeSet || WiFi.status() != WL_CONNECTED) return 2000;
   unsigned long now = millis();
-  if (!_seasonAt || (int32_t)(now - _seasonAt) >= 0) {
+  // Bootstrap the calendar once; thereafter current-session reads go first.
+  if (!eventCount && !liveDataActive() && (!_seasonAt || (int32_t)(now - _seasonAt) >= 0)) {
     _seasonAt = millis() + fetchSeason();
-    now = millis();
-  }
-  if (!_standingsAt || (int32_t)(now - _standingsAt) >= 0) {
-    _standingsAt = millis() + fetchStandings();
     now = millis();
   }
   if (eventCount && (!_weekendAt || (int32_t)(now - _weekendAt) >= 0)) {
     _weekendAt = millis() + fetchWeekend();
+    now = millis();
+  }
+  if (!liveDataActive() && !firmwareUpdating) {
+    if (eventCount && (!_seasonAt || (int32_t)(now - _seasonAt) >= 0)) _seasonAt = millis() + fetchSeason();
+    if (!_standingsAt || (int32_t)(now - _standingsAt) >= 0) _standingsAt = millis() + fetchStandings();
     now = millis();
   }
   unsigned long wait = 5000;
@@ -368,11 +372,12 @@ unsigned long F1Ticker::refresh() {
 }
 
 void F1Ticker::task(void *self) {
+  waitForFeedRegistration();
   F1Ticker *ticker = static_cast<F1Ticker *>(self);
   for (;;) {
     if (firmwareUpdating) {  // the update has the network and the heap to itself: hand back the stack
       ticker->_task = nullptr;
-      vTaskDelete(nullptr);
+      stopFeedTask();
     }
     for (unsigned long left = ticker->refresh(); left > 0 && !firmwareUpdating;) {
       const unsigned long slice = std::min(left, 1000UL);

@@ -13,7 +13,11 @@ namespace {
 
 const int kMaxWidth = 62;           // widest line
 const int kAreaTop = 3, kAreaHeight = 50;
-const int kOutMs = 450, kInMs = 700;
+const int kOutMs = 380, kInMs = 650, kInDelayMs = 240;
+const int kLetterStaggerMs = 180, kLineStaggerMs = 35;
+const int kTransitionMs = kInDelayMs + kLetterStaggerMs + 7 * kLineStaggerMs + kInMs;
+const int kReflowOutMs = 180, kReflowMoveMs = 320;
+const int kReflowMs = kReflowOutMs + kReflowMoveMs;
 
 struct Line {
   char text[44];
@@ -159,7 +163,13 @@ Theme themeAt(int) { return kTheme; }
 Layout shown, coming;
 int shownKey = -1, comingKey = -1;
 uint32_t changedAt = 0;
-bool fading = false;
+bool changing = false;
+bool reflow = false;
+enum class Transition : uint8_t { Shuffle, Lift, Dissolve, Wipe };
+enum class Animation : uint8_t { None, Shuffle, Rotate, Lift, Dissolve, Wipe };  // saved timeStyle values
+Transition transition = Transition::Shuffle;
+uint8_t nextTransition = 0;
+int8_t matched[8], sourceLine[8];  // incoming lines' unchanged matches and previous text
 
 int phraseKey(int hour, int minute, int language) { return (language * 24 + hour) * 60 + minute; }
 
@@ -169,13 +179,170 @@ void makeLayout(Layout &l, int hour24, int minute, int language) {
   layOut(l, phrase);
 }
 
-void drawLayout(MatrixPanel_I2S_DMA &d, const Layout &l, const Theme &theme, int level) {
-  if (level <= 0) return;
-  for (int i = 0; i < l.count; i++) {
-    const Line &line = l.lines[i];
-    if (!line.big) { wordfont::draw(d, line.text, false, line.x, line.y, 1, line.topRow, dim(theme.small, level)); continue; }
-    wordfont::draw(d, line.text, false, line.x + 1, line.y + 1, line.scale, line.topRow, dim(mix(0, theme.big, 40), level));  // a soft shadow
-    wordfont::draw(d, line.text, false, line.x, line.y, line.scale, line.topRow, dim(theme.big, level));
+void matchLines() {
+  bool used[8] = {};
+  reflow = false;
+  for (int i = 0; i < coming.count; i++) {
+    matched[i] = sourceLine[i] = -1;
+    const Line &to = coming.lines[i];
+    for (int j = 0; j < shown.count; j++) {
+      const Line &from = shown.lines[j];
+      if (!used[j] && from.big == to.big && from.scale == to.scale && !strcmp(from.text, to.text)) {
+        matched[i] = sourceLine[i] = j;
+        used[j] = true;
+        reflow |= from.x != to.x || from.y != to.y;
+        break;
+      }
+    }
+  }
+  // Changed lines keep the previous letters until their individual shuffle starts.
+  for (int i = 0; i < coming.count; i++) {
+    if (matched[i] >= 0) continue;
+    int best = -1;
+    for (int j = 0; j < shown.count; j++) {
+      if (used[j] || shown.lines[j].big != coming.lines[i].big || shown.lines[j].scale != coming.lines[i].scale) continue;
+      if (best < 0 || abs(shown.lines[j].y - coming.lines[i].y) < abs(shown.lines[best].y - coming.lines[i].y)) best = j;
+    }
+    sourceLine[i] = best;
+    if (best >= 0) used[best] = true;
+  }
+}
+
+bool stays(int oldLine) {
+  for (int i = 0; i < coming.count; i++) if (matched[i] == oldLine) return true;
+  return false;
+}
+
+struct Ink {
+  Transition effect;
+  int progress, left, width, top, offsetY;
+  uint32_t seed;
+  bool entering, shadow;
+};
+
+void transitionPixel(MatrixPanel_I2S_DMA &d, int x, int y, uint16_t color, void *context) {
+  const Ink &ink = *static_cast<Ink *>(context);
+  const int localX = x - ink.left - (ink.shadow ? 1 : 0);
+  const int localY = y - ink.top - (ink.shadow ? 1 : 0);
+  if (ink.effect == Transition::Shuffle) {
+    if (localX < 0 || localX >= ink.width) return;  // keep each cycling glyph inside its final letter's slot
+  } else if (ink.effect == Transition::Lift) {
+    color = dim(color, (ink.entering ? ink.progress : 1000 - ink.progress) * 255 / 1000);
+  } else {
+    const int threshold = ink.effect == Transition::Dissolve
+        ? 1 + hash(ink.seed ^ (uint32_t)(localX + 64 * localY)) % 999
+        : 1 + localX * 998 / (ink.width > 1 ? ink.width - 1 : 1);
+    if (ink.entering ? ink.progress < threshold : ink.progress >= threshold) return;
+    const int edge = ink.entering ? ink.progress - threshold : threshold - ink.progress;
+    if (!ink.shadow && edge < 110) color = mix(color, rgb(245, 255, 245), (110 - edge) * 160 / 110);
+  }
+  y += ink.offsetY;
+  if ((unsigned)x < W && y >= 1 && y < 55) d.drawPixel(x, y, color);
+}
+
+void drawLine(MatrixPanel_I2S_DMA &d, const Line &line, const Theme &theme, wordfont::Plot plot = nullptr, Ink *ink = nullptr) {
+  if (line.big) {
+    if (ink) ink->shadow = true;
+    wordfont::draw(d, line.text, false, line.x + 1, line.y + 1, line.scale, line.topRow, mix(0, theme.big, 40), plot, ink);
+    if (ink) ink->shadow = false;
+  }
+  wordfont::draw(d, line.text, false, line.x, line.y, line.scale, line.topRow, line.big ? theme.big : theme.small, plot, ink);
+}
+
+int letterCount(const char *text) {
+  int count = 0;
+  while (wordfont::next(text)) count++;
+  return count;
+}
+
+// Similar-width letters keep the shuffle readable without stretching or moving its slots.
+uint32_t cyclingLetter(uint32_t seed, int tick, int width) {
+  const char *letters = width == 1 ? "il" : width == 2 ? "ijl" : width == 3 ? "frtvxz" : width == 5 ? "mw" : "abcdeghknopqsuy";
+  return letters[(seed + tick) % strlen(letters)];
+}
+
+void drawChangingLine(MatrixPanel_I2S_DMA &d, const Line &line, const Line *previous, const Theme &theme, int age, int index,
+                      bool entering) {
+  Ink ink{transition, 0, line.x, wordfont::width(line.text, false, line.scale), line.y, 0,
+          hash((uint32_t)comingKey + index * 97), entering, false};
+  if (transition == Transition::Dissolve || transition == Transition::Wipe) {
+    ink.progress = ease(age - index * kLineStaggerMs - (entering ? kInDelayMs : 0), entering ? kInMs : kOutMs);
+    if ((entering && ink.progress > 0) || (!entering && ink.progress < 1000)) drawLine(d, line, theme, transitionPixel, &ink);
+    return;
+  }
+
+  const int count = letterCount(line.text);
+  const char *text = line.text, *old = previous ? previous->text : "";
+  int x = line.x, letter = 0;
+  while (*text) {
+    const char *start = text, *oldStart = old;
+    const uint32_t target = wordfont::next(text), oldLetter = wordfont::next(old);
+    const uint32_t seed = hash(ink.seed + letter * 131);
+    wordfont::Bitmap bitmap;
+    wordfont::glyph(target, false, bitmap);
+    Line glyphLine = line;
+    const size_t bytes = text - start;
+    memcpy(glyphLine.text, start, bytes);
+    glyphLine.text[bytes] = 0;
+    glyphLine.x = x;
+    ink.left = x;
+    ink.width = bitmap.width * line.scale;
+    ink.offsetY = 0;
+    bool visible = true;
+    if (transition == Transition::Shuffle) {
+      const int delay = seed % 220, duration = 520 + (seed >> 8) % 450;
+      const int elapsed = age - delay;
+      if (target != ' ' && target != oldLetter && elapsed < duration) {
+        uint32_t letterToDraw = oldLetter;
+        if (elapsed >= 0) letterToDraw = cyclingLetter(seed, elapsed / (55 + (seed >> 16) % 35), bitmap.width);
+        if (!letterToDraw || letterToDraw == ' ') visible = false;
+        else if (letterToDraw < 128) { glyphLine.text[0] = (char)letterToDraw; glyphLine.text[1] = 0; }
+        else {  // Keep UTF-8 intact while showing a previous accented letter.
+          memcpy(glyphLine.text, oldStart, old - oldStart);
+          glyphLine.text[old - oldStart] = 0;
+        }
+      }
+    } else {
+      const int delay = count > 1 ? letter * kLetterStaggerMs / (count - 1) : 0;
+      ink.progress = ease(age - index * kLineStaggerMs - delay - (entering ? kInDelayMs : 0), entering ? kInMs : kOutMs);
+      ink.offsetY = entering ? (1000 - ink.progress) * 6 / 1000 : -ink.progress * 5 / 1000;
+      visible = entering ? ink.progress > 0 : ink.progress < 1000;
+    }
+    if (visible) drawLine(d, glyphLine, theme, transitionPixel, &ink);
+    x += (bitmap.width + 1) * line.scale;
+    letter++;
+  }
+}
+
+void drawWords(MatrixPanel_I2S_DMA &d, const Theme &theme, int age) {
+  if (!changing) {
+    for (int i = 0; i < shown.count; i++) drawLine(d, shown.lines[i], theme);
+    return;
+  }
+  for (int i = 0; i < shown.count; i++) {
+    if (stays(i)) continue;
+    if (reflow) {
+      // Clear changing lines before the retained words move through their old positions.
+      if (age < kReflowOutMs) {
+        const Line &line = shown.lines[i];
+        Ink ink{Transition::Lift, ease(age, kReflowOutMs), line.x, 0, line.y, 0, 0, false, false};
+        drawLine(d, line, theme, transitionPixel, &ink);
+      }
+    } else if (transition != Transition::Shuffle) drawChangingLine(d, shown.lines[i], nullptr, theme, age, i, false);
+  }
+  for (int i = 0; i < coming.count; i++) {
+    if (matched[i] < 0) {
+      if (reflow && age < kReflowMs) continue;
+      const Line *previous = sourceLine[i] < 0 ? nullptr : &shown.lines[sourceLine[i]];
+      drawChangingLine(d, coming.lines[i], previous, theme, age - (reflow ? kReflowMs : 0), i, true);
+    } else {
+      Line line = coming.lines[i];
+      const Line &from = shown.lines[matched[i]];
+      const int progress = reflow ? ease(age - kReflowOutMs, kReflowMoveMs) : 1000;
+      line.x = from.x + (line.x - from.x) * progress / 1000;
+      line.y = from.y + (line.y - from.y) * progress / 1000;
+      drawLine(d, line, theme);
+    }
   }
 }
 
@@ -186,30 +353,43 @@ Clockface::Clockface(MatrixPanel_I2S_DMA* display) { _display = display; }
 void Clockface::setup(ClockTime *dateTime) {
   _dateTime = dateTime;
   shownKey = comingKey = -1;
-  fading = false;
+  changing = false;
+  nextTransition = 0;
 }
 
 void Clockface::update() {
   MatrixPanel_I2S_DMA &d = *_display;
   const uint32_t now = millis();
-  int language = Settings::getInstance()->numberFont;
+  const auto &settings = *Settings::getInstance();
+  int language = settings.numberFont;
+  const Animation animation = static_cast<Animation>(settings.timeStyle <= 5 ? settings.timeStyle : 2);
   if (language >= WORD_LANGUAGE_COUNT) language = 1;
   const int hour24 = _dateTime->getHour24(), minute = _dateTime->getMinute();
   const int key = phraseKey(hour24, minute, language);
   if (shownKey < 0) {
     makeLayout(shown, hour24, minute, language);
     shownKey = key;
-  } else if (key != (fading ? comingKey : shownKey)) {
-    if (!fading) { fading = true; changedAt = now; }
+  } else if (key != (changing ? comingKey : shownKey)) {
+    if (changing) { shown = coming; shownKey = comingKey; }
     makeLayout(coming, hour24, minute, language);
     comingKey = key;
+    matchLines();
+    switch (animation) {
+      case Animation::Rotate: transition = static_cast<Transition>(nextTransition++ % 4); break;
+      case Animation::Lift: transition = Transition::Lift; break;
+      case Animation::Dissolve: transition = Transition::Dissolve; break;
+      case Animation::Wipe: transition = Transition::Wipe; break;
+      default: transition = Transition::Shuffle; break;
+    }
+    changing = animation != Animation::None;
+    if (!changing) { shown = coming; shownKey = comingKey; }
+    changedAt = now;
   }
-  int levelOut = 255, levelIn = 0;
-  if (fading) {
-    const int age = (int)(now - changedAt);
-    if (age < kOutMs) levelOut = 255 - 255 * ease(age, kOutMs) / 1000;
-    else if (age < kOutMs + kInMs) { levelOut = 0; levelIn = 255 * ease(age - kOutMs, kInMs) / 1000; }
-    else { shown = coming; shownKey = comingKey; fading = false; levelOut = 255; }
+  const uint32_t age = now - changedAt;
+  if (changing && (animation == Animation::None || age >= (uint32_t)(kTransitionMs + (reflow ? kReflowMs : 0)))) {
+    shown = coming;
+    shownKey = comingKey;
+    changing = false;
   }
 
   const Theme theme = themeAt(minuteOfDay(_dateTime));
@@ -219,8 +399,7 @@ void Clockface::update() {
     const int edge = abs(y - 28);
     if (edge < 28) box(d, 0, y, W, 1, mix(rgb(3, 4, 12), dim(theme.big, 40), (28 - edge) * 28 / 28 * 255 / 255 / 4));
   }
-  drawLayout(d, shown, theme, levelOut);
-  if (fading) drawLayout(d, coming, theme, levelIn);
+  drawWords(d, theme, changing ? (int)age : 0);
 
   // The date, small: the weekday and the day and month in the order of the language
   const WordLanguage &lang = WORD_LANGUAGES[language];

@@ -8,6 +8,7 @@
 #include <ClockTime.h>
 #include <JsonScan.h>
 #include <functional>
+#include <atomic>
 #include <map>
 #include <mutex>
 #include <vector>
@@ -126,7 +127,7 @@ class FootballTicker {
 
     ClockTime *_dateTime = nullptr;
     bool _started = false;
-    TaskHandle_t _task = nullptr;  // the fetch task; none while a firmware update needs the memory
+    std::atomic<TaskHandle_t> _task{nullptr};  // the fetch task; none while a firmware update needs the memory
 #ifndef UM_FOOTBALL_ONLY
     bool _withRace = true;
 #endif

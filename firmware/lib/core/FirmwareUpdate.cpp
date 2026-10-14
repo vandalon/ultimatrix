@@ -3,7 +3,6 @@
 #include "Console.h"
 #include "NetworkBudget.h"
 #include <esp_http_client.h>
-#include <esp_crt_bundle.h>
 #include <esp_ota_ops.h>
 #include <esp_app_format.h>
 #include <esp_app_desc.h>
@@ -14,11 +13,11 @@
 #include <memory>
 #include <Preferences.h>
 
-extern volatile bool firmwareUpdating;
 extern "C" bool verifyRollbackLater() { return true; }
 
 namespace {
 constexpr char kMode[] = UM_MODE_ID;
+constexpr size_t kServerMax = 96;
 constexpr size_t kMinFreeBlock = 16 * 1024;  // estimate for the HTTP client and hashing; tune from device logs
 constexpr size_t kMinFreeBlockTls = 28 * 1024;  // GitHub is HTTPS: one TLS session at a time
 constexpr uint32_t kTaskStack = 12288;  // TLS handshake plus certificate checks need more than plain HTTP
@@ -42,6 +41,10 @@ void historyKey(char *key, size_t size, const char *mode) {
   char server[kServerMax];
   snprintf(key, size, customServer(server, sizeof(server)) ? "%s-p" : "%s", mode);
 }
+size_t minFreeBlock() {
+  char url[9]; fileUrl(url, sizeof(url), "", "");
+  return strncmp(url, "https://", 8) ? kMinFreeBlock : kMinFreeBlockTls;
+}
 struct HttpFile {
   esp_http_client_handle_t handle = nullptr;
   bool tls = false;
@@ -51,7 +54,7 @@ struct HttpFile {
     esp_http_client_config_t config{};
     config.url = url; config.timeout_ms = 10000; config.buffer_size = tls ? 3072 : 1024; config.buffer_size_tx = 512;
     config.disable_auto_redirect = true;  // followed by hand in open(), HTTPS only
-    if (tls) config.crt_bundle_attach = esp_crt_bundle_attach;
+    config.skip_cert_common_name_check = true;  // TLS without certificate checks, like the feeds; the signed manifest protects the image
     handle = esp_http_client_init(&config);
     if (handle) esp_http_client_set_header(handle, "Accept-Encoding", "identity");
   }
@@ -63,7 +66,7 @@ struct HttpFile {
       if (code == 200) return true;
       bool redirect = code == 301 || code == 302 || code == 303 || code == 307 || code == 308;
       if (!tls || !redirect || esp_http_client_set_redirection(handle) != ESP_OK) return false;
-      char next[8] = "";  // a redirect must stay on HTTPS
+      char next[9] = "";  // a redirect must stay on HTTPS
       esp_http_client_get_url(handle, next, sizeof(next));
       esp_http_client_close(handle);
       if (strncmp(next, "https://", 8)) return false;
@@ -152,7 +155,8 @@ const char *fetchManifest(const char *target, Manifest &out, const esp_partition
   if (!out.current) {
     Preferences history;
     if (!history.begin("um-updates", false)) return "Cannot open update history.";
-    out.replayed = out.release <= history.getUInt(target, 0);
+    char key[24]; historyKey(key, sizeof(key), target);
+    out.replayed = out.release <= history.getUInt(key, 0);
     history.end();
   }
   return nullptr;
@@ -164,6 +168,7 @@ void FirmwareUpdate::status(Status &out) { std::lock_guard<std::mutex> guard(_lo
 void FirmwareUpdate::message(const char *value, bool failed) {
   std::lock_guard<std::mutex> guard(_lock);
   strlcpy(_status.message, value, sizeof(_status.message)); _status.failed = failed;
+  consoleLog("[Firmware] %s%s\n", failed ? "FAILED: " : "", value);
 }
 void FirmwareUpdate::progress(uint32_t bytes, uint32_t total) {
   std::lock_guard<std::mutex> guard(_lock); _status.received = bytes; _status.total = total;
@@ -173,6 +178,27 @@ bool FirmwareUpdate::knownMode(const char *mode) {
   static const char *const modes[] = {"football", "f1", "motogp", "tetris", "word", "mario", "luigi", "pacman"};
   for (const char *known : modes) if (mode && !strcmp(mode, known)) return true;
   return false;
+}
+
+bool FirmwareUpdate::server(char *out, size_t size) { return customServer(out, size); }
+
+// Empty restores the GitHub release. Accepts only a plain http(s) base URL; every update is still signature-checked.
+bool FirmwareUpdate::setServer(const char *url) {
+  char value[kServerMax]; strlcpy(value, url ? url : "", sizeof(value));
+  size_t length = strlen(value);
+  while (length && value[length - 1] == '/') value[--length] = 0;
+  if (length) {
+    if (strlen(url) >= sizeof(value) || (strncmp(value, "http://", 7) && strncmp(value, "https://", 8))) return false;
+    for (const char *p = value; *p; ++p) if (!isprint((unsigned char)*p) || isspace((unsigned char)*p) || *p == '"' || *p == '\\') return false;
+  }
+  Preferences prefs;
+  if (!prefs.begin("um-updates", false)) return false;
+  if (length) prefs.putString("server", value); else prefs.remove("server");
+  prefs.remove("chk"); prefs.remove("availElf"); prefs.remove("availVer");  // the cached check was about the old source
+  prefs.end();
+  std::lock_guard<std::mutex> guard(_lock);
+  _latest.available = false; _latest.version[0] = 0; _latest.error[0] = 0; _latest.checkedAt = 0; _nextCheck = 0;
+  return true;
 }
 
 void FirmwareUpdate::scheduleAfterReboot(const char *mode) {
@@ -193,16 +219,22 @@ bool FirmwareUpdate::takeScheduled(char *mode, size_t size) {
 
 bool FirmwareUpdate::request(const char *mode) {
   std::lock_guard<std::mutex> guard(_lock);
-  if (_status.busy || _status.ready) return false;
+  if (_status.busy || _status.ready || _latest.checking || _workerRunning) return false;
+  std::unique_lock<std::mutex> gate(networkBudget(), std::try_to_lock);
+  if (!gate.owns_lock() || liveDataActive()) {
+    _status.lowMemory = false;
+    strlcpy(_status.message, "Wait until live data has finished before updating.", sizeof(_status.message));
+    return false;
+  }
   if (_lastAttempt && millis() - _lastAttempt < 30000) { strlcpy(_status.message, "Wait 30 seconds before checking again.", sizeof(_status.message)); return false; }
   _lastAttempt = millis();
   strlcpy(_target, mode && *mode ? mode : kMode, sizeof(_target));
   _status = Status{"Checking signed update manifest.", 0, 0, true, false, false, false};
-  firmwareUpdating = true;  // parks the feeds so their memory comes back
-  if (xTaskCreatePinnedToCore(task, "firmware", 8192, this, 1, nullptr, 0) != pdPASS) {
-    firmwareUpdating = false; _status.busy = false; _status.failed = true; _status.lowMemory = true;
-    strlcpy(_status.message, "Not enough free memory to update while the clock is running. Reboot and update?", sizeof(_status.message)); return false;
-  }
+  firmwareUpdating = true;
+  consoleLog("[Firmware] Install queued for %s\n", _target);
+  _pending = Work::Install;
+  _stoppingAt = millis();
+  strlcpy(_status.message, "Stopping feeds before updating.", sizeof(_status.message));
   return true;
 }
 
@@ -210,17 +242,15 @@ void FirmwareUpdate::task(void *self) {
   auto &update = *static_cast<FirmwareUpdate *>(self);
   firmwareUpdating = true;
   {
-    // Holding the gate means no feed download is in flight; the pause lets the parked feeds hand their memory back.
+    // Feed tasks and their stacks have already been reclaimed by service().
     std::unique_lock<std::mutex> gate(networkBudget());
-    vTaskDelay(pdMS_TO_TICKS(1500));
-    if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < kMinFreeBlock) {
+    if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < minFreeBlock()) {
       update.message("Not enough free memory to update while the clock is running. Reboot and update?", true);
       std::lock_guard<std::mutex> guard(update._lock); update._status.lowMemory = true;
     } else update.run();
   }
-  firmwareUpdating = false;
-  { std::lock_guard<std::mutex> guard(update._lock); update._status.busy = false; }
-  vTaskDelete(nullptr);
+  { std::lock_guard<std::mutex> guard(update._lock); update._finishedAt = millis() ? millis() : 1; }
+  vTaskSuspend(nullptr);  // service() deletes this suspended worker before resuming feeds
 }
 
 void FirmwareUpdate::run() {
@@ -275,7 +305,8 @@ void FirmwareUpdate::run() {
     // Record the authenticated release before activation, rejecting replay of
     // an older signed release. A failed activation requires a new publication.
     if (!history.begin("um-updates", false)) { message("Cannot save update history.", true); return; }
-    bool recorded = history.putUInt(_target, releaseId) == sizeof(uint32_t);
+    char key[24]; historyKey(key, sizeof(key), _target);
+    bool recorded = history.putUInt(key, releaseId) == sizeof(uint32_t);
     history.end();
     if (!recorded) { message("Cannot save update history.", true); return; }
   }
@@ -296,6 +327,12 @@ uint32_t at(uint32_t when) { return when ? when : 1; }  // 0 means "not schedule
 }
 
 void FirmwareUpdate::begin() {
+#ifdef UM_BRIDGE
+  {  // An old clock has no update server saved here: use the bridge's, and keep it for the face that gets installed
+    char saved[kServerMax];
+    if (!customServer(saved, sizeof(saved))) setServer(UM_BRIDGE_SERVER);
+  }
+#endif
   Preferences prefs;
   if (!prefs.begin("um-updates", true)) return;
   std::lock_guard<std::mutex> guard(_lock);
@@ -314,28 +351,86 @@ void FirmwareUpdate::begin() {
 void FirmwareUpdate::latest(Latest &out) { std::lock_guard<std::mutex> guard(_lock); out = _latest; }
 
 bool FirmwareUpdate::startCheck() {  // _lock held
-  if (_latest.checking || _status.busy || _status.ready) return false;
+  if (_latest.checking || _status.busy || _status.ready || _workerRunning || _pending != Work::None) return false;
+  std::unique_lock<std::mutex> gate(networkBudget(), std::try_to_lock);
+  if (!gate.owns_lock() || liveDataActive()) return false;
+  consoleLog("[Firmware] Check queued\n");
   _latest.checking = true;
-  if (xTaskCreatePinnedToCore(checkTask, "fwcheck", 8192, this, 1, nullptr, 0) != pdPASS) {
-    _latest.checking = false; _nextCheck = at(millis() + kRetryMs); return false;
-  }
+  firmwareUpdating = true;
+  _pending = Work::Check;
+  _stoppingAt = millis();
   return true;
 }
 
 bool FirmwareUpdate::checkNow() {
   std::lock_guard<std::mutex> guard(_lock);
   if (_lastManual && millis() - _lastManual < 30000) return false;
+  if (!startCheck()) return false;
   _lastManual = at(millis());
-  return startCheck();
+  return true;
 }
 
 bool FirmwareUpdate::checkDue() {
+#ifdef UM_BRIDGE
+  return false;  // the bridge has no signed release of its own
+#endif
   time_t epoch = time(nullptr);
   std::lock_guard<std::mutex> guard(_lock);
   return epoch >= kValidEpoch && (!_latest.checkedAt || (uint32_t)epoch < _latest.checkedAt || (uint32_t)epoch - _latest.checkedAt >= kCheckEveryMs / 1000);
 }
 
+void FirmwareUpdate::service(uint32_t now) {
+  bool stopped = reapFeedTasks();
+  std::lock_guard<std::mutex> guard(_lock);
+  if (_workerRunning) {
+    if (_finishedAt && eTaskGetState(_worker) == eSuspended &&
+        xTaskGetCurrentTaskHandleForCore(0) != _worker && xTaskGetCurrentTaskHandleForCore(1) != _worker) {
+      vTaskDelete(_worker);
+      _worker = nullptr; _workerRunning = false; _finishedAt = 0;
+      _status.busy = false; _latest.checking = false;
+      firmwareUpdating = false;
+      consoleLog("[Firmware] Worker stopped; feeds may resume.\n");
+    }
+    return;
+  }
+  if (_pending == Work::None) return;
+  // signed: request() may run later in the same loop pass than the caller's `now`, which would wrap an unsigned difference
+  if (liveDataActive() || (int32_t)(now - _stoppingAt) >= 30000) {
+    bool checking = _pending == Work::Check;
+    _pending = Work::None; _status.busy = false; _latest.checking = false;
+    _nextCheck = at(now + kRetryMs);
+    const char *error = liveDataActive() ? "Deferred until live data has finished." : "Feeds did not stop in time; try again later.";
+    if (checking) strlcpy(_latest.error, error, sizeof(_latest.error));
+    else { strlcpy(_status.message, error, sizeof(_status.message)); _status.failed = true; }
+    firmwareUpdating = false;
+    return;
+  }
+  if (!stopped) return;
+  bool checking = _pending == Work::Check;
+  _pending = Work::None;
+  _workerRunning = true;
+  consoleLog("[Firmware] Feeds stopped: free=%u largest=%u; creating %s worker.\n",
+      (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT), checking ? "check" : "update");
+  if (xTaskCreatePinnedToCore(checking ? checkTask : task, checking ? "fwcheck" : "firmware",
+      kTaskStack, this, 1, &_worker, 0) != pdPASS) {
+    _worker = nullptr; _workerRunning = false; _latest.checking = false;
+    _status.busy = false;
+    _nextCheck = at(now + kRetryMs);
+    if (checking) strlcpy(_latest.error, "Not enough free memory to check right now.", sizeof(_latest.error));
+    else {
+      _status.failed = true; _status.lowMemory = true;
+      strlcpy(_status.message, "Not enough free memory. Reboot and update?", sizeof(_status.message));
+    }
+    firmwareUpdating = false;
+  }
+}
+
 void FirmwareUpdate::poll(uint32_t now, bool online) {
+  service(now);  // lifecycle must progress during boot and while offline, too
+#ifdef UM_BRIDGE
+  return;
+#endif
   if (!online || time(nullptr) < kValidEpoch || firmwareUpdating) return;
   std::lock_guard<std::mutex> guard(_lock);
   if (!_nextCheck) {  // first call: honour the last check so reboots do not cause extra ones
@@ -347,8 +442,10 @@ void FirmwareUpdate::poll(uint32_t now, bool online) {
 }
 
 void FirmwareUpdate::checkTask(void *self) {
-  static_cast<FirmwareUpdate *>(self)->check();
-  vTaskDelete(nullptr);
+  auto &update = *static_cast<FirmwareUpdate *>(self);
+  update.check();
+  { std::lock_guard<std::mutex> guard(update._lock); update._finishedAt = millis() ? millis() : 1; }
+  vTaskSuspend(nullptr);
 }
 
 void FirmwareUpdate::check() {
@@ -357,7 +454,7 @@ void FirmwareUpdate::check() {
   const char *error = nullptr;
   {
     std::unique_lock<std::mutex> gate(networkBudget());  // never alongside a feed download
-    if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) >= kMinFreeBlock) {
+    if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) >= minFreeBlock()) {
       error = fetchManifest(kMode, info, esp_ota_get_next_update_partition(nullptr));
       ok = !error;
       available = ok && !info.current && !info.replayed;

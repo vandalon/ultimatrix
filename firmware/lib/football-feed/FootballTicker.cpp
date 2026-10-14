@@ -132,8 +132,8 @@ static const int NEXT_EXTRA_DAYS = 2;
 // Downloads that aren't urgent (a quiet league, the coming matches) go one league at a time, this far apart
 static const unsigned long STAGGER_MS = 15 * 1000UL;
 static const unsigned long FIRST_STAGGER_MS = 2 * 1000UL;  // leagues or teams that have no data yet follow each other quickly
-extern volatile bool firmwareUpdating;  // main.cpp
 static const uint32_t TASK_STACK_BYTES = 14336;  // a busy evening needs more than a quiet one (the retry without events)
+extern std::atomic<uint32_t> memoryAllocationFailures;  // main.cpp
 static const uint32_t MIN_FREE_BLOCK = 10000;    // below this largest free block of data memory a refresh is skipped: an out of memory aborts the chip
 // Data memory only: ESP.getFreeHeap() and getMaxAllocHeap() include 45 KB of instruction RAM that no data can use
 static size_t dataFree() { return heap_caps_get_free_size(MALLOC_CAP_8BIT); }
@@ -414,19 +414,19 @@ void FootballTicker::begin(ClockTime *dateTime, bool withRace, bool extras, uint
   }
 #endif
   // Core 0, so fetching never stalls the display loop on core 1
-  xTaskCreatePinnedToCore(task, "football", TASK_STACK_BYTES, this, 1, &_task, 0);
+  resume();
 }
 
 // After an update check the task is gone (see task()): start it again once the update is over
 void FootballTicker::resume() {
   if (!_started || _task || firmwareUpdating) return;
   // No task when the heap has not recovered yet (the stack does not fit): try again at the next frame
-  if (xTaskCreatePinnedToCore(task, "football", TASK_STACK_BYTES, this, 1, &_task, 0) != pdPASS) _task = nullptr;
+  if (createFeedTask(task, "football", TASK_STACK_BYTES, this, 1, &_task, 0) != pdPASS) _task = nullptr;
 }
 
-extern volatile bool liveEventOn;       // main.cpp: no automatic update while true
 
 void FootballTicker::task(void *self) {
+  waitForFeedRegistration();
   FootballTicker *ticker = static_cast<FootballTicker *>(self);
   for (;;) {
     if (firmwareUpdating) {  // the update has the network and the heap to itself
@@ -434,7 +434,7 @@ void FootballTicker::task(void *self) {
       // The scores stay in the ticker; resume() starts the task again after the update.
       ticker->_fetching = false;
       ticker->_task = nullptr;
-      vTaskDelete(nullptr);
+      stopFeedTask();
     }
     unsigned long wait = RETRY_MS;
 #ifdef UM_FOOTBALL_ONLY
@@ -450,6 +450,7 @@ void FootballTicker::task(void *self) {
 #endif
     if (dataBlock() < MIN_FREE_BLOCK) {
       // C++ exceptions are on: a failed allocation that nobody catches restarts the clock. Wait for the heap to recover.
+      memoryAllocationFailures.fetch_add(1, std::memory_order_relaxed);  // tells main's guard to shed telnet and mDNS
       logf("[Football] heap too low, skipping a refresh (data free %u, largest block %u)\n", (unsigned)dataFree(),
            (unsigned)dataBlock());
     } else {
@@ -564,6 +565,10 @@ unsigned long FootballTicker::refresh() {
     _footballNextAt = millis() + RETRY_MS;
     return RETRY_MS;
   }
+  _anyLive = false;
+  for (const auto &board : _boards)
+    for (const Match &match : board.second.matches) _anyLive |= match.state == 'i';
+  liveEventOn = _anyLive;
   // With a result window, the finished matches of the days before as well. A failed download
   // only means fewer old results, so it doesn't hold up the rest.
   if (_resultWindowSecs) {
@@ -571,7 +576,7 @@ unsigned long FootballTicker::refresh() {
     for (int d = 1; d <= days; d++)
       for (const FootballLeague *league : _leagues) {
         String key = String(league->code) + "<" + d;
-        updatePastBoard(key, league->code, today - d * SECS_PER_DAY, league->label, league->color);
+        if (!liveDataActive()) updatePastBoard(key, league->code, today - d * SECS_PER_DAY, league->label, league->color);
         keys.push_back(key);
       }
   }
@@ -607,7 +612,7 @@ unsigned long FootballTicker::refresh() {
 #ifdef UM_FOOTBALL_ONLY
       restoreBoard(String("next/") + league->code);
 #endif
-      if (!next.fetchedAt || (!_anyLive && millis() - next.fetchedAt >= NEXT_REFRESH_MS)) {
+      if (!liveDataActive() && (!next.fetchedAt || millis() - next.fetchedAt >= NEXT_REFRESH_MS)) {
         if (fetched) {
           _deferred = true;
           _deferredFirst |= !next.fetchedAt;
@@ -628,7 +633,7 @@ unsigned long FootballTicker::refresh() {
 #ifdef UM_FOOTBALL_ONLY
       restoreBoard(key);
 #endif
-      if (!next.fetchedAt || (!_anyLive && millis() - next.fetchedAt >= NEXT_REFRESH_MS)) {
+      if (!liveDataActive() && (!next.fetchedAt || millis() - next.fetchedAt >= NEXT_REFRESH_MS)) {
         if (fetched) {
           _deferred = true;
           _deferredFirst |= !next.fetchedAt;
@@ -644,7 +649,7 @@ unsigned long FootballTicker::refresh() {
         if (m.state == 'p' && m.kickoff > nowUtc && !known) coming.push_back(&m);
       }
     }
-    refreshTables(matches, coming);
+    if (!liveDataActive()) refreshTables(matches, coming);
   }
 
   buildEntries(matches, nowUtc);
@@ -766,7 +771,7 @@ unsigned long FootballTicker::fetchRace() {
     _race = live;
     liveEventOn = _snapshot.liveCount > 0;
 #ifndef UM_FOOTBALL_ONLY
-  liveEventOn |= _race.live;
+  liveEventOn = liveEventOn.load() || _race.live;
 #endif
     _results.swap(results);
   }
@@ -868,6 +873,7 @@ bool FootballTicker::nationalFavourite(const char *abbreviation) {
 // Every few hours, see whether the favourites play today and in which
 // competition. A match day, once found, sticks until the day is over.
 void FootballTicker::checkFavourites(time_t today) {
+  if (liveDataActive() || firmwareUpdating) return;
   if (_nationalCheckedAt != 0 && millis() - _nationalCheckedAt < NATIONAL_CHECK_MS) return;
 
   bool ok = true;
@@ -1277,6 +1283,7 @@ bool FootballTicker::getScan(const char *url, const std::function<bool(JsonScan:
 
 bool FootballTicker::getScanNow(const char *url, const std::function<bool(JsonScan::Next, void *)> &parse) {
   std::lock_guard<std::mutex> download(networkBudget());
+  if (firmwareUpdating) return false;
   // Plain HTTP: public score data, and the ESP32's TLS client sometimes stalls
   // after the first 16KB record of these ~50KB responses
   WiFiClient client;
@@ -1722,7 +1729,7 @@ void FootballTicker::buildOverview(const MatchList &matches, const std::vector<c
   _snapshot = _staging;
   liveEventOn = _snapshot.liveCount > 0;
 #ifndef UM_FOOTBALL_ONLY
-  liveEventOn |= _race.live;
+  liveEventOn = liveEventOn.load() || _race.live;
 #endif
   _version++;
 }

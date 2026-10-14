@@ -8,8 +8,8 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #define CLOCKFACE_NAME "word"
 
-// The time in words, in sixteen languages. The hour is big, the minutes small; the words fade over each other once a
-// minute and the colours drift slowly with the time of day.
+// The time in words, in sixteen languages. Settings choose letter shuffles, lifts, pixel dissolves, wipes, all or none;
+// unchanged lines stay visible and glide into place. Off-white hours and green minutes use the sports-face colours.
 class Clockface: public IClockface {
   private:
     ClockTime* _dateTime;

@@ -29,16 +29,29 @@ const char *posixForZone(const char *name) {
   return nullptr;
 }
 
-bool detectZone(String &zone) {
+bool detectZone(String &zone, float *latitude, float *longitude) {
   HTTPClient http;
   http.setConnectTimeout(3000); http.setTimeout(3000);
-  if (!http.begin("http://ip-api.com/line/?fields=timezone")) return false;
+  if (!http.begin("http://ip-api.com/line/?fields=timezone,lat,lon")) return false;
   int code = http.GET();
-  String name = code == 200 ? http.getString() : String();
+  String body = code == 200 ? http.getString() : String();
   http.end();
-  name.trim();
+  // One value per line, in the service's own order: the name has a slash, the two numbers are latitude then longitude
+  String name;
+  float numbers[2] = {0, 0};
+  int found = 0;
+  for (int start = 0; start < (int)body.length();) {
+    int end = body.indexOf('\n', start);
+    if (end < 0) end = body.length();
+    String line = body.substring(start, end);
+    line.trim();
+    if (line.indexOf('/') >= 0 || line == "UTC") name = line;
+    else if (!line.isEmpty() && found < 2) numbers[found++] = line.toFloat();
+    start = end + 1;
+  }
   if (name.isEmpty() || !posixForZone(name.c_str())) return false;
   zone = name;
+  if (latitude && longitude && found == 2) { *latitude = numbers[0]; *longitude = numbers[1]; }
   return true;
 }
 

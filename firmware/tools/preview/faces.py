@@ -22,7 +22,7 @@ def render(face, work, extra):
     output = work / face
     output.mkdir(exist_ok=True)
     command = [os.environ.get("CXX", "c++"), "-std=c++17", "-O2", "-DARDUINO=100", "-w", f"-DFACE_{face.upper()}"]
-    if face == "mario":
+    if face in ("mario", "luigi"):
         command.append("-DFACE_NIGHT_AWARE")
     for include in (HERE / "shim", HERE, gfx, folder, FIRMWARE / "lib/faces", FIRMWARE / "lib/core"):
         command += ["-I", str(include)]

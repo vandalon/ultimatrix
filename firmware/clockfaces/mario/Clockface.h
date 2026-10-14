@@ -8,7 +8,7 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #define CLOCKFACE_NAME "mario"
 
-// The time in four question blocks. Mario walks the ground, bumps the blocks as the minute changes, stomps a Goomba now
+// The time in two question blocks (hours, minutes) that change only when Mario hits them, and the date above. Mario walks the ground, jumps at the blocks as the minute turns, stomps a Goomba now
 // and then, and at night the world turns underground (World 1-2).
 class Clockface: public IClockface {
   private:

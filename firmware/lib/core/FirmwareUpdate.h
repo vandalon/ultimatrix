@@ -21,6 +21,9 @@ public:
   // At boot: true (and mode filled) when an update was scheduled. The flag is cleared on read.
   static bool takeScheduled(char *mode, size_t size);
   static bool knownMode(const char *mode);
+  // Update source: GitHub releases unless a private server base URL is saved (http:// or https://, no trailing slash).
+  static bool server(char *out, size_t size);  // true and filled when a private server is set
+  bool setServer(const char *url);  // empty = GitHub; false if the URL is not acceptable
   void status(Status &out);
   void confirmBoot(bool healthy, uint32_t now, uint32_t failures);
   // Call before a deliberate restart: a running image that is still pending verification is kept instead of rolled back.
@@ -30,6 +33,12 @@ private:
   static void task(void *self);
   static void checkTask(void *self);
   bool startCheck();
+  void service(uint32_t now);
+  enum class Work { None, Check, Install };
+  Work _pending = Work::None;
+  uint32_t _stoppingAt = 0, _finishedAt = 0;
+  bool _workerRunning = false;
+  TaskHandle_t _worker = nullptr;
   void check();
   void run();
   void message(const char *text, bool failed = false);

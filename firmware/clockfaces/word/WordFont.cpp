@@ -186,8 +186,13 @@ void extent(const char *s, bool caps, int &topRow, int &bottomRow) {
 
 namespace {
 
+void paint(MatrixPanel_I2S_DMA &d, int x, int y, uint16_t color, Plot plot, void *context) {
+  if (plot) plot(d, x, y, color, context);
+  else if ((unsigned)x < 64 && (unsigned)y < 64) d.drawPixel(x, y, color);
+}
+
 // Scale2x: each pixel becomes four, and diagonal steps are rounded off
-void blit2(MatrixPanel_I2S_DMA &d, const Bitmap &b, int x, int y, int topRow, uint16_t color) {
+void blit2(MatrixPanel_I2S_DMA &d, const Bitmap &b, int x, int y, int topRow, uint16_t color, Plot plot, void *context) {
   for (int row = -2; row <= 6; row++)
     for (int col = 0; col < b.width; col++) {
       const bool p = b.at(col, row), up = b.at(col, row - 1), down = b.at(col, row + 1), left = b.at(col - 1, row), right = b.at(col + 1, row);
@@ -198,14 +203,15 @@ void blit2(MatrixPanel_I2S_DMA &d, const Bitmap &b, int x, int y, int topRow, ui
       e[3] = (right == down && right != up && down != left) ? down : p;
       for (int k = 0; k < 4; k++) {
         const int px = x + col * 2 + (k & 1), py = y + (row - topRow) * 2 + (k >> 1);
-        if (e[k] && (unsigned)px < 64 && (unsigned)py < 64) d.drawPixel(px, py, color);
+        if (e[k]) paint(d, px, py, color, plot, context);
       }
     }
 }
 
 }  // namespace
 
-int draw(MatrixPanel_I2S_DMA &d, const char *s, bool caps, int x, int y, int scale, int topRow, uint16_t color) {
+int draw(MatrixPanel_I2S_DMA &d, const char *s, bool caps, int x, int y, int scale, int topRow, uint16_t color,
+         Plot plot, void *context) {
   bool first = true;
   for (uint32_t cp; (cp = next(s));) {
     Bitmap b;
@@ -213,13 +219,13 @@ int draw(MatrixPanel_I2S_DMA &d, const char *s, bool caps, int x, int y, int sca
     if (!first) x += scale;
     first = false;
     if (scale == 2) {
-      blit2(d, b, x, y, topRow, color);
+      blit2(d, b, x, y, topRow, color, plot, context);
     } else {
       for (int row = -2; row <= 6; row++)
         for (int col = 0; col < b.width; col++)
           if (b.at(col, row)) {
             const int px = x + col, py = y + (row - topRow);
-            if ((unsigned)px < 64 && (unsigned)py < 64) d.drawPixel(px, py, color);
+            paint(d, px, py, color, plot, context);
           }
     }
     x += b.width * scale;

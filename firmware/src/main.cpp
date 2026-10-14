@@ -13,8 +13,10 @@
 #include <ClockTime.h>
 #include <Settings.h>
 #include <DisplayControl.h>
+#include <SunTimes.h>
 #include <NightClock.h>
 #include <FirmwareUpdate.h>
+#include <NetworkBudget.h>
 #ifdef UM_FOOTBALL_ONLY
 #include <FootballCatalog.h>
 #elif defined(UM_MOTOGP)
@@ -38,8 +40,8 @@ static void allocationFailed(size_t, uint32_t, const char *) {
   memoryAllocationFailures.fetch_add(1, std::memory_order_relaxed);
 }
 
-volatile bool firmwareUpdating = false;
-volatile bool liveEventOn = false;
+std::atomic<bool> firmwareUpdating{false};
+std::atomic<bool> liveEventOn{false};
 volatile bool faceBootDone = false;
 
 static MatrixPanel_I2S_DMA *display = nullptr;
@@ -82,7 +84,8 @@ static const uint32_t kSyncGiveUpMs = 45000;
 static const uint32_t kUpdateCheckWaitMs = 6000;  // longest the boot waits for its own update check
 static const uint32_t kUpdateNoticeMs = 10000;  // extra time on the boot screen to announce an available update
 
-static bool welcomeDue = false;
+static bool welcomeMode = false;  // first run: after the Wi-Fi setup the clock stays on the welcome screens (2-bit display, no face) until "Start the clock" is pressed on the settings page
+static bool welcomeVisited = false;  // the settings page has been opened since this start
 static uint32_t welcomeAt = 0;
 
 static uint32_t noticeAt = 0;  // when the update notice was first drawn; it runs on its own clock because the face's setup can stall the loop
@@ -92,7 +95,6 @@ static uint32_t noticeAt = 0;  // when the update notice was first drawn; it run
 static bool bootHoldOver(uint32_t now) {
   FirmwareUpdate::Latest latest; firmwareUpdate.latest(latest);
   uint32_t since = now - syncedAt;
-  if (welcomeDue) return false;  // first run: the boot waits until somebody has opened the settings page
   if (latest.checking && since < kConnectedMs + kUpdateCheckWaitMs) return false;
   if (since < kConnectedMs || now - connectedAt < kAddressMinMs) return false;
   return !latest.available || (noticeAt && now - noticeAt >= kUpdateNoticeMs);
@@ -128,10 +130,10 @@ static void setBootScale(unsigned scale) {
 // The panel brightness for a user setting, rescaling the boot screens to match
 static uint8_t panelBrightness(uint8_t userBrightness) {
   if (bootDone) { setBootScale(256); return userBrightness; }
+  if (bootKind == boot::Kind::Welcome) { setBootScale(256); return kBootPanelBrightness; }  // the welcome QR code is always at full brightness, whatever the setting
   if (portalActive) { setBootScale(256); return kBootPanelBrightness; }  // the setup QR is shown at full brightness whatever the setting, so phones scan it reliably
-  uint8_t panel = userBrightness > kBootPanelBrightness ? userBrightness : kBootPanelBrightness;
-  setBootScale(userBrightness * 256u / panel);
-  return panel;
+  setBootScale(256);  // every boot screen is at full brightness until the clock is synced and the face takes over
+  return kBootPanelBrightness;
 }
 
 // The logo's gradient: the wanted output level is kept fractional and ordered-dithered across the lattice (8x8 Bayer),
@@ -161,7 +163,7 @@ static void bootTick() {
   if (!displayReady || bootDone) return;
   uint32_t now = millis();
   if (portalActive) { drawBoot(WiFi.softAPgetStationNum() > 0 ? boot::Kind::Joined : boot::Kind::Setup); return; }
-  if (now - bootAt < kLogoMs) { drawBoot(boot::Kind::Logo); return; }
+  if (!setupRefresh && now - bootAt < kLogoMs) { drawBoot(boot::Kind::Logo); return; }  // the setup display has no logo
   static bool wasConnected = false;
   bool connected = WiFi.status() == WL_CONNECTED;
   if (connected && !wasConnected) {
@@ -178,16 +180,17 @@ static void bootTick() {
   // The settings page and telnet already answer from the moment the link is up, so the address is shown
   // on every screen from here on
   if (!connected) drawBoot(portalActive ? boot::Kind::Setup : boot::Kind::Connecting);
-  else if (!synced) drawBoot(now - connectedAt > kSyncGiveUpMs ? boot::Kind::Error : boot::Kind::Syncing, ipText);
-  else if (welcomeDue && now - syncedAt >= kConnectedMs) {
+  else if (welcomeMode) {  // no time sync or face here: the welcome screens run as soon as the link is up
     if (!welcomeAt) {
       welcomeAt = now ? now : 1;
       char url[32];
-      snprintf(url, sizeof(url), "HTTP://%s/", ipText);
+      snprintf(url, sizeof(url), "HTTP://%s", ipText);
       bootScreen.setSettingsUrl(url);
     }
+    bootScreen.setWelcomeVisited(welcomeVisited);
     drawBoot(boot::Kind::Welcome);
   }
+  else if (!synced) drawBoot(now - connectedAt > kSyncGiveUpMs ? boot::Kind::Error : boot::Kind::Syncing, ipText);
   else if (noticeAt && now - noticeAt >= kUpdateNoticeMs) return;  // notice over: leave the panel to the face
   else if (now - syncedAt >= kConnectedMs && now - connectedAt >= kAddressMinMs && updateAvailable()) {
     if (!noticeAt) noticeAt = now ? now : 1;
@@ -197,7 +200,9 @@ static void bootTick() {
 }
 
 // The mDNS name is set up again after every GOT_IP, so ultimatrix.local survives a router restart
+static bool memoryShed = false;  // set once out-of-memory errors showed up: telnet and mDNS stay off until the next restart
 static void startMdns() {
+  if (memoryShed) return;
   mdnsRetryAt = millis() + 15000;
   if (mdnsStarted) MDNS.end();
   mdnsStarted = MDNS.begin("ultimatrix");
@@ -209,7 +214,9 @@ static void startMdns() {
   consoleLog("mDNS: ultimatrix.local %s\n", mdnsStarted ? "up" : "FAILED");
 }
 
-#if defined(UM_F1)
+#if defined(UM_MARIO) || defined(UM_LUIGI)
+#define UM_TELNET_HELP "  world   pick the world: world list, world demo, world rotate, world <name>\r\n"
+#elif defined(UM_F1)
 #define UM_TELNET_HELP "  sim     next simulated screen, then back to real data (s)\r\n  next    the same (n)\r\n"
 #else
 #define UM_TELNET_HELP ""
@@ -249,6 +256,28 @@ static bool telnetCommand(const char *c, Print &out) {
     FirmwareUpdate::Status status; firmwareUpdate.status(status);
     out.printf("%s (%lu/%lu bytes)\r\n", status.message, (unsigned long)status.received, (unsigned long)status.total); return true;
   }
+#if defined(UM_MARIO) || defined(UM_LUIGI)
+  if (!strncasecmp(c, "world", 5) && (!c[5] || c[5] == ' ')) {
+    // The same byte the settings page writes: 1 rotates, 10 is the demo, 0 and 2-9 pin a world
+    static const struct { const char *name; uint8_t value; } kWorlds[] = {
+      {"overground", 0}, {"rotate", 1}, {"underground", 2}, {"castle", 3}, {"snow", 4},
+      {"underwater", 5}, {"cloud", 6}, {"ghost", 7}, {"lava", 8}, {"airship", 9}, {"demo", 10}};
+    auto &s = *Settings::getInstance();
+    const char *arg = c + 5;
+    while (*arg == ' ') ++arg;
+    if (!*arg || !strcasecmp(arg, "list")) {
+      for (const auto &w : kWorlds) out.printf("  %-12s%s\r\n", w.name, w.value == s.numberFont ? " <- now" : "");
+      out.print("Usage: world <name>\r\n"); return true;
+    }
+    for (const auto &w : kWorlds) {
+      if (strncasecmp(arg, w.name, strlen(arg)) || strlen(arg) < 2) continue;  // a unique start of the name is enough
+      s.numberFont = w.value;
+      out.printf(s.save() ? "World: %s\r\n" : "World: %s (could not be saved)\r\n", w.name);
+      return true;
+    }
+    out.print("Unknown world. Type world list.\r\n"); return true;
+  }
+#endif
 #ifdef UM_F1
   if (!face) { out.print("Not ready yet.\r\n"); return true; }
   auto is = [&](const char *a, const char *b) { return !strcasecmp(c, a) || !strcasecmp(c, b); };
@@ -304,17 +333,20 @@ static String selectedValues(const char *name) {
 }
 
 static void settingsPage() {
-  if (welcomeDue) {  // the first visit ends the welcome screens for good
-    welcomeDue = false;
-    Preferences prefs;
-    if (prefs.begin("ultimatrix", false)) { prefs.remove("welcomePending"); prefs.putBool("onboarded", true); prefs.end(); }
-  }
+  welcomeVisited = true;  // the welcome screens drop the QR code once somebody has opened the page
   server.send_P(200, "text/html; charset=utf-8", settingsHtml); }
 
 static String minuteText(unsigned minute) {
   char text[6];
   snprintf(text, sizeof(text), "%02u:%02u", (minute / 60) % 24, minute % 60);
   return text;
+}
+
+static bool welcomeHidden() {
+  Preferences prefs;
+  bool hidden = false;
+  if (prefs.begin("ultimatrix", true)) { hidden = prefs.getBool("welcomeHidden", false); prefs.end(); }
+  return hidden;
 }
 
 static void settingsState() {
@@ -325,13 +357,19 @@ static void settingsState() {
   json += ultime::timeStatus() == timeSet ? "true" : "false";
   json += ",\"lightReading\":" + String(displayControl.lightReading());
   json += ",\"nightActive\":" + String(displayControl.nightActive() ? "true" : "false");
-  json += ",\"network\":{\"ssid\":" + jsonText(WiFi.SSID()) + ",\"ip\":" + jsonText(WiFi.localIP().toString()) + "},\"settings\":{";
+  {
+    int rise = 0, set = 0;
+    if (s.hasLocation && ultime::timeStatus() == timeSet && sun::times(s.latitude, s.longitude, time(nullptr), rise, set) == sun::Result::Normal)
+      json += ",\"sunTimes\":" + jsonText("Today: sunrise " + minuteText(rise) + ", sunset " + minuteText(set) + ".");
+  }
+  json += ",\"network\":{\"ssid\":" + jsonText(WiFi.SSID()) + ",\"ip\":" + jsonText(WiFi.localIP().toString()) + "},\"welcomeHidden\":" + String(welcomeHidden() ? "true" : "false") + ",\"welcomeMode\":" + String(welcomeMode ? "true" : "false") + ",\"settings\":{";
   json += "\"brightness\":" + String(s.brightness) + ",\"rotation\":" + String(s.rotation);
   json += ",\"use24h\":" + String(s.use24h ? "true" : "false") + ",\"ntpServer\":" + jsonText(s.ntpServer);
   json += ",\"autoBrightness\":" + String(s.autoBrightness ? "true" : "false") + ",\"ldrPin\":" + String(s.ldrPin);
   json += ",\"minimumBrightness\":" + String(s.minimumBrightness) + ",\"ldrDark\":" + String(s.ldrDark) + ",\"ldrLight\":" + String(s.ldrLight);
   json += ",\"nightEnabled\":" + String(s.nightEnabled ? "true" : "false") + ",\"nightStart\":" + jsonText(minuteText(s.nightStart));
   json += ",\"nightEnd\":" + jsonText(minuteText(s.nightEnd)) + ",\"nightBrightness\":" + String(s.nightBrightness);
+  json += ",\"nightSun\":" + String(s.nightSun ? "true" : "false");
   json += ",\"timezone\":" + jsonText(s.timezone) + ",\"autoTimezone\":" + String(s.manualTimezone ? "false" : "true") + ",\"matchSecs\":" + String(s.matchSecs);
   json += ",\"resultMins\":" + String(s.resultMins) + ",\"timeStyle\":" + String(s.timeStyle);
   json += ",\"swapBlueGreen\":" + String(s.swapBlueGreen ? "true" : "false") + ",\"telnet\":" + String(s.telnet ? "true" : "false");
@@ -341,6 +379,17 @@ static void settingsState() {
   json += ",\"ballRoll\":" + String(s.ballRoll ? "true" : "false");
   json += ",\"numberFont\":" + String(s.numberFont == 1 ? "true" : "false");
   json += ",\"wordLanguage\":" + String(s.numberFont);
+#ifdef UM_WORD
+  json += ",\"wordAnimation\":" + String(s.timeStyle);
+#endif
+#ifdef UM_PACMAN
+  json += ",\"color\":" + String(s.color) + ",\"dotColor\":" + String(s.dotColor);
+  const char *ghostNames[] = {"ghost1Color", "ghost2Color", "ghost3Color", "ghost4Color"};
+  for (int i = 0; i < 4; i++) json += ",\"" + String(ghostNames[i]) + "\":" + String(s.ghostColors[i]);
+#endif
+#if defined(UM_MARIO) || defined(UM_LUIGI)
+  json += ",\"marioWorld\":" + String(s.numberFont);
+#endif
   json += ",\"f1Flags\":" + String(s.f1Flags ? "true" : "false") + "}}";
   server.sendHeader("Cache-Control", "no-store");
   server.send(200, "application/json", json);
@@ -412,6 +461,19 @@ static void settingsResponse(int status, const char *message) {
   if (server.uri().startsWith("/api/"))
     server.send(status, "application/json", "{\"message\":" + jsonText(message) + "}");
   else server.send(status, "text/plain; charset=utf-8", message);
+}
+
+static void dismissWelcome() {
+  Preferences prefs;
+  if (prefs.begin("ultimatrix", false)) { prefs.putBool("welcomeHidden", true); prefs.end(); }
+  settingsResponse(200, "Welcome hidden.");
+}
+
+static void startClock() {
+  Preferences prefs;
+  if (prefs.begin("ultimatrix", false)) { prefs.remove("welcomePending"); prefs.putBool("onboarded", true); prefs.end(); }
+  settingsResponse(200, "Starting the clock.");
+  restartAt = millis() + 1000;
 }
 
 static void openWifiSetup() {
@@ -489,7 +551,12 @@ static void saveSettings() {
     }
     s.autoBrightness = server.hasArg("autoBrightness"); s.ldrPin = pin; s.ldrDark = dark; s.ldrLight = light;
     s.minimumBrightness = minimum; s.nightBrightness = night; s.nightEnabled = server.hasArg("nightEnabled");
-    if (s.nightEnabled && s.nightStart == s.nightEnd) { settingsResponse(400, "Choose different start and end times for night mode."); return; }
+    s.nightSun = server.hasArg("nightSun");
+    if (s.nightSun && !s.hasLocation) {  // sunrise and sunset need the network's location: look it up now
+      String zone; float lat = 0, lon = 0;
+      if (ultime::detectZone(zone, &lat, &lon)) { s.latitude = lat; s.longitude = lon; s.hasLocation = true; }
+    }
+    if (s.nightEnabled && !s.nightSun && s.nightStart == s.nightEnd) { settingsResponse(400, "Choose different start and end times for night mode."); return; }
   }
   s.brightness = bright; s.rotation = rotation;
   if (autoZone) { String found; if (s.manualTimezone && ultime::detectZone(found)) s.timezone = found; }
@@ -498,11 +565,36 @@ static void saveSettings() {
 #ifndef UM_SIMPLE_FACE
   s.matchSecs = seconds; s.resultMins = results; s.timeStyle = style;
 #endif
+#if defined(UM_MARIO) || defined(UM_LUIGI)
+  if (server.hasArg("marioWorld")) {
+    long choice;
+    if (!number("marioWorld", 0, 10, choice)) { settingsResponse(400, "Choose a world from the list."); return; }
+    s.numberFont = choice;  // 1 rotates, 10 is the demo, 0 and 2-9 pin a world (the byte the Words language and Football digits share)
+  }
+#endif
 #ifdef UM_WORD
   if (server.hasArg("wordLanguage")) {
     long language;
     if (!number("wordLanguage", 0, WORD_LANGUAGE_COUNT - 1, language)) { settingsResponse(400, "Choose a language from the list."); return; }
     s.numberFont = language;  // the Time in Words language shares the football "alternative digits" byte
+  }
+  if (server.hasArg("wordAnimation")) {
+    long animation;
+    if (!number("wordAnimation", 0, 5, animation)) { settingsResponse(400, "Choose a word animation from the list."); return; }
+    s.timeStyle = animation;
+  }
+#endif
+#ifdef UM_PACMAN
+  const struct { const char *name; uint8_t *value; uint8_t count; } colours[] = {
+    {"color", &s.color, pacmancolors::WALL_COUNT}, {"dotColor", &s.dotColor, pacmancolors::COLOR_COUNT},
+    {"ghost1Color", &s.ghostColors[0], pacmancolors::COLOR_COUNT}, {"ghost2Color", &s.ghostColors[1], pacmancolors::COLOR_COUNT},
+    {"ghost3Color", &s.ghostColors[2], pacmancolors::COLOR_COUNT}, {"ghost4Color", &s.ghostColors[3], pacmancolors::COLOR_COUNT}
+  };
+  for (const auto &colour : colours) {
+    if (!server.hasArg(colour.name)) continue;  // older forms keep the saved colours
+    long choice;
+    if (!number(colour.name, 0, colour.count - 1, choice)) { settingsResponse(400, "Choose a colour from the list."); return; }
+    *colour.value = choice;
   }
 #endif
   s.swapBlueGreen = server.hasArg("swapBlueGreen");
@@ -526,7 +618,7 @@ static void saveSettings() {
   if (display) display->setRotation(s.rotation);
   if (timeChanged && face) clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (consoleChanged) {
-    if (s.telnet) telnet.begin(telnetCommand, "  update  download signed application update\r\n  update-status  show update progress\r\n" UM_TELNET_HELP);
+    if (s.telnet && !memoryShed) telnet.begin(telnetCommand, "  update  download signed application update\r\n  update-status  show update progress\r\n" UM_TELNET_HELP);
     else telnet.stop();
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
@@ -543,6 +635,8 @@ static void firmwareStatus() {
   FirmwareUpdate::Latest latest; firmwareUpdate.latest(latest);
   json += ",\"available\":" + String(latest.available ? "true" : "false") + ",\"latest\":" + jsonText(latest.version) + ",\"checkError\":" + jsonText(latest.error);
   json += ",\"checking\":" + String(latest.checking ? "true" : "false") + ",\"checkedAt\":" + String(latest.checkedAt);
+  char updateServer[96]; FirmwareUpdate::server(updateServer, sizeof(updateServer));
+  json += ",\"server\":" + jsonText(updateServer);
   json += ",\"freeHeap\":" + String(heap_caps_get_free_size(MALLOC_CAP_8BIT));
   json += ",\"minimumHeap\":" + String(heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT)) + "}";
   server.sendHeader("Cache-Control", "no-store"); server.send(200, "application/json", json);
@@ -550,7 +644,13 @@ static void firmwareStatus() {
 
 static void checkFirmware() {
   bool started = firmwareUpdate.checkNow();
-  settingsResponse(started ? 202 : 429, started ? "Checking for updates." : "Wait a moment before checking again.");
+  settingsResponse(started ? 202 : 429, started ? "Stopping feeds before checking for updates." :
+      liveDataActive() ? "Wait until live data has finished before checking for updates." : "Wait a moment before checking again.");
+}
+
+static void saveUpdateServer() {
+  bool saved = firmwareUpdate.setServer(server.arg("url").c_str());
+  settingsResponse(saved ? 200 : 400, saved ? "Update source saved." : "Enter an http:// or https:// address, or leave it empty for GitHub.");
 }
 
 static void requestFirmwareUpdate() {
@@ -589,6 +689,20 @@ static void reportMemory() {
       (unsigned)uxTaskGetStackHighWaterMark(nullptr), (unsigned)failures);
 }
 
+// Memory safeguard: the first allocation failure after boot stops the telnet server and mDNS to give their RAM back
+static void shedOnLowMemory() {
+  static uint32_t seen = 0;
+  uint32_t failures = memoryAllocationFailures.load(std::memory_order_relaxed);
+  if (!bootDone) { seen = failures; return; }
+  if (failures == seen || memoryShed) { seen = failures; return; }
+  seen = failures;
+  memoryShed = true;
+  telnet.stop();
+  if (mdnsStarted) { MDNS.end(); mdnsStarted = false; }
+  Serial.printf("[Memory] allocation failures: telnet and mDNS stopped until restart (free=%u largest=%u)\n",
+      (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+}
+
 static void background() {
   wifi.process();
   if (portalCloseAt && (int32_t)(millis() - portalCloseAt) >= 0) {
@@ -603,7 +717,7 @@ static void background() {
     Serial.printf("[Portal] mode %d, stations %u, sta status %d, channel %u, heap %u, largest %u\n", (int)mode, (unsigned)WiFi.softAPgetStationNum(),
         (int)WiFi.status(), (unsigned)WiFi.channel(), (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
   }
-  if (setupRefresh && !portalNow && !restartAt) restartAt = millis() + 1000;  // setup is over: restart out of the fast display (the face needs the memory and colour depth)
+  if (setupRefresh && !welcomeMode && !portalNow && !restartAt) { restartAt = millis() + 1000; Serial.println("[Portal] setup over: restarting out of the fast display"); }  // setup is over: restart out of the fast display (the face needs the memory and colour depth)
   if (portalActive && !portalNow && WiFi.status() != WL_CONNECTED) WiFi.begin();
   portalActive = portalNow;
   if (!settingsServerStarted && WiFi.status() == WL_CONNECTED && !wifi.getConfigPortalActive()) {
@@ -624,11 +738,18 @@ static void background() {
   FirmwareUpdate::Status updateStatus; firmwareUpdate.status(updateStatus);
   if (updateStatus.ready && !restartAt) restartAt = now + 1500;
   if (scheduledMode[0]) {
-    if (WiFi.status() == WL_CONNECTED) { firmwareUpdate.request(scheduledMode); scheduledMode[0] = 0; }
+    // Signed manifest and TLS need a valid clock, so wait for NTP before starting.
+    if (WiFi.status() == WL_CONNECTED && time(nullptr) > 1700000000) {
+      bool started = firmwareUpdate.request(scheduledMode);
+      consoleLog("[Firmware] Scheduled update %s\n", started ? "started" : "could not start");
+      scheduledMode[0] = 0;
+      if (!started) firmwareUpdating = false;
+    }
     else if (now - scheduledSince > 90000) { scheduledMode[0] = 0; firmwareUpdating = false; }  // no Wi-Fi: give up and start the feeds
   }
   firmwareUpdate.poll(now, bootDone && !portalActive && WiFi.status() == WL_CONNECTED);
   reportMemory();
+  shedOnLowMemory();
   telnet.poll();
   if (mdnsDue) { mdnsDue = false; startMdns(); }
   if (restartAt && (int32_t)(millis() - restartAt) >= 0) { FirmwareUpdate::confirmBeforeRestart(); ESP.restart(); }
@@ -648,22 +769,23 @@ void setup() {
     if (refreshPrefs.begin("ultimatrix", false)) {
       asked = refreshPrefs.getBool("setupWifi", false);
       setupRefreshRestart = refreshPrefs.getBool("setupRefresh", false);
-      welcomeDue = refreshPrefs.getBool("welcomePending", false);  // stays set (every start) until the settings page is first opened
+      welcomeMode = refreshPrefs.getBool("welcomePending", false);  // stays set (every start) until "Start the clock" is pressed
       if (setupRefreshRestart) refreshPrefs.remove("setupRefresh");
       refreshPrefs.end();
     }
-    setupRefresh = asked || setupRefreshRestart;  // no saved network: the portal comes up late and restarts into it (the saved SSID can't be read before Wi-Fi is initialised)
+    setupRefresh = asked || setupRefreshRestart || welcomeMode;  // no saved network: the portal comes up late and restarts into it (the saved SSID can't be read before Wi-Fi is initialised)
+    Serial.printf("[Boot] reset reason %d, setupWifi=%d setupRefreshRestart=%d welcomeMode=%d -> %s display\n", (int)esp_reset_reason(), (int)asked, (int)setupRefreshRestart, (int)welcomeMode, setupRefresh ? "fast setup" : "normal");
   }
   HUB75_I2S_CFG panel(layout::width, layout::height, 1);
   panel.gpio.e = 18;
   panel.clkphase = false;
-  panel.double_buff = true;
+  panel.double_buff = !setupRefresh;  // the setup and welcome display is single buffered (static screens, half the DMA memory)
   panel.setPixelColorDepthBits(UM_PIXEL_DEPTH_BITS);
   panel.i2sspeed = HUB75_I2S_CFG::HZ_16M;  // the driver drops low bit planes (lsbMsbTransitionBit) to reach 60 Hz, and each plane kept halves the DMA descriptor memory: 8 bit at 20 MHz needs 4096 descriptors per buffer and ran out of heap
   if (setupRefresh) {
     panel.i2sspeed = HUB75_I2S_CFG::HZ_20M;
     panel.min_refresh_rate = 255;
-    panel.setPixelColorDepthBits(2);  // the setup QR is white on black: fewer bit planes give the fastest refresh, so cameras see no stripes (the library's minimum)
+    panel.setPixelColorDepthBits(2);  // the setup QR is white on black: fewer bit planes give the fastest refresh, so cameras see no stripes (the library's minimum). The restart after setup returns to UM_PIXEL_DEPTH_BITS
   }
   if (s.swapBlueGreen) {
     panel.gpio.b1 = 26; panel.gpio.b2 = 12;
@@ -673,13 +795,17 @@ void setup() {
   if (!display->begin()) { consoleLog("Display allocation failed\n"); return; }
   displayReady = true;
   boot::setPlot888(plotDithered);
+  bootScreen.setPlainBackdrop(setupRefresh);  // the setup display: no dim U behind the icons
   boot::setLevelMap(bootMap);
   appliedBrightness = panelBrightness(s.brightness);
   display->setBrightness8(appliedBrightness);
   display->setRotation(s.rotation);
   bootAt = millis();
-  while (millis() - bootAt < kLogoFadeMs) { drawBoot(boot::Kind::Logo); delay(10); }  // the fade-in is drawn here: setup below is too busy to tick it
-  drawBoot(boot::Kind::Logo);
+  if (setupRefresh) drawBoot(boot::Kind::Connecting);  // the setup display skips the logo
+  else {
+    while (millis() - bootAt < kLogoFadeMs) { drawBoot(boot::Kind::Logo); delay(10); }  // the fade-in is drawn here: setup below is too busy to tick it
+    drawBoot(boot::Kind::Logo);
+  }
   WiFi.setHostname("ultimatrix");
   WiFi.setAutoReconnect(true);
   WiFi.setSleep(false);  // as Clockwise does, before any mode change; the STA event handler below re-applies it
@@ -719,7 +845,8 @@ addEventListener('pageshow',function(){var b=document.getElementById('busy');if(
 <script>addEventListener('DOMContentLoaded',function(){document.querySelectorAll('.msg').forEach(function(m){
 if(!/Saving Credentials/.test(m.textContent))return;
 function link(u){return '<a href="'+u+'" target="_blank" rel="noopener">'+u+'</a> (<a href="#" data-copy="'+u+'">copy</a>)'}
-function show(ip){m.innerHTML='<b>Wi-Fi saved.</b><br>Reconnect to your normal Wi-Fi, then open '+link('http://ultimatrix.local/')+(ip?' or '+link('http://'+ip+'/'):'')+'.'}
+var intro=document.querySelector('.portal-intro');if(intro)intro.style.display='none';
+function show(ip){m.innerHTML='<b>Wi-Fi saved.</b><br>The clock will restart soon. Reconnect to your normal Wi-Fi, then open '+link('http://ultimatrix.local/')+(ip?' or '+link('http://'+ip+'/'):'')+'.'}
 show('');m.addEventListener('click',function(e){var u=e.target.getAttribute('data-copy');if(!u)return;e.preventDefault();var t=document.createElement('textarea');t.value=u;document.body.appendChild(t);t.select();try{if(document.execCommand('copy'))e.target.textContent='copied'}catch(_){}t.remove()});
 var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(timer);return}fetch('/setup-ip',{cache:'no-store'}).then(function(r){return r.text()}).then(function(ip){if(!/^\d+\.\d+\.\d+\.\d+$/.test(ip))return;show(ip);clearInterval(timer)}).catch(function(){})},1000)
 })})</script>)HTML");
@@ -794,10 +921,13 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
 #endif
   server.on("/api/timezones", HTTP_GET, timezones);
   server.on("/api/wifi/setup", HTTP_POST, openWifiSetup);
+  server.on("/api/welcome/dismiss", HTTP_POST, dismissWelcome);
+  server.on("/api/welcome/start", HTTP_POST, startClock);
   server.on("/api/firmware", HTTP_GET, firmwareStatus);
   server.on("/api/firmware", HTTP_POST, requestFirmwareUpdate);
   server.on("/api/firmware/reboot", HTTP_POST, rebootForFirmwareUpdate);
   server.on("/api/firmware/check", HTTP_POST, checkFirmware);
+  server.on("/api/firmware/server", HTTP_POST, saveUpdateServer);
   if (s.telnet) telnet.begin(telnetCommand, "  update  download signed application update\r\n  update-status  show update progress\r\n" UM_TELNET_HELP);
   backgroundWork() = background;
 }
@@ -809,10 +939,16 @@ void loop() {
   if (portalActive && backgroundMs > 40) Serial.printf("[Portal] background() took %u ms\n", (unsigned)backgroundMs);
   if (!displayReady) { delay(50); return; }
   uint32_t now = millis();
-  if (!face && !portalActive && WiFi.status() == WL_CONNECTED) {
+  if (!face && !portalActive && !welcomeMode && WiFi.status() == WL_CONNECTED) {
     auto &s = *Settings::getInstance();
     String zone;  // unless a zone was typed in on the settings page, the network's location decides; the page shows the result
-    if (!s.manualTimezone && ultime::detectZone(zone) && zone != s.timezone) { s.timezone = zone; s.save(); }
+    float lat = 0, lon = 0;
+    if ((!s.manualTimezone || !s.hasLocation) && ultime::detectZone(zone, &lat, &lon)) {
+      bool changed = !s.manualTimezone && zone != s.timezone;
+      if (changed) s.timezone = zone;
+      if (!s.hasLocation || fabsf(lat - s.latitude) > 0.05f || fabsf(lon - s.longitude) > 0.05f) { s.latitude = lat; s.longitude = lon; s.hasLocation = true; changed = true; }
+      if (changed) s.save();
+    }
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
     face = new Clockface(display);
     face->setup(&clockTime);
@@ -820,22 +956,28 @@ void loop() {
   }
   if ((int32_t)(now - nextFrame) >= 0) {
     uint8_t brightness = displayControl.update(*Settings::getInstance(), now, ultime::timeStatus() == timeSet,
-        clockTime.getHour24() * 60 + clockTime.getMinute(), !bootDone || portalActive);
+        clockTime.getHour24() * 60 + clockTime.getMinute(), !bootDone || portalActive, face && face->handlesNight());
     uint8_t panel = panelBrightness(brightness);
     if (panel != appliedBrightness) { display->setBrightness8(panel); appliedBrightness = panel; }
     bootTick();  // before the check below: it stamps connectedAt on the connect
     if (face && !portalActive && !bootDone && syncedAt && bootHoldOver(now)) { bootDone = true; Serial.printf("[Boot] done at %u ms\n", (unsigned)now); }
     if (bootDone) {  // keeps drawing during an update: the feeds are parked, the face shows its last snapshot
-      if (displayControl.nightActive() && !face->handlesNight()) {
+      // A face that paints its own night (Mario, Luigi) follows the sun for its sky and only gives way to the red clock in a dark room
+      if (face->handlesNight() ? displayControl.roomDark() : displayControl.nightActive()) {
         nightClock.draw(*display, clockTime.getHour(), clockTime.getMinute(), clockTime.is24hFormat());
         nightShown = true;
       } else {
         if (nightShown) { nightShown = false; nightClock.reset(); face->invalidate(); }
-        face->setNight(displayControl.nightActive());
+        face->setNight(face->handlesNight() ? displayControl.sunDown() : displayControl.nightActive());
         face->update();
       }
     }
+#ifdef UM_FOOTBALL_ONLY
+    // The goal animation paces itself (40 ms frames by wall time): poll fast so no frame is late or skipped
+    nextFrame = millis() + (face && face->animating() ? 4 : layout::frameMs);
+#else
     nextFrame = millis() + layout::frameMs;
+#endif
     if (portalActive && millis() - loopStart - backgroundMs > 40) Serial.printf("[Portal] frame took %u ms\n", (unsigned)(millis() - loopStart - backgroundMs));
   }
   delay(portalActive ? 1 : 2);  // the setup page and DNS answers wait on this loop

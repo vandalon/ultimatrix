@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ultimatrix Web Flasher</title>
+<script type="module" src="https://unpkg.com/esp-web-tools@10.1.0/dist/web/install-button.js?module"></script>
+<style>
+  :root { --bg:#050809; --fg:#e8f4f8; --muted:#8aa0a8; --accent:#46d2ff; --card:#0e1417; --line:#1c272c; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:32px 16px 64px; }
+  h1 { margin:0 0 4px; font-size:28px; }
+  p.lead { color:var(--muted); margin:0 0 24px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:6px; }
+  .card h2 { margin:0; font-size:18px; }
+  .card p { margin:0 0 8px; color:var(--muted); font-size:14px; flex:1; }
+  esp-web-install-button { --esp-tools-button-color:var(--accent); --esp-tools-button-text-color:#001018; }
+  .note { margin-top:28px; color:var(--muted); font-size:14px; }
+  .note li { margin-bottom:6px; }
+  #unsupported { display:none; background:#3a1a14; border:1px solid #7a3a2a; border-radius:8px; padding:12px; margin-bottom:20px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ultimatrix Web Flasher</h1>
+  <p class="lead">Install Ultimatrix on an ESP32 over USB, straight from the browser.</p>
+  <div id="unsupported">This browser has no Web Serial support. Use Chrome, Edge or Opera on a desktop.</div>
+  <div class="grid" id="grid"></div>
+  <ul class="note">
+    <li>Connect the clock board with a data-capable USB cable and pick its serial port when asked.</li>
+    <li>A fresh install erases the device, including Wi-Fi and settings. Untick "Erase" to keep them.</li>
+    <li>Once installed, later updates come over Wi-Fi from the clock's own settings page.</li>
+    <li>Flashing needs HTTPS (or localhost) and a Chromium-based desktop browser.</li>
+  </ul>
+</main>
+<script>
+  const faces = [
+    ['football', 'Football', 'Live scores, fixtures and tables.'],
+    ['f1', 'Formula 1', 'Race calendar, sessions and standings.'],
+    ['motogp', 'MotoGP', 'Race calendar and results.'],
+    ['tetris', 'Tetris', 'Clock built from falling blocks.'],
+    ['word', 'Word clock', 'Time spelled out in words.'],
+    ['mario', 'Mario', 'Animated Mario clock.'],
+    ['luigi', 'Luigi', 'Animated Luigi clock.'],
+    ['pacman', 'Pac-Man', 'Animated Pac-Man clock.']
+  ];
+  if (!('serial' in navigator)) document.getElementById('unsupported').style.display = 'block';
+  const grid = document.getElementById('grid');
+  for (const [id, name, text] of faces) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = '<h2></h2><p></p><esp-web-install-button></esp-web-install-button>';
+    card.querySelector('h2').textContent = name;
+    card.querySelector('p').textContent = text;
+    card.querySelector('esp-web-install-button').setAttribute('manifest', 'firmware/' + id + '/manifest.json');
+    grid.appendChild(card);
+  }
+</script>
+</body>
+</html>

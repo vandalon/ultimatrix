@@ -42,6 +42,12 @@ elseif(ULTIMATRIX_MODE MATCHES "^(word|mario|luigi|pacman)$")
     else()
         set(mode_definitions UM_SIMPLE_FACE UM_PACMAN UM_MODE_NAME="Pac-Man")
     endif()
+elseif(ULTIMATRIX_MODE STREQUAL "bridge")
+    # The stop-over image for old clocks: no feed and no face of its own
+    set(sport "faces")
+    # Where the bridge looks for the signed face it installs (the update server setting; override with -DULTIMATRIX_BRIDGE_SERVER=...)
+    set(ULTIMATRIX_BRIDGE_SERVER "http://192.168.7.77/ultiMatrix" CACHE STRING "Update server the bridge saves when none is set")
+    set(mode_definitions UM_SIMPLE_FACE UM_BRIDGE UM_MODE_NAME="Bridge" UM_BRIDGE_SERVER="${ULTIMATRIX_BRIDGE_SERVER}")
 elseif(ULTIMATRIX_MODE STREQUAL "tetris")
     set(sport "tetris")
     list(APPEND sources
@@ -81,7 +87,7 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)  # commands are not scriptable in IDF's requ
 endif()
 idf_component_register(SRCS ${sources}
     INCLUDE_DIRS "${root}/lib/core" "${CMAKE_CURRENT_BINARY_DIR}/generated" "${root}/lib/${sport}" "${root}/lib/faces" "${root}/lib/motogp-feed" "${root}/clockfaces/${face}"
-    REQUIRES espressif__arduino-esp32 clock-libraries esp_wifi esp_netif esp_event espressif__network_provisioning nvs_flash esp_http_client app_update json)
+    REQUIRES espressif__arduino-esp32 clock-libraries esp_wifi esp_netif esp_event espressif__network_provisioning nvs_flash esp_http_client esp-tls app_update json)
 if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     add_dependencies(${COMPONENT_LIB} tzdb_header)
 endif()

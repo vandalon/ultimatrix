@@ -1,0 +1,3 @@
+
+Claude (13 Oct, later) TELNET FACTORY RESET: new telnet command "factory-reset" (needs "factory-reset yes") erases the NVS partition (Wi-Fi, settings, update history) and the spiffs/LittleFS cache partition, then restarts into Wi-Fi setup. firmware/lib/core/TelnetConsole.cpp. Not built or tested on device; boot path after nvs erase (nvs init in Arduino core) assumed fine.
+Claude (13 Oct, later) SETTINGS RESTART: saving no longer restarts when Football competitions/teams change (FootballTicker::loadConfig already picks them up live); restart now only on swapBlueGreen. firmware/src/main.cpp. Not built or tested.

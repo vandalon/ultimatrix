@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include <TimeService.h>
 #include <MemoryLimits.h>
+#include <NetworkBudget.h>
 
 // What the football and the F1 tickers share for reading ESPN's feeds.
 
@@ -22,10 +23,12 @@ struct YieldingReader {
   YieldingReader(Stream &s, unsigned long timeout) : stream(s), timeoutMs(timeout) {}
 
   int read() {
+    if (firmwareUpdating) { dry = true; return -1; }
     if (count >= limits::responseBytes) { oversized = true; return -1; }
     if (++count % 1024 == 0) vTaskDelay(1);
     unsigned long start = millis();
     do {
+      if (firmwareUpdating) { dry = true; return -1; }
       int c = stream.read();
       if (c >= 0) return c;
       vTaskDelay(1);

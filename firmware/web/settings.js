@@ -4,6 +4,7 @@ const controls = document.querySelector('#controls');
 const save = document.querySelector('#save');
 const saveBar = document.querySelector('.save-bar');
 const notice = document.querySelector('#notice');
+let ownNight = false;  // Mario and Luigi paint their own night from the sun: no night schedule, only the dark-room clock
 let initial = '', busy = false, saving = false, savedSwap = false, saveTimer = 0, noticeTimer = 0;
 const field = name => form.elements.namedItem(name);
 const encoded = () => new URLSearchParams(new FormData(form));
@@ -28,7 +29,12 @@ function brightness(event) {
   dual.style.setProperty('--lo', auto ? (Number(low.value) - 1) / 254 : 0);
   dual.style.setProperty('--hi', (Number(high.value) - 1) / 254);
   const nightOn = field('nightEnabled').checked;
-  document.querySelector('#night-fields').hidden = !nightOn;
+  document.querySelector('#night-fields').hidden = !nightOn && !ownNight;
+  document.querySelector('#night-schedule').hidden = ownNight;
+  document.querySelector('#night-sun').hidden = ownNight;
+  document.querySelector('#own-night').hidden = !ownNight;
+  document.querySelector('#night-times').hidden = field('nightSun').checked || ownNight;
+  const sunHint = document.querySelector('#sun-hint'); sunHint.hidden = ownNight || !field('nightSun').checked || !sunHint.textContent;
   const night = field('nightBrightness');
   document.querySelector('#night-dual').style.setProperty('--hi', (Number(night.value) - 1) / 254);
   document.querySelector('#night-value').textContent = pct(night);
@@ -151,18 +157,27 @@ async function load() {
     if (!response.ok) throw new Error('The clock could not load its settings. Reload this page to try again.');
     const data = await response.json();
     const racing = data.mode === 'F1' || data.mode === 'MotoGP', sporty = racing || data.mode === 'Football';
-    section('[data-sports]', sporty || data.mode === 'Words'); section('[data-sportfields]', sporty); section('[data-word]', data.mode === 'Words');
+    const pacman = data.mode === 'Pac-Man';
+    section('[data-sports]', sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || pacman); section('[data-sportfields]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', pacman);
     section('[data-football]', data.mode === 'Football'); section('[data-f1]', racing);
-    if (sporty || data.mode === 'Words') { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
+    if (sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || pacman) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
+    if (pacman) {
+      const colours = ['Default', 'Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'];
+      for (const name of ['ghost1Color', 'ghost2Color', 'ghost3Color', 'ghost4Color', 'dotColor']) field(name).replaceChildren(...colours.map((label, value) => new Option(label, value)));
+    }
     if (data.mode === 'MotoGP') document.querySelector('[data-f1] .field > label').textContent = 'Favourite riders';
     if (racing) form.querySelector('[name=timeStyle] option[value="0"]').remove();
     Object.entries(data.settings).forEach(([name, value]) => { const input = field(name); if (!input) return; if (input.tagName === 'SELECT' && ![...input.options].some(o => o.value === String(value))) input.add(new Option(value, value)); if (input.type === 'checkbox') input.checked = Boolean(value); else input.value = name === 'use24h' ? (value ? '1' : '0') : name === 'timeStyle' && racing && Number(value) === 0 ? 2 : value; });
+    document.querySelector('#sun-hint').textContent = data.sunTimes || '';
     document.querySelector('#mode-name').textContent = data.mode; currentFace = data.modeId; markFace();
     document.querySelector('#sport-heading').textContent = data.mode + ' preferences';
     document.querySelector('#network-name').textContent = data.network.ssid || 'Not connected';
     document.querySelector('#network-ip').textContent = data.network.ip || '—';
     document.querySelector('#sidebar-ip').textContent = data.network.ip || 'Offline';
-    { const link = document.querySelector('#welcome-ip'); const url = data.network.ip ? 'http://' + data.network.ip + '/' : ''; link.textContent = url || '—'; link.href = url || '#'; }
+    if (data.welcomeHidden && !data.welcomeMode) hideWelcome();
+    document.body.classList.toggle('welcome-only', !!data.welcomeMode);
+    { const start = document.querySelector('#welcome-start'); if (start) start.hidden = !data.welcomeMode; const dismiss = document.querySelector('#welcome-dismiss'); if (dismiss) dismiss.parentElement.hidden = !!data.welcomeMode; }
+    { const link = document.querySelector('#welcome-ip'); const url = data.network.ip ? 'http://' + data.network.ip + '/' : ''; if (link) { link.textContent = url || '—'; link.href = url || '#'; } }
     lightNow = data.lightReading;
     document.querySelector('#time-status').textContent = data.timeSynced ? 'Time is synced automatically' : 'Waiting for the first time sync';
     if (sporty || data.mode === 'Words') {
@@ -181,7 +196,7 @@ async function load() {
         select.value = data.settings.wordLanguage;
       } else choices('#drivers', 'f1Drivers', catalog, data.settings.f1Drivers);
     }
-    controls.disabled = false; save.disabled = false; savedSwap = field('swapBlueGreen').checked; brightness(); sensor(); timezoneMode(); countLeagues(); initial = payload(false).toString(); dirty();
+    controls.disabled = false; save.disabled = false; savedSwap = field('swapBlueGreen').checked; ownNight = data.mode === 'Mario' || data.mode === 'Luigi'; brightness(); sensor(); timezoneMode(); countLeagues(); initial = payload(false).toString(); dirty();
     if (sessionStorage.getItem('ultimatrix-saved')) { sessionStorage.removeItem('ultimatrix-saved'); message('Settings saved. Your clock is ready.'); }
   } catch (error) { message(error.message, true); document.querySelector('#save-status').textContent = 'Settings could not load'; saveBar.hidden = false; }
 }
@@ -276,6 +291,7 @@ async function refreshFirmware() {
     const response = await fetch('/api/firmware', {cache:'no-store'}); if (!response.ok) return;
     const state = await response.json();
     document.querySelector('#firmware-version').textContent = state.version;
+    { const field = document.querySelector('#update-server'); if (document.activeElement !== field) field.value = state.server || ''; }
     document.querySelector('#firmware-memory').textContent = Math.round(state.freeHeap / 1024) + ' KiB';
     document.querySelector('#firmware-status').textContent = state.message;
     document.querySelector('#firmware-latest').textContent = state.checking ? 'Checking…' : state.available ? state.latest + ' available' : state.checkedAt ? 'Up to date' : '—';
@@ -319,6 +335,11 @@ async function startUpdate(question, mode) {
 const installQuestion = 'Download and install the signed update? Your clock will restart. Unsaved settings will be discarded.';
 document.querySelector('#firmware-update').addEventListener('click', () => startUpdate(installQuestion));
 document.querySelector('#update-banner-install').addEventListener('click', () => startUpdate(installQuestion));
+document.querySelector('#update-server-save').addEventListener('click', async () => {
+  const body = new URLSearchParams({url: document.querySelector('#update-server').value.trim()});
+  try { const response = await fetch('/api/firmware/server', {method:'POST', body}); const result = await response.json(); document.querySelector('#firmware-status').textContent = result.message; } catch (_) {}
+  setTimeout(refreshFirmware, 500);
+});
 document.querySelector('#firmware-check').addEventListener('click', async () => {
   document.querySelector('#firmware-check').disabled = true;
   try { const response = await fetch('/api/firmware/check', {method:'POST'}); const result = await response.json(); document.querySelector('#firmware-status').textContent = result.message; } catch (_) {}
@@ -332,3 +353,17 @@ document.querySelector('#faces').addEventListener('click', event => {
   startUpdate('Switch to the ' + name + ' clock face? Your clock will restart. Unsaved settings will be discarded.', button.dataset.face);
 });
 refreshFirmware();
+
+function hideWelcome() { document.querySelector('#welcome')?.remove(); document.querySelector('.sidebar nav a[href="#welcome"]')?.remove(); }
+document.querySelector('#welcome-dismiss')?.addEventListener('click', async () => {
+  try { const response = await fetch('/api/welcome/dismiss', { method: 'POST' }); if (response.ok) hideWelcome(); } catch (_) {}
+});
+document.querySelector('#welcome-start-button')?.addEventListener('click', async event => {
+  const button = event.currentTarget, note = document.querySelector('#welcome-start-note');
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/welcome/start', { method: 'POST' });
+    note.textContent = response.ok ? 'Restarting… this page reloads in a few seconds.' : 'That did not work. Try again.';
+    if (response.ok) setTimeout(() => location.reload(), 8000); else button.disabled = false;
+  } catch (_) { note.textContent = 'That did not work. Try again.'; button.disabled = false; }
+});

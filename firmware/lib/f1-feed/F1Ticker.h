@@ -150,6 +150,6 @@ class F1Ticker {
     uint32_t _version = 0;
     bool _started = false;
     bool _cacheLoaded = false;
-    TaskHandle_t _task = nullptr;  // the download task; none while a firmware update needs the memory
+    std::atomic<TaskHandle_t> _task{nullptr};  // the download task; none while a firmware update needs the memory
     unsigned long _weekendAt = 0, _standingsAt = 0, _seasonAt = 0;  // millis() of the next download
 };

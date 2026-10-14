@@ -8,7 +8,7 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #define CLOCKFACE_NAME "pacman"
 
-// The time in solid 6x10 block digits (as football and F1) above a Pac-Man maze that plays itself: a new random maze (mirrored, no dead ends, a tunnel, a ghost
+// The time in solid 6x10 block digits (as football and F1) over a full-panel Pac-Man maze, dimmed behind the time: a new random maze (mirrored, no dead ends, a tunnel, a ghost
 // house, four power pills) for every level, with the four ghosts hunting as in the arcade game
 class Clockface: public IClockface {
   private:

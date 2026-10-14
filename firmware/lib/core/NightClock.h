@@ -5,10 +5,10 @@
 
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
-// The plain red clock shown at night: hours and minutes in the block digits, nothing else.
+// The plain night clock: block digits, red by default; Pac-Man uses the chosen border palette.
 class NightClock {
 public:
-  // Draws only when the minute changed since the last call (or after reset()).
+  // Draws when the minute or Pac-Man colour changes (or after reset()).
   void draw(MatrixPanel_I2S_DMA &gfx, int hour, int minute, bool use24h);
   void reset() { _shown = -1; }
 private:

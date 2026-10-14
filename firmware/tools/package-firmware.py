@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 root = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--out', type=Path, default=root / 'dist/firmware')
+parser.add_argument('--flat', action='store_true', help='GitHub release layout: <mode>-<file> in one directory')
 args = parser.parse_args()
 key = serialization.load_pem_private_key((root / '.tools/update-signing.pem').read_bytes(), password=None)
 public = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
@@ -30,8 +31,9 @@ for mode in ('football', 'f1', 'motogp', 'tetris', 'word', 'mario', 'luigi', 'pa
                 'sha256':digest, 'elfSha256':image[176:208].hex()}
     data = (json.dumps(manifest, separators=(',', ':'), sort_keys=True) + '\n').encode()
     signature = key.sign(data, ec.ECDSA(hashes.SHA256()))
-    target = args.out / mode; target.mkdir(parents=True, exist_ok=True)
-    (target / name).write_bytes(image)
-    (target / 'manifest.json').write_bytes(data)
-    (target / 'manifest.sig').write_bytes(signature)
+    target = args.out if args.flat else args.out / mode; target.mkdir(parents=True, exist_ok=True)
+    prefix = f'{mode}-' if args.flat else ''
+    (target / f'{prefix}{name}').write_bytes(image)
+    (target / f'{prefix}manifest.json').write_bytes(data)
+    (target / f'{prefix}manifest.sig').write_bytes(signature)
     print(f'{mode}: packaged {version}, {len(image)} bytes')

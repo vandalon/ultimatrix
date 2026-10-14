@@ -4,6 +4,7 @@
 #include "Clockface.h"
 #include <MiniFont.h>
 #include <NumericFont.h>
+#include <Settings.h>
 #include "Maze.h"
 
 using namespace facekit;
@@ -13,20 +14,44 @@ namespace {
 
 // ---- Where things are: a cell is a 5 pixel corridor with a wall of 2 between. The maze is bigger than the
 // panel; a camera follows Pac-Man and (OX, OY) is where the maze's top left corner is on the panel right now ----
-const int PITCH = 7, VIEW_TOP = 16, VIEW_H = 64 - VIEW_TOP;
+const int PITCH = 7, VIEW_TOP = 0, VIEW_H = 64;
+const int kClockMargin = 1, kDigitH = 10;
+const int kClockBand = kDigitH + 2 * kClockMargin, kBehindClockLevel = 64;
 const int MAZE_W = COLS * PITCH + 2, MAZE_H = ROWS * PITCH + 2;
 int OX = 0, OY = VIEW_TOP;
 float camX = 0, camY = 0;
 const uint16_t kBackground = rgb(4, 4, 18);
-const uint16_t kWall = rgb(36, 64, 255), kWallFlash = rgb(230, 230, 255), kDoor = rgb(255, 184, 222);
-const uint16_t kPill = rgb(255, 184, 174), kPacman = rgb(255, 224, 0);
+const uint16_t kWallFlash = rgb(230, 230, 255), kDoor = rgb(255, 184, 222);
+const uint16_t kPacman = rgb(255, 224, 0);
+uint16_t wallColour = 0x0016, pillColour = 0xB58C, ghostColours[4] = {};
+uint32_t colourKey = UINT32_MAX;
 const uint16_t kHours = rgb(238, 246, 240), kMinutes = rgb(190, 235, 150), kSpark = rgb(255, 255, 255);
+
+void scenePixel(MatrixPanel_I2S_DMA &d, int x, int y, uint16_t colour) {
+  put(d, x, y, y < kClockBand ? dim(colour, kBehindClockLevel) : colour);
+}
+
+void sceneBox(MatrixPanel_I2S_DMA &d, int x, int y, int width, int height, uint16_t colour) {
+  const int bottom = y + height;
+  if (y < kClockBand) box(d, x, y, width, min(bottom, kClockBand) - y, dim(colour, kBehindClockLevel));
+  const int top = max(y, kClockBand);
+  if (bottom > top) box(d, x, top, width, bottom - top, colour);
+}
+
+void sceneText(MatrixPanel_I2S_DMA &d, const char *text, int x, int y, uint16_t colour) {
+  for (; *text; text++, x += 4) {
+    const uint8_t *glyph = miniGlyph(*text);
+    for (int row = 0; row < 5; row++)
+      for (int col = 0; col < 3; col++)
+        if (glyph[row] >> (2 - col) & 1) scenePixel(d, x + col, y + row, colour);
+  }
+}
 
 // Speeds in pixels per second: calm, rather than arcade
 const float kPacSpeed = 12, kGhostSpeed = 10.5f, kScaredSpeed = 6.5f, kEyesSpeed = 26;
 
 // ---- The time, in the solid block digits of football and F1: strokes 2 px wide, 6 x 10 px, the smallest that stays unsquashed ----
-const int kDigitW = 6, kDigitH = 10, kDigitTop = 3, kChangeMs = 1100;
+const int kDigitW = 6, kDigitTop = kClockMargin, kChangeMs = 1100;
 const int kDigitX[4] = {12, 20, 38, 46};
 
 struct Slot { int8_t digit; int8_t from; uint32_t since; };
@@ -356,15 +381,43 @@ void moveCamera(float dt, bool snap) {
   OY = VIEW_TOP - (int)(camY + 0.5f);
 }
 
-const uint16_t kGhostColor[4] = {rgb(255, 20, 20), rgb(255, 184, 255), rgb(0, 240, 255), rgb(255, 184, 82)};
+int colourDistance(uint16_t a, uint16_t b) {
+  const int dr = (int)((a >> 11) & 31) * 8 - (int)((b >> 11) & 31) * 8;
+  const int dg = (int)((a >> 5) & 63) * 4 - (int)((b >> 5) & 63) * 4;
+  const int db = (int)(a & 31) * 8 - (int)(b & 31) * 8;
+  return dr * dr + dg * dg + db * db;
+}
+
+uint16_t automaticGhostColour(int index) {
+  for (int i = 0; i < 6; i++) {
+    const uint16_t colour = pacmancolors::COLORS[1 + (index + i) % 6];
+    bool distinct = colourDistance(colour, wallColour) > 70 * 70;
+    for (int j = 0; j < 4; j++)
+      if (j != index && ghostColours[j]) distinct &= colourDistance(colour, ghostColours[j]) > 70 * 70;
+    if (distinct) return colour;
+  }
+  return pacmancolors::COLORS[1 + index];
+}
+
+void refreshColours() {
+  const auto &settings = *Settings::getInstance();
+  const uint32_t key = settings.pacmanColorKey();
+  if (key == colourKey) return;
+  colourKey = key;
+  wallColour = settings.wallColor();
+  const uint16_t dots = settings.pacmanColor(settings.dotColor);
+  pillColour = dots ? dots : 0xB58C;
+  for (int i = 0; i < 4; i++) ghostColours[i] = settings.pacmanColor(settings.ghostColors[i]);
+  for (int i = 0; i < 4; i++) if (!ghostColours[i]) ghostColours[i] = automaticGhostColour(i);
+}
 
 void drawMaze(MatrixPanel_I2S_DMA &d, bool flash) {
-  const uint16_t wall = flash ? kWallFlash : kWall;
+  const uint16_t wall = flash ? kWallFlash : wallColour;
   for (int r = 0; r <= ROWS; r++)            // horizontal lines at the top of row r
     for (int c = 0; c < COLS; c++) {
-      if (r == HOUSE_ROW && (c == HOUSE_LEFT || c == HOUSE_RIGHT)) { box(d, OX + PITCH * c, OY + PITCH * r, PITCH + 2, 2, kDoor); continue; }
+      if (r == HOUSE_ROW && (c == HOUSE_LEFT || c == HOUSE_RIGHT)) { sceneBox(d, OX + PITCH * c, OY + PITCH * r, PITCH + 2, 2, kDoor); continue; }
       const bool wallHere = r == 0 || r == ROWS || !(maze.down[r - 1] >> c & 1);
-      if (wallHere) box(d, OX + PITCH * c, OY + PITCH * r, PITCH + 2, 2, wall);
+      if (wallHere) sceneBox(d, OX + PITCH * c, OY + PITCH * r, PITCH + 2, 2, wall);
     }
   for (int r = 0; r < ROWS; r++)             // vertical lines at the left of column c
     for (int c = 0; c <= COLS; c++) {
@@ -373,17 +426,17 @@ void drawMaze(MatrixPanel_I2S_DMA &d, bool flash) {
       else wallHere = !(maze.right[r] >> (c - 1) & 1);
       if (r == HOUSE_ROW && (c == HOUSE_LEFT || c == HOUSE_RIGHT + 1)) wallHere = true;   // the walls of the house
       if (r == HOUSE_ROW && c == HOUSE_RIGHT) wallHere = false;
-      if (wallHere) box(d, OX + PITCH * c, OY + PITCH * r, 2, PITCH + 2, wall);
+      if (wallHere) sceneBox(d, OX + PITCH * c, OY + PITCH * r, 2, PITCH + 2, wall);
     }
-  box(d, OX + PITCH * HOUSE_LEFT, OY + PITCH * (HOUSE_ROW + 1), PITCH * 2 + 2, 2, wall);   // the floor of the house
+  sceneBox(d, OX + PITCH * HOUSE_LEFT, OY + PITCH * (HOUSE_ROW + 1), PITCH * 2 + 2, 2, wall);   // the floor of the house
 }
 
 void drawPills(MatrixPanel_I2S_DMA &d, uint32_t now) {
   for (int r = 0; r < ROWS; r++)
     for (int c = 0; c < COLS; c++) {
       const int x = OX + PITCH * c + 2, y = OY + PITCH * r + 2;
-      if (maze.hasPower(c, r)) { if ((now / 260) % 2 == 0) box(d, x, y + 1, 5, 3, kPill), box(d, x + 1, y, 3, 5, kPill); }
-      else if (maze.hasPill(c, r)) put(d, x + 2, y + 2, kPill);
+      if (maze.hasPower(c, r)) { if ((now / 260) % 2 == 0) sceneBox(d, x, y + 1, 5, 3, pillColour), sceneBox(d, x + 1, y, 3, 5, pillColour); }
+      else if (maze.hasPill(c, r)) scenePixel(d, x + 2, y + 2, pillColour);
     }
 }
 
@@ -398,8 +451,13 @@ void drawPac(MatrixPanel_I2S_DMA &d, int x, int y, int dir, int open) {
       if (open >= 3) { if (forward > 0 || (forward > -open * 0.3f + 0.6f && side < open * 0.45f)) continue; }
       else if (open == 1 && forward > 0 && side < forward * 0.5f + 0.1f) continue;
       else if (open == 2 && forward > 0 && side < forward * 1.2f + 0.1f) continue;
-      put(d, x + px, y + py, kPacman);
+      scenePixel(d, x + px, y + py, kPacman);
     }
+  if (open < 3) {
+    const int eyeX = dir == Up ? 1 : dir == Down ? 3 : 2;
+    const int eyeY = dir == Up || dir == Down ? 2 : 1;
+    scenePixel(d, x + eyeX, y + eyeY, 0);
+  }
 }
 
 void drawGhost(MatrixPanel_I2S_DMA &d, int x, int y, int index, const Ghost &g, uint32_t now) {
@@ -407,16 +465,16 @@ void drawGhost(MatrixPanel_I2S_DMA &d, int x, int y, int index, const Ghost &g, 
   const bool eyes = g.mode == Mode::Eyes;
   const bool scared = g.mode == Mode::Scared;
   const bool flashing = scared && scaredUntil > now && scaredUntil - now < 2000 && (now / 200) % 2;
-  const uint16_t body = scared ? (flashing ? rgb(240, 240, 255) : rgb(33, 33, 255)) : kGhostColor[index];
+  const uint16_t body = scared ? (flashing ? rgb(240, 240, 255) : rgb(33, 33, 255)) : ghostColours[index];
   if (!eyes) {
-    for (int i = 1; i < 4; i++) put(d, x + i, y, body);                    // the dome
-    for (int row = 1; row < 4; row++) for (int i = 0; i < 5; i++) put(d, x + i, y + row, body);
-    for (int i = 0; i < 5; i++) if ((i + foot) % 2 == 0) put(d, x + i, y + 4, body);   // the feet
+    for (int i = 1; i < 4; i++) scenePixel(d, x + i, y, body);                    // the dome
+    for (int row = 1; row < 4; row++) for (int i = 0; i < 5; i++) scenePixel(d, x + i, y + row, body);
+    for (int i = 0; i < 5; i++) if ((i + foot) % 2 == 0) scenePixel(d, x + i, y + 4, body);   // the feet
   }
   if (scared) {
     const uint16_t face = flashing ? rgb(255, 40, 40) : rgb(255, 184, 174);
-    put(d, x + 1, y + 1, face); put(d, x + 3, y + 1, face);
-    for (int i = 0; i < 5; i++) if (i % 2 == 0) put(d, x + i, y + 3, face);   // the zigzag mouth
+    scenePixel(d, x + 1, y + 1, face); scenePixel(d, x + 3, y + 1, face);
+    for (int i = 0; i < 5; i++) if (i % 2 == 0) scenePixel(d, x + i, y + 3, face);   // the zigzag mouth
     return;
   }
   // Two eyes, one pixel wide and two high; the pupil says where he is going
@@ -424,17 +482,17 @@ void drawGhost(MatrixPanel_I2S_DMA &d, int x, int y, int index, const Ghost &g, 
   const int shift = g.dir == Left ? -1 : g.dir == Right ? 1 : 0;
   for (int eye = 0; eye < 2; eye++) {
     const int ex = x + 1 + eye * 2 + shift;
-    put(d, ex, y + 1, white); put(d, ex, y + 2, white);
-    put(d, ex, g.dir == Up ? y + 1 : y + 2, pupil);
+    scenePixel(d, ex, y + 1, white); scenePixel(d, ex, y + 2, white);
+    scenePixel(d, ex, g.dir == Up ? y + 1 : y + 2, pupil);
   }
 }
 
 void drawFruit(MatrixPanel_I2S_DMA &d, int c, int r, int kind) {
   const int x = OX + PITCH * c + 2, y = OY + PITCH * r + 2;
   static const uint16_t FRUIT[4] = {rgb(240, 30, 40), rgb(255, 120, 30), rgb(240, 60, 120), rgb(200, 40, 40)};
-  box(d, x, y + 1, 4, 4, FRUIT[kind & 3]);
-  put(d, x + 2, y, rgb(60, 220, 60)); put(d, x + 3, y, rgb(60, 220, 60));
-  put(d, x, y + 1, rgb(255, 255, 255));
+  sceneBox(d, x, y + 1, 4, 4, FRUIT[kind & 3]);
+  scenePixel(d, x + 2, y, rgb(60, 220, 60)); scenePixel(d, x + 3, y, rgb(60, 220, 60));
+  scenePixel(d, x, y + 1, rgb(255, 255, 255));
 }
 
 }  // namespace
@@ -443,6 +501,8 @@ Clockface::Clockface(MatrixPanel_I2S_DMA* display) { _display = display; }
 
 void Clockface::setup(ClockTime *dateTime) {
   _dateTime = dateTime;
+  colourKey = UINT32_MAX;
+  refreshColours();
   const int digits[4] = {dateTime->getHour() / 10, dateTime->getHour() % 10, dateTime->getMinute() / 10, dateTime->getMinute() % 10};
   for (int i = 0; i < 4; i++) slots[i] = {(int8_t)digits[i], (int8_t)digits[i], 0};
   rng = hash(millis() * 2654435761u + dateTime->getMinute() * 977 + dateTime->getHour() * 61 + 1) | 1;
@@ -456,6 +516,7 @@ void Clockface::setup(ClockTime *dateTime) {
 void Clockface::update() {
   MatrixPanel_I2S_DMA &d = *_display;
   const uint32_t now = millis();
+  refreshColours();
   float dt = (now - lastNow) / 1000.0f;
   if (dt > 0.2f) dt = 0.2f;
   lastNow = now;
@@ -506,6 +567,7 @@ void Clockface::update() {
   // ---- Picture ----
   moveCamera(dt, false);
   d.fillScreen(kBackground);
+  box(d, 0, 0, W, kClockBand, dim(kBackground, kBehindClockLevel));
   drawMaze(d, flash);
   if (state != State::Cleared) drawPills(d, now);
   if (fruitAt) drawFruit(d, HOUSE_LEFT, HOUSE_ROW + 1, level - 1);
@@ -534,10 +596,9 @@ void Clockface::update() {
     int x = popupX + OX;
     if (x + miniWidth(text) > W - 1) x = W - 1 - miniWidth(text);
     if (x < 0) x = 0;
-    miniText(d, text, x, popupY + OY, rgb(60, 230, 255));
+    sceneText(d, text, x, popupY + OY, rgb(60, 230, 255));
   }
-  // The time sits on top of the maze's window
-  box(d, 0, 0, W, VIEW_TOP, kBackground);
+  // The time overlays the full-height maze; the scene behind it was drawn dimmer.
   for (int i = 0; i < 4; i++) {
     if (i == 0 && !_dateTime->is24hFormat() && hour < 10 && slots[0].digit == 0 && now - slots[0].since >= kChangeMs) continue;
     drawDigit(d, i, i < 2 ? kHours : kMinutes, now);

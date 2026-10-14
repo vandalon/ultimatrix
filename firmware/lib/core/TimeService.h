@@ -23,7 +23,7 @@ void begin(const char *ntpServer, const char *posix);
 // The POSIX rule for a timezone name like "Europe/Amsterdam", nullptr when the name is not in the table
 const char *posixForZone(const char *name);
 // Asks a geo-IP service for the timezone of the network's public address; true and the name in zone when it is one in the table
-bool detectZone(String &zone);
+bool detectZone(String &zone, float *latitude = nullptr, float *longitude = nullptr);
 size_t zoneCount();
 const char *zoneName(size_t index);
 

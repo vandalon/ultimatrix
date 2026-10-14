@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Welcome screen preview</title>
+<style>
+  body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:#0b0f12;color:#cfe3ea;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:16px}
+  canvas{background:#000;border-radius:10px;max-width:min(92vw,512px);height:auto;image-rendering:pixelated}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:center}
+  input{background:#10181d;border:1px solid #28404b;border-radius:8px;color:#e8f6fb;padding:8px 10px;width:150px;font:inherit}
+  #phase{color:#7fa3b1;font-size:13px}
+</style>
+</head>
+<body>
+<canvas id="c" width="512" height="512"></canvas>
+<div class="row"><label for="ip">Clock address</label><input id="ip" value="192.168.1.42"><span id="phase"></span></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script>
+// Mirrors lib/core/BootScreen.cpp (Kind::Welcome): 10 s instructions with the scrolling address, then the full-screen QR code 5 s normal and 5 s inverted, repeating.
+const S=8, TEXT_MS=10000, QR_MS=5000;
+const G3={A:'010101111101101',B:'110101110101110',C:'011100100100011',D:'110101101101110',E:'111100110100111',F:'111100110100100',G:'011100101101011',H:'101101111101101',I:'111010010010111',J:'001001001101010',K:'101101110101101',L:'100100100100111',M:'101111111101101',N:'110101101101101',O:'010101101101010',P:'110101110100100',Q:'010101101111011',R:'110101110101101',S:'011100010001110',T:'111010010010010',U:'101101101101111',V:'101101101101010',W:'101101111111101',X:'101101010101101',Y:'101101010010010',Z:'111001010100111'};
+const G3x={':':'000010000010000','/':'001001010100100','.':'000000000000010','0':'111101101101111','1':'010110010010111','2':'110001010100111','3':'110001010001110','4':'101101111001001','5':'111100110001110','6':'011100111101111','7':'111001010010010','8':'111101111101111','9':'111101111001110'};
+const G5={H:'10001100011000111111100011000110001',T:'11111001000010000100001000010000100',P:'11110100011000111110100001000010000',':':'00000001000010000000001000010000000','/':'00001000100001000100010000100010000','.':'00000000000000000000000000110001100',
+'0':'01110100011001110101110011000101110','1':'00100011000010000100001000010001110','2':'01110100010000100010001000100011111','3':'11110000010000101110000010000111110','4':'00010001100101010010111110001000010','5':'11111100001111000001000011000101110','6':'00110010001000011110100011000101110','7':'11111000010001000100010001000010000','8':'01110100011000101110100011000101110','9':'01110100011000101111000010001001100'};
+const cv=document.getElementById('c'),x=cv.getContext('2d');
+function px(X,Y,col){if(X<0||X>63||Y<0||Y>63)return;x.fillStyle=col;x.fillRect(X*S+1,Y*S+1,S-2,S-2)}
+function small(s,base,col){const x0=Math.floor((64-s.length*4)/2);[...s].forEach((ch,i)=>{const g=G3[ch];if(!g)return;for(let r=0;r<5;r++)for(let k=0;k<3;k++)if(g[r*3+k]==='1')px(x0+i*4+k,base-4+r,col)})}
+function smallAt(s,x0,base,col){[...s].forEach((ch,i)=>{const g=G3[ch]||G3x[ch];if(!g)return;for(let r=0;r<5;r++)for(let k=0;k<3;k++)if(g[r*3+k]==='1')px(x0+i*4+k,base-4+r,col)})}
+function big(s,x0,top,col){[...s].forEach((ch,i)=>{const g=G5[ch];if(!g)return;for(let r=0;r<7;r++)for(let k=0;k<5;k++)if(g[r*5+k]==='1')px(x0+i*6+k,top+r,col)})}
+function qrPage(url,inverted){
+  const q=qrcode(0,'L');q.addData(url,'Alphanumeric');q.make();
+  const n=q.getModuleCount(),scale=Math.max(1,Math.floor(64/n)),m=Math.floor((64-n*scale)/2);
+  for(let y=0;y<64;y++)for(let xx=0;xx<64;xx++)px(xx,y,inverted?'#fff':'#000');
+  for(let y=0;y<n;y++)for(let xx=0;xx<n;xx++)if(q.isDark(y,xx))for(let dy=0;dy<scale;dy++)for(let dx=0;dx<scale;dx++)px(m+xx*scale+dx,m+y*scale+dy,inverted?'#000':'#fff');
+}
+function draw(t){
+  const url='HTTP://'+document.getElementById('ip').value.trim();
+  const phase=t%(TEXT_MS+2*QR_MS);
+  x.fillStyle='#000';x.fillRect(0,0,512,512);
+  if(phase>=TEXT_MS){const inv=phase>=TEXT_MS+QR_MS;qrPage(url,inv);document.getElementById('phase').textContent=inv?'QR code, inverted':'QR code';return}
+  small('SCAN THE QR CODE',8,'#fff');small('OR GO TO THIS',19,'#fff');small('ADDRESS IN YOUR',26,'#fff');small('BROWSER',33,'#fff');
+  const width=url.length*4-1,overflow=url.length*4-64;let xo;
+  if(width<=64)xo=Math.floor((64-width)/2);
+  else{
+    const half=TEXT_MS/2,leg=phase<half?phase:TEXT_MS-phase,rest=half/6,travel=half-2*rest;
+    const moved=leg<rest?0:Math.min(leg-rest,travel);
+    xo=-Math.floor(overflow*moved/travel);
+  }
+  smallAt(url,xo,47,'#46d2ff');
+  document.getElementById('phase').textContent='Instructions';
+}
+const t0=performance.now();
+(function loop(now){draw(now-t0);requestAnimationFrame(loop)})(t0);
+</script>
+</body>
+</html>

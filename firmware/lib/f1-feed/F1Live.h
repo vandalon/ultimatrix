@@ -55,7 +55,7 @@ class F1Live {
     bool negotiate(char *token, size_t size, char *cookie, size_t cookieSize);
     void run();
 
-    bool _started = false;
+    std::atomic<bool> _started{false};
     std::mutex _lock;
     F1LiveState _state;
     std::atomic<bool> _wanted{false};
