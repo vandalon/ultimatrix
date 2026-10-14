@@ -329,7 +329,7 @@ void FirmwareUpdate::run() {
 
 namespace {
 constexpr uint32_t kConfirmDeadlineMs = 180000;  // a pending image that is not healthy by now is rolled back
-constexpr uint32_t kCheckEveryMs = 12 * 3600 * 1000UL;  // twice a day
+constexpr uint32_t kCheckEveryMs = 24 * 3600 * 1000UL;  // once a day
 constexpr uint32_t kRetryMs = 30 * 60 * 1000UL;
 constexpr uint32_t kFirstCheckS = 45;  // after the clock has settled
 constexpr time_t kValidEpoch = 1700000000;

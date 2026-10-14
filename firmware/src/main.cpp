@@ -51,6 +51,8 @@ static WebServer server(80);
 static WiFiManager wifi;
 static uint32_t nextFrame = 0;
 static uint32_t restartAt = 0;
+static bool updateOnly = false;  // a restart made to install an update: no face, no feeds, just the update screen, so the whole heap is free for the download
+static bool bootWasScheduled = false;  // this boot exists to install an update: automatic updates do not restart again
 static char scheduledMode[16] = "";  // update chosen before a low-memory reboot; started once Wi-Fi is up
 static uint32_t scheduledSince = 0;
 static DisplayControl displayControl;
@@ -172,6 +174,12 @@ static void bootTick() {
     connectedAt = now;
   }
   wasConnected = connected;
+  if (updateOnly && connected) {
+    FirmwareUpdate::Status install; firmwareUpdate.status(install);
+    bootScreen.setProgress(install.total ? (int)((uint64_t)install.received * 100 / install.total) : -1);
+    drawBoot(boot::Kind::Installing);
+    return;
+  }
   bool synced = connected && ultime::timeStatus() == timeSet;
   static bool bootChecked = false;
   if (synced && !bootChecked) { bootChecked = true; if (firmwareUpdate.checkDue()) firmwareUpdate.checkNow(); }
@@ -372,7 +380,7 @@ static void settingsState() {
   json += ",\"nightSun\":" + String(s.nightSun ? "true" : "false");
   json += ",\"timezone\":" + jsonText(s.timezone) + ",\"autoTimezone\":" + String(s.manualTimezone ? "false" : "true") + ",\"matchSecs\":" + String(s.matchSecs);
   json += ",\"resultMins\":" + String(s.resultMins) + ",\"timeStyle\":" + String(s.timeStyle);
-  json += ",\"swapBlueGreen\":" + String(s.swapBlueGreen ? "true" : "false") + ",\"telnet\":" + String(s.telnet ? "true" : "false");
+  json += ",\"swapBlueGreen\":" + String(s.swapBlueGreen ? "true" : "false") + ",\"telnet\":" + String(s.telnet ? "true" : "false") + ",\"autoUpdate\":" + String(s.autoUpdate ? "true" : "false");
   json += ",\"fbLeagues\":" + jsonText(s.footballLeagues) + ",\"fbTeams\":" + jsonText(s.footballTeams);
   json += ",\"f1Drivers\":" + jsonText(s.f1Drivers);
   json += ",\"showRankings\":" + String(s.showRankings ? "true" : "false");
@@ -634,6 +642,7 @@ static void saveSettings() {
 #endif
   s.swapBlueGreen = server.hasArg("swapBlueGreen");
   s.telnet = server.hasArg("telnet");
+  s.autoUpdate = server.hasArg("autoUpdate");
 #ifdef UM_FOOTBALL_ONLY
   s.footballLeagues = selectedValues("fbLeagues"); s.footballTeams = server.arg("fbTeams");
   s.showRankings = server.hasArg("showRankings"); s.ballRoll = server.hasArg("ballRoll");
@@ -697,6 +706,21 @@ static void requestFirmwareUpdate() {
     server.send(409, "application/json", "{\"lowMemory\":true,\"message\":" + jsonText(status.message) + "}"); return;
   }
   settingsResponse(accepted ? 202 : 409, status.message);
+}
+
+// Automatic updates: once a check has found a newer image, install it (started once per boot).
+static void autoUpdate(uint32_t now) {
+  static bool tried = false;
+  static uint32_t nextTry = 0;
+  if (tried || !Settings::getInstance()->autoUpdate || !bootDone || portalActive || WiFi.status() != WL_CONNECTED || scheduledMode[0]) return;
+  if (now < 120000 || (int32_t)(now - nextTry) < 0) return;
+  nextTry = now + 60000;
+  FirmwareUpdate::Latest latest; firmwareUpdate.latest(latest);
+  if (!latest.available || latest.checking) return;
+  FirmwareUpdate::Status status; firmwareUpdate.status(status);
+  if (status.busy || status.ready) return;
+  // A failure (too little memory included) is retried once by background() with a restart and no face loaded
+  if (firmwareUpdate.request()) { tried = true; consoleLog("[Firmware] Automatic update started: %s\n", latest.version); }
 }
 
 // Low-memory fallback: restart first, then update before the feeds start.
@@ -763,7 +787,7 @@ static void postRoute(const char *uri, WebServer::THandlerFunction fn) { server.
 // the settings server up with the face drawing after its first time sync.
 static bool startupHealthy() {
   return displayReady && heap_caps_get_free_size(MALLOC_CAP_8BIT) > 16384 &&
-      (portalActive || (settingsServerStarted && bootDone));
+      (portalActive || (settingsServerStarted && (bootDone || updateOnly)));
 }
 
 static bool provisioningRestart = false;  // the pending restart is into or out of Wi-Fi setup
@@ -803,15 +827,29 @@ static void background() {
   if (updateStatus.ready && !restartAt) restartAt = now + 1500;
   if (scheduledMode[0]) {
     // Signed manifest and TLS need a valid clock, so wait for NTP before starting.
-    if (WiFi.status() == WL_CONNECTED && time(nullptr) > 1700000000) {
+    if (WiFi.status() == WL_CONNECTED && time(nullptr) > 1700000000 && !FirmwareUpdate::pendingVerification()) {  // a new image still being verified cannot write another one
       bool started = firmwareUpdate.request(scheduledMode);
       consoleLog("[Firmware] Scheduled update %s\n", started ? "started" : "could not start");
       scheduledMode[0] = 0;
-      if (!started) firmwareUpdating = false;
+      if (!started) { firmwareUpdating = false; updateOnly = false; }
     }
-    else if (now - scheduledSince > 90000) { scheduledMode[0] = 0; firmwareUpdating = false; }  // no Wi-Fi: give up and start the feeds
+    else if (now - scheduledSince > 90000) { scheduledMode[0] = 0; firmwareUpdating = false; updateOnly = false; }  // no Wi-Fi: give up and start the feeds
+  }
+  if (updateOnly && !scheduledMode[0]) {
+    firmwareUpdate.status(updateStatus);
+    if (!updateStatus.busy && !updateStatus.ready) updateOnly = false;  // the install failed: start the face as usual
+  }
+  static bool retriedInstall = false;
+  if (!retriedInstall && !bootWasScheduled && !restartAt && updateStatus.failed && !updateStatus.busy && !updateStatus.ready &&
+      !strstr(updateStatus.message, "already been used") && !strstr(updateStatus.message, "not a matching")) {
+    // Any failed install gets one more go after a restart, with no face loaded and the whole heap free
+    retriedInstall = true;
+    consoleLog("[Firmware] Install failed (%s) Restarting to install without the face loaded.\n", updateStatus.message);
+    firmwareUpdate.scheduleAfterReboot(firmwareUpdate.target());
+    restartAt = now + 1500;
   }
   firmwareUpdate.poll(now, bootDone && !portalActive && WiFi.status() == WL_CONNECTED);
+  autoUpdate(now);
   reportMemory();
   shedOnLowMemory();
   telnet.poll();
@@ -827,7 +865,7 @@ void setup() {
   Serial.begin(115200);
   heap_caps_register_failed_alloc_callback(allocationFailed);
   telnet.setWatcher(telnetWatch);
-  if (FirmwareUpdate::takeScheduled(scheduledMode, sizeof(scheduledMode))) { firmwareUpdating = true; scheduledSince = millis(); }  // keeps the feeds off until the update has run
+  if (FirmwareUpdate::takeScheduled(scheduledMode, sizeof(scheduledMode))) { firmwareUpdating = true; scheduledSince = millis(); bootWasScheduled = true; updateOnly = true; }  // keeps the feeds off until the update has run
   auto &s = *Settings::getInstance();
   s.load();
   firmwareUpdate.begin();  // the cached "update available" result, so the boot screen can mention it
@@ -1012,7 +1050,7 @@ void loop() {
   if (portalActive && backgroundMs > 40) Serial.printf("[Portal] background() took %u ms\n", (unsigned)backgroundMs);
   if (!displayReady) { delay(50); return; }
   uint32_t now = millis();
-  if (WiFi.status() == WL_CONNECTED && !portalActive && !welcomeMode) {
+  if (WiFi.status() == WL_CONNECTED && !portalActive && !welcomeMode && !updateOnly) {
     auto &s = *Settings::getInstance();
     if (!geoSettled && !geoWanted && geoState.load() == 0) {  // once per start: the network's zone and location
       geoSettled = !(!s.manualTimezone || !s.hasLocation);
@@ -1036,7 +1074,13 @@ void loop() {
   }
   // Without a known location (the first start) the face waits a few seconds for the lookup, so it does not start in the wrong zone
   bool geoHold = !Settings::getInstance()->hasLocation && !geoSettled && now - geoStartedAt < 6000 && geoState.load() != 2;
-  if (!face && !portalActive && !welcomeMode && WiFi.status() == WL_CONNECTED && !geoHold) {
+  static bool updateTimeStarted = false;
+  if (updateOnly && !updateTimeStarted && !portalActive && WiFi.status() == WL_CONNECTED) {  // the signed manifest needs the time
+    auto &s = *Settings::getInstance();
+    clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
+    updateTimeStarted = true;
+  }
+  if (!face && !updateOnly && !portalActive && !welcomeMode && WiFi.status() == WL_CONNECTED && !geoHold) {
     auto &s = *Settings::getInstance();
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
     face = new Clockface(display);

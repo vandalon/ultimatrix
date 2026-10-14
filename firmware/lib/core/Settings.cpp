@@ -64,6 +64,7 @@ static bool lightSensorReadable(uint8_t pin) {
 void Settings::load() {
   Preferences p;
   if (!p.begin("ultimatrix", false)) return;
+  autoUpdate = p.getBool("autoUpdate", true);
   Record record{};
   bool valid = p.isKey("settingsV2") && p.getBytesLength("settingsV2") == sizeof(record) &&
       p.getBytes("settingsV2", &record, sizeof(record)) == sizeof(record) &&
@@ -175,6 +176,7 @@ bool Settings::save() {
   Preferences p;
   if (!p.begin("ultimatrix", false)) return false;
   bool saved = p.putBytes("settingsV2", &record, sizeof(record)) == sizeof(record);  // one write commits everything
+  if (saved) p.putBool("autoUpdate", autoUpdate);  // own key, so records saved before this setting keep it on
   p.end();
   if (saved) memcpy(faceOptions, options, sizeof(options));
   return saved;

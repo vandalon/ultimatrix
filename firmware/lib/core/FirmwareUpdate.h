@@ -11,13 +11,14 @@ public:
   struct Latest { char version[32]; char error[64]; uint32_t checkedAt; bool available, checking; };
   void begin();  // loads the cached check result
   void latest(Latest &out);
-  // Checks the signed manifest only (no download), twice a day. Call often; it is cheap until a check is due.
+  // Checks the signed manifest only (no download), once a day. Call often; it is cheap until a check is due.
   void poll(uint32_t now, bool online);
   bool checkNow();
-  // True when there is no cached result younger than 12 h (needs a synced clock); the boot runs a check then.
+  // True when there is no cached result younger than 24 h (needs a synced clock); the boot runs a check then.
   bool checkDue();
   // After a low-memory failure: remember the face in NVS; the caller restarts, and the update starts on the next boot.
   void scheduleAfterReboot(const char *mode);
+  const char *target() const { return _target; }  // the face of the latest install request
   // At boot: true (and mode filled) when an update was scheduled. The flag is cleared on read.
   static bool takeScheduled(char *mode, size_t size);
   static bool knownMode(const char *mode);

@@ -8,6 +8,7 @@ Updates are signed application images. The clock never accepts an unsigned or ol
 - Clocks fetch `https://github.com/<repo>/releases/latest/download/<face>-manifest.json` (plus `.sig` and the image). The repo is `kUpdateRepo` in `firmware/lib/core/UpdateTrust.h`.
 - One-time setup (done): `kUpdateRepo` is `vandalon/ultimatrix`, Pages source is GitHub Actions, and the private key is stored:
   `gh secret set UPDATE_SIGNING_KEY < .tools/update-signing.pem`
+- Clocks check once a day. With Automatic updates on (default, Settings > Advanced) a newer release is installed by itself; a failed install is retried once after a restart with no face loaded (update screen with progress bar).
 - A manual run of the workflow (workflow_dispatch) builds without releasing.
 
 ## Private server (own hosting, testing)
