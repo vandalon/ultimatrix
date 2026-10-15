@@ -31,7 +31,11 @@ constexpr uint32_t kLabelPeriodMs = 1800;
 constexpr uint32_t kPulsePeriodHalf(uint32_t period) { return period / 2; }  // the peak
 
 struct Rgb { uint8_t r, g, b; };
+struct Rgb16 { int r, g, b; };  // 8.8 fixed point (0..65280 = level 0..255), for the dithered plot
 constexpr Rgb kCyan{70, 210, 255}, kBlue{40, 110, 255}, kGreen{80, 220, 120}, kOrange{255, 130, 30}, kViolet{190, 120, 255}, kWhite{255, 255, 255};
+unsigned iconPercent = 75;  // the icons' peak brightness, and the input level at the bottom of the lit U: they follow the panel's colour quality level
+unsigned uFloor = 65, iconGradient = 100;
+constexpr unsigned kUpdateTextLevel = 90;  // the update screens' text and the progress bar's border
 constexpr Rgb kAddress{165, 180, 215};  // the address digits: one flat, slightly dimmed and blue-tinted white, apart from the blue/cyan logo and icons
 
 const uint8_t *levelMap = nullptr;
@@ -44,9 +48,9 @@ uint16_t shade(Rgb c, unsigned level) {  // level 0..255
 }
 
 // The icons' gradient: t 0 (top) to 1 (bottom) runs from a lighter to a deeper shade of the colour
-Rgb tint(Rgb c, float t) {
-  float lift = 0.3f * (1 - t), deepen = 1 - 0.22f * t;
-  auto channel = [&](uint8_t v) { return (uint8_t)fminf(255, (v + (255 - v) * lift) * deepen); };
+Rgb16 tint(Rgb c, float t) {
+  float keep = iconGradient / 100.0f, lift = 0.3f * (1 - t) * keep, deepen = 1 - 0.22f * t * keep;
+  auto channel = [&](uint8_t v) { return (int)(fminf(255, (v + (255 - v) * lift) * deepen) * 256); };
   return {channel(c.r), channel(c.g), channel(c.b)};
 }
 
@@ -76,7 +80,7 @@ unsigned backdropLevel(int x, int y, unsigned glow = 0) {
   bool outer = y <= kCentreY ? fabsf(dx) <= kOuterX : (dx * dx) / (kOuterX * kOuterX) + (dy * dy) / (kOuterY * kOuterY) <= 1;
   bool inner = y <= kCentreY ? fabsf(dx) <= kInnerX : (dx * dx) / (kInnerX * kInnerX) + (dy * dy) / (kInnerY * kInnerY) <= 1;
   if (!(outer && !inner)) return 0;  // no background: only the U is lit
-  unsigned dim = 70, bright = 255 - 190 * y / kSize;  // the dimmed U is one flat level, only the lit logo has the gradient
+  unsigned dim = 70, bright = 255 - (255 - uFloor) * y / kSize;  // the dimmed U is one flat level, only the lit logo has the gradient
   return dim + (bright - dim) * glow / 255;
 }
 
@@ -91,7 +95,7 @@ void backdrop(Adafruit_GFX &gfx, unsigned glow = 0, unsigned fade = 255) {  // f
       Rgb c{(uint8_t)(kCyan.r + (kBlue.r - kCyan.r) * t / 255), (uint8_t)(kCyan.g + (kBlue.g - kCyan.g) * t / 255),
             (uint8_t)(kCyan.b + (kBlue.b - kCyan.b) * t / 255)};
       unsigned level = backdropLevel(x, y, glow) * rowFade / 255;
-      if (plot888) plot888(gfx, x, y, c.r * level, c.g * level, c.b * level);
+      if (plot888) plot888(gfx, x, y, c.r * level, c.g * level, c.b * level, false);
       else gfx.drawPixel(x, y, shade(c, level));
     }
   }
@@ -179,7 +183,7 @@ const char *const kUpdateArt[] = {
     "............########............",
     ".............######.............",
     "..............####..............",
-    "................................",
+    "...............##...............",
     "..##........................##..",
     "..##........................##..",
     "..##........................##..",
@@ -188,8 +192,8 @@ const char *const kUpdateArt[] = {
 };
 
 // Blend a towards b; t 0..31
-Rgb mixRgb(Rgb a, Rgb b, unsigned t) {
-  return {(uint8_t)(a.r + (b.r - a.r) * (int)t / 31), (uint8_t)(a.g + (b.g - a.g) * (int)t / 31), (uint8_t)(a.b + (b.b - a.b) * (int)t / 31)};
+Rgb16 mixRgb(Rgb16 a, Rgb16 b, unsigned t) {
+  return {a.r + (b.r - a.r) * (int)t / 31, a.g + (b.g - a.g) * (int)t / 31, a.b + (b.b - a.b) * (int)t / 31};
 }
 
 // Works out which panel pixels the icon covers (once per icon) and the rows it spans
@@ -221,22 +225,24 @@ void drawIcon(Adafruit_GFX &gfx, IconCache &cache, Icon icon, Rgb c, unsigned le
         if (cache.cover[y * kSize + x]) gfx.drawPixel(x, y, 0xFFFF);
     return;
   }
+  level = level * iconPercent / 100;
   for (int y = cache.top; y <= cache.bottom; ++y) {
-    Rgb g = tint(c, (float)(y - cache.top) / (cache.bottom - cache.top));
+    Rgb16 g = tint(c, (float)(y - cache.top) / (cache.bottom - cache.top));
     if (logo) {
       unsigned t = 255 * y / kSize;
-      Rgb lg{(uint8_t)(kCyan.r + (kBlue.r - kCyan.r) * (int)t / 255), (uint8_t)(kCyan.g + (kBlue.g - kCyan.g) * (int)t / 255),
-             (uint8_t)(kCyan.b + (kBlue.b - kCyan.b) * (int)t / 255)};
+      Rgb16 lg{(kCyan.r * 256) + (kBlue.r - kCyan.r) * 256 * (int)t / 255, (kCyan.g * 256) + (kBlue.g - kCyan.g) * 256 * (int)t / 255,
+               (kCyan.b * 256) + (kBlue.b - kCyan.b) * 256 * (int)t / 255};
       g = mixRgb(lg, g, toGreen);
     }
     for (int x = 0; x < kSize; ++x) {
-      unsigned w = cache.cover[y * kSize + x] * level / 255;  // 0..255
+      uint32_t w = cache.cover[y * kSize + x] * level;  // 0..65025
       if (!w) continue;
       unsigned back = backdropLevel(x, y, glow);
-      unsigned r = ((kCyan.r * back / 255) * (255 - w) + g.r * w) / 255;
-      unsigned gr = ((kCyan.g * back / 255) * (255 - w) + g.g * w) / 255;
-      unsigned b = ((kCyan.b * back / 255) * (255 - w) + g.b * w) / 255;
-      gfx.drawPixel(x, y, pack(r, gr, b));
+      uint32_t r = ((uint32_t)(kCyan.r * 256 * back / 255) * (65025 - w) + (uint32_t)g.r * w) / 65025;
+      uint32_t gr = ((uint32_t)(kCyan.g * 256 * back / 255) * (65025 - w) + (uint32_t)g.g * w) / 65025;
+      uint32_t b = ((uint32_t)(kCyan.b * 256 * back / 255) * (65025 - w) + (uint32_t)g.b * w) / 65025;
+      if (plot888) plot888(gfx, x, y, (uint16_t)r, (uint16_t)gr, (uint16_t)b, true);  // every pixel dithers on its own, the icons are solid
+      else gfx.drawPixel(x, y, pack(r >> 8, gr >> 8, b >> 8));
     }
   }
 }
@@ -290,6 +296,7 @@ void append(char *out, size_t size, const char *text) {
 
 void setPlot888(Plot888 plot) { plot888 = plot; }
 void setLevelMap(const uint8_t *map) { levelMap = map; }
+void setQuality(unsigned icons, unsigned floor, unsigned gradient) { iconPercent = icons; uFloor = floor; iconGradient = gradient; }
 
 uint8_t pulse(uint32_t ms, uint32_t period, uint32_t offset) {
   if (!period) return 255;
@@ -417,14 +424,14 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
       break;
     case Kind::Update:  // a newer signed firmware is on the server: violet and pulsing
       drawIcon(gfx, icon_, kUpdate, kViolet, level, glow);
-      centredSmall(gfx, "UPDATE", 43, shade(kViolet, 255));
-      centredSmall(gfx, "AVAILABLE", 50, shade(kViolet, 255));
+      centredSmall(gfx, "UPDATE", 43, shade(kViolet, kUpdateTextLevel));
+      centredSmall(gfx, "AVAILABLE", 50, shade(kViolet, kUpdateTextLevel));
       break;
     case Kind::Installing: {  // the update runs on its own, with no face loaded: pulsing arrow, label and a progress bar
       drawIcon(gfx, icon_, kUpdate, kViolet, level, glow);
-      centredSmall(gfx, "UPDATING", 43, shade(kViolet, 255));
+      centredSmall(gfx, "UPDATING", 43, shade(kViolet, kUpdateTextLevel));
       const int x = 12, y = 50, w = 40;
-      gfx.drawRect(x, y, w, 5, shade(kViolet, 90));
+      gfx.drawRect(x, y, w, 5, shade(kViolet, kUpdateTextLevel));
       if (now.page <= 100) {
         int filled = (w - 2) * now.page / 100;
         if (filled > 0) gfx.fillRect(x + 1, y + 1, filled, 3, shade(kViolet, 255));  // the panel driver reads a zero width as a full row

@@ -19,6 +19,7 @@
 #include <BirthdayParty.h>
 #include <FirmwareUpdate.h>
 #include <NetworkBudget.h>
+#include <PanelTier.h>
 #ifdef UM_FOOTBALL_ONLY
 #include <FootballCatalog.h>
 #elif defined(UM_MOTOGP)
@@ -133,6 +134,9 @@ static bool updateAvailable() {
 // scaled back down in linear light (through the brightness curve) so the screen looks as it would at the setting.
 static const uint8_t kBootPanelBrightness = 255;
 static unsigned bootScale = 0;  // the user's brightness over the panel's, 8.8 fixed point
+static const uint8_t *panelLut = lumConvTab_7bit;  // the brightness table of the colour depth in use (set before the panel starts)
+static paneltier::State panelState;  // the colour quality level: see PanelTier.h
+static int panelLevel = 0;
 static uint8_t bootMap[256];  // a level at full scale -> the input that looks like it at bootScale
 static uint8_t bootInverse[256];  // output level -> smallest input that gives at least it
 
@@ -141,12 +145,12 @@ static void setBootScale(unsigned scale) {
   if (!bootScale) {
     for (int o = 0; o < 256; o++) {
       int v = 255;
-      for (int i = 0; i < 256; i++) if (lumConvTab[i] >= o) { v = i; break; }
+      for (int i = 0; i < 256; i++) if (panelLut[i] >= o) { v = i; break; }
       bootInverse[o] = (uint8_t)v;
     }
   }
   bootScale = scale;
-  for (int v = 0; v < 256; v++) bootMap[v] = bootInverse[(lumConvTab[v] * scale + 128) >> 8];
+  for (int v = 0; v < 256; v++) bootMap[v] = bootInverse[(panelLut[v] * scale + 128) >> 8];
   bootScreen.invalidate();
 }
 
@@ -161,15 +165,15 @@ static uint8_t panelBrightness(uint8_t userBrightness) {
 
 // The logo's gradient: the wanted output level is kept fractional and ordered-dithered across the lattice (8x8 Bayer),
 // then mapped back to the input that gives it, for gradient steps finer than the panel's whole levels.
-static void plotDithered(Adafruit_GFX &gfx, int x, int y, uint16_t r, uint16_t g, uint16_t b) {
-  unsigned lx = x >> 1, ly = y >> 1, lxy = lx ^ ly;  // lattice coordinates; 8x8 Bayer index 0..63 by bit interleave
+static void plotDithered(Adafruit_GFX &gfx, int x, int y, uint16_t r, uint16_t g, uint16_t b, bool fine) {
+  unsigned lx = fine ? x : x >> 1, ly = fine ? y : y >> 1, lxy = lx ^ ly;  // lattice coordinates; 8x8 Bayer index 0..63 by bit interleave
   unsigned index = ((ly & 1) << 5) | ((lxy & 1) << 4) | (((ly >> 1) & 1) << 3) | (((lxy >> 1) & 1) << 2) | (((ly >> 2) & 1) << 1) | ((lxy >> 2) & 1);
   unsigned threshold = index * 4;  // 0..252 of a level's 256
   auto channel = [&](uint16_t in) -> uint8_t {
     unsigned i = in >> 8, f = in & 255;
     if (i > 255) i = 255;
-    unsigned next = i < 255 ? lumConvTab[i + 1] : lumConvTab[i];
-    unsigned out = (((lumConvTab[i] * 256 + (next - lumConvTab[i]) * f) * bootScale >> 8) + threshold) >> 8;
+    unsigned next = i < 255 ? panelLut[i + 1] : panelLut[i];
+    unsigned out = (((panelLut[i] * 256 + (next - panelLut[i]) * f) * bootScale >> 8) + threshold) >> 8;
     return bootInverse[out > 255 ? 255 : out];
   };
   ((MatrixPanel_I2S_DMA &)gfx).drawPixelRGB888(x, y, channel(r), channel(g), channel(b));
@@ -727,6 +731,30 @@ static void checkFirmware() {
   settingsResponse(started ? 202 : 429, started ? "Stopping feeds before checking for updates." : "Wait a moment before checking again.");
 }
 
+// The colour quality level for the settings page: what runs, why it was lowered, and the lock
+static void displayStatus() {
+  String json = "{\"level\":" + String(panelLevel + 1) + ",\"lock\":" + String(panelState.lock) + ",\"reason\":\"" +
+      (panelState.reason == paneltier::Busy ? "busy" : panelState.reason == paneltier::Quiet ? "quiet" : "none") +
+      "\",\"since\":" + String(panelState.at) + ",\"retryHour\":" + String(paneltier::kRetryHour) + ",\"levels\":[";
+  for (int i = 0; i < paneltier::kCount; i++) { if (i) json += ","; json += "\""; json += paneltier::kTiers[i].name; json += "\""; }
+  json += "]}";
+  server.send(200, "application/json", json);
+}
+
+// reset=1 goes back to the best level; lock=0 is automatic, 1..n stays on that level. Both restart the clock.
+static void displaySave() {
+  if (server.hasArg("reset")) paneltier::reset(panelState);
+  if (server.hasArg("lock")) {
+    int lock = server.arg("lock").toInt();
+    if (lock < 0 || lock > paneltier::kCount) { settingsResponse(400, "Unknown level."); return; }
+    panelState.lock = (uint8_t)lock;
+    if (!lock) paneltier::reset(panelState);
+    else paneltier::save(panelState);
+  }
+  settingsResponse(200, "Saved. The clock restarts with the new colour quality.");
+  restartAt = millis() + 1000;
+}
+
 static void saveUpdateServer() {
   bool saved = firmwareUpdate.setServer(server.arg("url").c_str());
   settingsResponse(saved ? 200 : 400, saved ? "Update source saved." : "Enter an http:// or https:// address, or leave it empty for GitHub.");
@@ -786,20 +814,47 @@ static void reportMemory() {
       (unsigned)uxTaskGetStackHighWaterMark(nullptr), (unsigned)failures);
 }
 
-// Memory safeguard: the first allocation failure after boot stops the telnet server and mDNS to give their RAM back
+// Lowers the panel's colour quality one level and restarts into it. The reason decides whether it is tried again
+// later: a busy time (a live match or session) passes, a quiet one does not.
+static void lowerPanelQuality(const char *why) {
+  static bool done = false;
+  if (done || restartAt || setupRefresh || updateOnly || !paneltier::canLower(panelState)) return;
+  done = true;
+  bool busy = liveDataActive() || liveFavouriteOn.load();
+  paneltier::lower(panelState, busy);
+  Serial.printf("[Panel] %s: lowering the colour quality to level %d (%s), reason %s\n", why, paneltier::active(panelState) + 1,
+      paneltier::kTiers[paneltier::active(panelState)].name, busy ? "busy" : "quiet");
+  restartAt = millis() + 1500;
+}
+
+// Memory safeguard: the first allocation failure after boot stops the telnet server and mDNS to give their RAM back.
+// If failures go on after that (or pile up before the boot is done), the panel's colour quality goes one level lower.
 static void shedOnLowMemory() {
-  static uint32_t seen = 0;
+  static uint32_t seen = 0, strikes = 0;
   uint32_t failures = memoryAllocationFailures.load(std::memory_order_relaxed);
-  if (!bootDone) { seen = failures; return; }
-  if (failures == seen || memoryShed) { seen = failures; return; }
+  if (failures == seen) return;
+  uint32_t fresh = failures - seen;
   seen = failures;
   FirmwareUpdate::Latest check; firmwareUpdate.latest(check);
-  if (check.checking) return;  // an update check runs the heap nearly dry on purpose and copes with it; telnet and mDNS stay
+  if (check.checking || firmwareUpdating || updateOnly) return;  // an update check runs the heap nearly dry on purpose and copes with it; telnet and mDNS stay
+  if (!bootDone) { strikes += fresh; if (strikes >= 6) lowerPanelQuality("allocation failures during boot"); return; }
+  if (memoryShed) { strikes += fresh; if (strikes >= 3) lowerPanelQuality("allocation failures after shedding"); return; }
   memoryShed = true;
   telnet.stop();
   if (mdnsStarted) { MDNS.end(); mdnsStarted = false; }
   Serial.printf("[Memory] allocation failures: telnet and mDNS stopped until restart (free=%u largest=%u)\n",
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+}
+
+// A lowered level that was caused by a busy time is tried again from 11:00 local time on the next quiet moment, when nothing live is running
+static void retryPanelQuality(uint32_t now) {
+  static uint32_t nextAt = 0;
+  if (!bootDone || updateOnly || restartAt || (int32_t)(now - nextAt) < 0) return;
+  nextAt = now + 60000;
+  if (liveDataActive() || liveFavouriteOn.load() || !paneltier::retryDue(panelState)) return;
+  paneltier::reset(panelState);
+  Serial.println("[Panel] trying the best colour quality again");
+  restartAt = now + 1500;
 }
 
 // POST route with a body limit. The WebServer buffers a whole body before dispatch, so an oversized request is
@@ -898,6 +953,7 @@ static void background() {
   autoUpdate(now);
   reportMemory();
   shedOnLowMemory();
+  retryPanelQuality(now);
   telnet.poll();
   if (mdnsDue) { mdnsDue = false; startMdns(); }
   if (restartAt && (int32_t)(millis() - restartAt) >= 0) {
@@ -906,6 +962,7 @@ static void background() {
     if (!FirmwareUpdate::pendingVerification() || millis() > 90000) ESP.restart();
   }
 }
+
 
 void setup() {
   Serial.begin(115200);
@@ -932,9 +989,17 @@ void setup() {
   panel.gpio.e = 18;
   panel.clkphase = false;
   panel.double_buff = !setupRefresh;  // the setup and welcome display is single buffered (static screens, half the DMA memory)
-  panel.setPixelColorDepthBits(UM_PIXEL_DEPTH_BITS);
-  panel.i2sspeed = HUB75_I2S_CFG::HZ_16M;  // the driver drops low bit planes (lsbMsbTransitionBit) to reach 60 Hz, and each plane kept halves the DMA descriptor memory: 8 bit at 20 MHz needs 4096 descriptors per buffer and ran out of heap
-  panel.i2sspeed = HUB75_I2S_CFG::HZ_8M; panel.min_refresh_rate = 100;  // the driver then drops the lowest bit plane's weight at 102 Hz (111 Hz at 16 MHz): half the DMA descriptors (-24 KB), refresh close to before; the dimmest levels light slightly more (night clock colour is one step darker for it)
+  {  // The colour quality level (PanelTier.h). The update-only boot has no face and every KB goes to the download: it always takes the last, lightest level
+    panelState = paneltier::load();
+    panelLevel = updateOnly ? paneltier::kCount - 1 : paneltier::active(panelState);
+    const paneltier::Tier &tier = paneltier::kTiers[panelLevel];
+    panelLut = cie_lut_for_depth(tier.bits);
+    panel.setPixelColorDepthBits(tier.bits);
+    panel.i2sspeed = tier.mhz >= 20 ? HUB75_I2S_CFG::HZ_20M : tier.mhz >= 16 ? HUB75_I2S_CFG::HZ_16M : HUB75_I2S_CFG::HZ_8M;
+    panel.min_refresh_rate = tier.minRefresh;  // the driver merges the lowest bit planes until this is reached, and each plane it keeps doubles the DMA descriptors
+    boot::setQuality(tier.iconPercent, tier.uFloor, tier.gradient);
+    Serial.printf("[Panel] level %d of %d: %s, state level %u reason %u lock %u\n", panelLevel + 1, paneltier::kCount, tier.name, panelState.level, panelState.reason, panelState.lock);
+  }
   if (setupRefresh) {
     panel.i2sspeed = HUB75_I2S_CFG::HZ_20M;
     panel.min_refresh_rate = 255;
@@ -962,6 +1027,12 @@ void setup() {
   } else {
     // No panel: a new image that cannot drive it goes back; a proven one stays up headless so Wi-Fi, settings and updates can repair it
     consoleLog("Display allocation failed\n");
+    if (!setupRefresh && !updateOnly && paneltier::canLower(panelState)) {  // too heavy for this level: one lighter and restart
+      paneltier::lower(panelState, false);
+      Serial.printf("[Panel] the display did not start: level %d next\n", paneltier::active(panelState) + 1);
+      delay(200);
+      ESP.restart();
+    }
     FirmwareUpdate::rollbackIfPending();
   }
   WiFi.setHostname("ultimatrix");
@@ -1086,6 +1157,8 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/firmware/reboot", rebootForFirmwareUpdate);
   postRoute("/api/firmware/check", checkFirmware);
   postRoute("/api/firmware/server", saveUpdateServer);
+  server.on("/api/display", HTTP_GET, displayStatus);
+  postRoute("/api/display", displaySave);
   backgroundWork() = background;
 }
 
@@ -1139,7 +1212,10 @@ void loop() {
     uint8_t panel = panelBrightness(brightness);
     if (panel != appliedBrightness) { display->setBrightness8(panel); appliedBrightness = panel; }
     bootTick();  // before the check below: it stamps connectedAt on the connect
-    if (face && !portalActive && !bootDone && syncedAt && bootHoldOver(now)) { bootDone = true; Serial.printf("[Boot] done at %u ms\n", (unsigned)now); }
+    if (face && !portalActive && !bootDone && syncedAt) {
+      uint32_t holdAt = millis();  // not the loop's `now`: bootTick() just stamped connectedAt/syncedAt/noticeAt with a later time, and an unsigned difference to it would wrap and end the notice at once
+      if (bootHoldOver(holdAt)) { bootDone = true; Serial.printf("[Boot] done at %u ms\n", (unsigned)holdAt); }
+    }
     if (bootDone) {  // keeps drawing during an update: the feeds are parked, the face shows its last snapshot
       // A face that paints its own night (Mario, Luigi) follows the sun for its sky and only gives way to the red clock in a dark room
       if (face->handlesNight() ? displayControl.roomDark() : displayControl.nightActive()) {

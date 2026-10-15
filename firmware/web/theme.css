@@ -10,17 +10,23 @@ body.ultimatrix-portal{background:var(--paper)!important;color:var(--ink)!import
 .update-banner{position:sticky;top:12px;z-index:20;overflow:hidden;display:flex;align-items:center;gap:16px;margin-bottom:20px;padding:16px 20px;border-radius:16px;color:#e8f8ff;background:linear-gradient(120deg,#050809,#0b2a36 55%,#0d3d52);box-shadow:0 6px 22px #0b2a3640;animation:update-in .45s cubic-bezier(.2,.8,.2,1)}
 .update-banner::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,#ffffff22 50%,transparent 70%);transform:translateX(-100%);animation:update-shine 3.6s ease-in-out infinite;pointer-events:none}
 .update-banner[hidden]{display:none}
+.warn-banner{position:sticky;top:12px;z-index:19;display:flex;align-items:center;gap:16px;margin-bottom:20px;padding:16px 20px;border-radius:16px;color:#fff3e0;background:linear-gradient(120deg,#1a1205,#4a2f08 55%,#6b4310);box-shadow:0 6px 22px #4a2f0840}
+.warn-banner[hidden]{display:none}
+.warn-icon{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:#ffb74d33;color:#ffd699;font-size:22px;font-weight:700}
+.warn-banner .update-text small{color:#f0cf9f}
 .update-icon{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:#46d2ff33;color:#9fe6ff;font-size:22px;font-weight:700;animation:update-bob 1.8s ease-in-out infinite}
 .update-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.update-text strong{font-size:15px}.update-text small{font-size:12px;color:#a9dcee;overflow-wrap:anywhere}
 .update-banner button{flex:none;border:0;border-radius:30px;padding:11px 18px;font-weight:600;font-size:13px;font-family:inherit;color:#050809;background:#d8f4ff;cursor:pointer;position:relative;z-index:1}
+.warn-banner button{flex:none;border:0;border-radius:30px;padding:11px 18px;font-weight:600;font-size:13px;font-family:inherit;color:#050809;background:#d8f4ff;cursor:pointer;position:relative;z-index:1}
 .update-banner button:disabled{opacity:.55;cursor:default}
+.warn-banner button:disabled{opacity:.55;cursor:default}
 .nav-dot{display:inline-block;width:8px;height:8px;margin-right:7px;border-radius:50%;background:#46d2ff;box-shadow:0 0 0 0 #46d2ff99;animation:update-ping 1.8s infinite}.nav-dot[hidden]{display:none}
 @keyframes update-in{from{opacity:0;transform:translateY(-8px)}}
 @keyframes update-shine{60%,100%{transform:translateX(100%)}}
 @keyframes update-bob{50%{transform:translateY(3px)}}
 @keyframes update-ping{70%{box-shadow:0 0 0 8px #46d2ff00}100%{box-shadow:0 0 0 0 #46d2ff00}}
 @media(prefers-reduced-motion:reduce){.update-banner,.update-banner::after,.update-icon,.nav-dot{animation:none}}
-@media(max-width:450px){.update-banner{flex-wrap:wrap}.update-banner button{width:100%}}
+@media(max-width:450px){.update-banner,.warn-banner{flex-wrap:wrap}.update-banner button,.warn-banner button{width:100%}}
 
 /* Compact settings layout */
 .settings-app .main{padding:28px 5vw 20px}

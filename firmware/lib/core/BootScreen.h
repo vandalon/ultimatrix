@@ -20,11 +20,15 @@ enum class Kind : uint8_t { Logo, Connecting, Setup, Connected, Syncing, Error, 
 // clocks per bit plane, so a low setting leaves the dim end only a few levels deep). The caller compensates:
 //  - setLevelMap: a 256-entry table (nullptr = none) every colour channel passes through, so a level drawn through
 //    the Adafruit_GFX RGB565 interface still looks as it would at the user's brightness.
-//  - setPlot888: a full-precision pixel plot for the logo gradient. r, g and b are 8.8 fixed point (0..65280 = level
-//    0..255) so it can dither between two panel levels. Without one the logo falls back to RGB565.
-using Plot888 = void (*)(Adafruit_GFX &gfx, int x, int y, uint16_t r, uint16_t g, uint16_t b);
+//  - setPlot888: a full-precision pixel plot for the logo gradient and the icons. r, g and b are 8.8 fixed point (0..65280 = level
+//    0..255) so it can dither between two panel levels; fine dithers per pixel (the solid icons) instead of per lattice
+//    cell (the logo). Without one they fall back to RGB565.
+using Plot888 = void (*)(Adafruit_GFX &gfx, int x, int y, uint16_t r, uint16_t g, uint16_t b, bool fine);
 void setPlot888(Plot888 plot);
 void setLevelMap(const uint8_t *map);
+// The colour quality level's boot tuning: the icons' peak brightness (percent), the input level at the bottom of the lit U
+// and how much of the icons' colour gradient is kept (percent)
+void setQuality(unsigned iconPercent, unsigned uFloor, unsigned gradient);
 
 // 0..255 raised cosine: 0 at the start of each period, 255 in the middle. offset shifts the phase (ms).
 uint8_t pulse(uint32_t ms, uint32_t period, uint32_t offset = 0);

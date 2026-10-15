@@ -146,6 +146,10 @@ It writes the built faces and signed manifests to `dist/firmware/`, in the folde
 
 The [release workflow](.github/workflows/release.yml) builds all eight faces when a `v*` tag is pushed. It signs the update manifests, creates a GitHub release and deploys the browser flasher and an update-file mirror to GitHub Pages. It needs the `UPDATE_SIGNING_KEY` repository secret and GitHub Pages configured for Actions. This workflow has not yet been checked end to end.
 
+## Display quality
+
+The panel runs at one of three colour quality levels (8 bit/20 MHz, 8 bit/8 MHz, 7 bit/8 MHz): the better the level, the more memory its display buffers use. The clock starts at the best level. If memory runs short and shedding telnet and mDNS does not help, it restarts one level lower, and the settings page shows a warning. A drop caused by live data (a busy match day) is tried again at 11:00 the next quiet moment; a drop at a quiet time stays until you press **Try the best quality again** under **Advanced > Display quality**. The same selector can lock one level.
+
 ## Remote console
 
 The telnet console is off by default. Enable **Remote console** in settings, then connect on port 23:

@@ -36,6 +36,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - Birthdays.h: birthday setting parse/clean/lookup. BirthdayCanvas.h: 3 KB band renderer + fonts; BirthdayParty.h: the birthday screen (24 s story loop)
 - FirmwareUpdate.cpp/.h, UpdateTrust.h: OTA update + trust/verification
 - TimeService, ClockTime, NightClock, SunTimes: time, timezone, night mode, sunrise/sunset
+- PanelTier.h: panel colour quality levels (depth, I2S clock, refresh), the NVS state and the retry rule
 - DisplayControl, PanelLayout, BootScreen, ScreenTimer, FlipDigits, NumericFont, LapFonts: display/panel helpers, fonts
 - TelnetConsole.cpp/.h, Console.h: remote logging console
 - DiskCache.h: mounts LittleFS; formats only genuinely erased cache flash

@@ -38,9 +38,10 @@
 
     // Optimized path: LUT maps 8-bit input (0-255) directly to target bit depth output
     #define DO_BRIGHTNESS_COMPENSATION()                                                              \
-      auto red_val   = lumConvTab[red];                                                               \
-      auto green_val = lumConvTab[green];                                                             \
-      auto blue_val  = lumConvTab[blue];                                                              
+      const uint8_t *lut_ = cie_lut_for_depth(m_cfg.getPixelColorDepthBits());                        \
+      auto red_val   = lut_[red];                                                                     \
+      auto green_val = lut_[green];                                                                   \
+      auto blue_val  = lut_[blue];                                                                    
 
 
   #else

@@ -162,6 +162,16 @@ static const uint16_t lumConvTab_12bit[256] = {
 #endif
 
 // ============================================================================
+// The panel's depth is chosen at run time (7 or 8 bit): with PIXEL_COLOR_DEPTH_BITS undefined every table is compiled and
+// the driver picks by the configured depth
+static inline const uint8_t *cie_lut_for_depth(unsigned bits) {
+#if !defined(PIXEL_COLOR_DEPTH_BITS)
+  return bits == 8 ? lumConvTab_8bit : lumConvTab_7bit;
+#else
+  (void)bits; return nullptr;
+#endif
+}
+
 // Compile-time selection of appropriate LUT based on PIXEL_COLOR_DEPTH_BITS
 // ============================================================================
 

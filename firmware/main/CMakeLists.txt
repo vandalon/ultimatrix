@@ -93,7 +93,7 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     add_dependencies(${COMPONENT_LIB} tzdb_header)
 endif()
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
-    ${mode_definitions} UM_MODE_ID="${ULTIMATRIX_MODE}" DOUBLE_BUFFER_ON UM_FOOTBALL_SIM UM_PIXEL_DEPTH_BITS=7)
+    ${mode_definitions} UM_MODE_ID="${ULTIMATRIX_MODE}" DOUBLE_BUFFER_ON UM_FOOTBALL_SIM)
 
 # Serve the setup assets directly from flash rather than assembling a page on the heap.
 foreach(asset settings.html theme.css settings.js)

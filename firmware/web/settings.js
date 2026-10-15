@@ -404,6 +404,38 @@ document.querySelector('#faces').addEventListener('click', event => {
 });
 refreshFirmware();
 
+// Colour quality: the clock lowers it by itself when memory runs short (and tries again after a quiet day when it was a busy time)
+async function refreshDisplay() {
+  try {
+    const response = await fetch('/api/display', {cache:'no-store'}); if (!response.ok) return;
+    const state = await response.json(), select = document.querySelector('#display-quality');
+    select.innerHTML = '';
+    select.add(new Option('Automatic', '0'));
+    state.levels.forEach((name, index) => select.add(new Option((index === 0 ? 'Best' : index === state.levels.length - 1 ? 'Lowest' : 'Level ' + (index + 1)) + ' · ' + name, String(index + 1))));
+    select.value = String(state.lock);
+    const name = state.levels[state.level - 1];
+    let text = 'Running at ' + name + '.';
+    if (state.lock) text = 'Fixed at ' + name + '. The clock does not change it.';
+    else if (state.level > 1) text = 'Lowered to ' + name + ' after memory ran short' + (state.reason === 'busy' ? ' during live data. It tries the best quality again from ' + state.retryHour + ':00, when nothing live is running.' : ' at a quiet time. It stays until you reset it.');
+    document.querySelector('#display-status').textContent = text;
+    document.querySelector('#display-reset').hidden = state.lock !== 0 || state.level === 1;
+    const lowered = state.lock === 0 && state.level > 1;
+    document.querySelector('#display-banner').hidden = !lowered;
+    if (lowered) document.querySelector('#display-banner-text').textContent = 'The clock ran short of memory and now runs at ' + name + ' (level ' + state.level + ' of ' + state.levels.length + '). ' + (state.reason === 'busy' ? 'It tries the best quality again from ' + state.retryHour + ':00 when nothing live is running.' : 'It stays until you reset it.');
+  } catch (_) {}
+}
+async function saveDisplay(body) {
+  try {
+    const response = await fetch('/api/display', {method:'POST', body}); const result = await response.json();
+    if (!response.ok) throw new Error(result.message);
+    busy = true; controls.disabled = true; message(result.message); setTimeout(reconnect, 2500);
+  } catch (error) { message(error.message || 'Could not save the display quality.', true); }
+}
+document.querySelector('#display-quality').addEventListener('change', event => saveDisplay(new URLSearchParams({lock: event.target.value})));
+document.querySelector('#display-reset').addEventListener('click', () => saveDisplay(new URLSearchParams({reset: '1'})));
+document.querySelector('#display-banner-reset').addEventListener('click', () => saveDisplay(new URLSearchParams({reset: '1'})));
+refreshDisplay();
+
 function hideWelcome() { document.querySelector('#welcome')?.remove(); document.querySelector('.sidebar nav a[href="#welcome"]')?.remove(); }
 document.querySelector('#welcome-dismiss')?.addEventListener('click', async () => {
   try { const response = await fetch('/api/welcome/dismiss', { method: 'POST' }); if (response.ok) hideWelcome(); } catch (_) {}
