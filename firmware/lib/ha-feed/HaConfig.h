@@ -11,13 +11,15 @@
 // on the settings page: it is never sent back or logged.
 namespace ha {
 
+constexpr int kHomeTiles = 6;  // visible slots; keep the original three-slot NVS blob layout stable (the rest have NVS keys of their own)
 constexpr int kTiles = 3, kIcons = 6, kEntity = 96, kTokenMax = 255, kHostMax = 63;
 
-enum TileType : uint8_t { TILE_TEMP, TILE_HUMIDITY, TILE_PEOPLE, TILE_POWER, TILE_CUSTOM, TILE_TYPES };
-enum IconType : uint8_t { ICON_DOOR, ICON_WINDOW, ICON_GARAGE, ICON_WASHER, ICON_DRYER, ICON_LIGHTS, ICON_LOCK, ICON_CHARGER, ICON_NONE, ICON_TYPES };
+enum TileType : uint8_t { TILE_TEMP, TILE_HUMIDITY, TILE_PEOPLE, TILE_POWER, TILE_CUSTOM, TILE_CO2, TILE_RAIN, TILE_EV, TILE_PRICE, TILE_OUTDOOR_HUMIDITY, TILE_WEATHER, TILE_NONE, TILE_TYPES };
+enum IconType : uint8_t { ICON_DOOR, ICON_WINDOW, ICON_GARAGE, ICON_WASHER, ICON_DRYER, ICON_LIGHTS, ICON_LOCK, ICON_CHARGER, ICON_NONE, ICON_PRESENCE, ICON_LOW_BATTERY, ICON_OFFLINE, ICON_LEAK, ICON_BLINDS, ICON_MEDIA, ICON_HEATING, ICON_TYPES };
 // The energy page's entities, in the order of the template result
 enum EnergyEntity : uint8_t { E_USAGE, E_SOLAR, E_BATTERY, E_SOC, E_GRID, E_USAGE_KWH, E_SOLAR_KWH, E_BATTERY_KWH, E_GRID_KWH, E_COUNT };
-enum Page : uint8_t { PAGE_HOME = 1, PAGE_ENERGY = 2 };
+enum Page : uint8_t { PAGE_HOME = 1, PAGE_ENERGY = 2, PAGE_MEDIA = 4, PAGE_DEVICES = 8, PAGE_ART_BACKDROP = 16 };  // the last is no page: the cover of what plays is the dimmed background of every page
+constexpr int kRooms = 4;  // media players the Now playing page can show
 // Per popup (alarm, doorbell, every icon that can raise one): break through the night clock, light the panel fully, flash the whole panel
 enum AlertFlag : uint8_t { AF_NIGHT = 1, AF_BRIGHT = 2, AF_FLASH = 4 };
 
@@ -48,8 +50,15 @@ struct Config {
 };
 
 Config &config();
+// Separate NVS key: adding weather must not invalidate the saved connection and slots.
+char (&weatherEntity())[kEntity];
+Slot &extraTile(int index);  // tiles kTiles..kHomeTiles-1
+const Slot &tileSlot(const Config &c, int index);
+char (*mediaPlayers())[kEntity];  // the kRooms media_player entities of the Now playing page; separate NVS key
+Slot &washerAlert();  // independent of the six visible icons; separate NVS key
 void defaults(Config &c);
 void load();
+const char *saveFailure();      // which part of the last failed save() did not fit
 bool save();                    // also wakes the client so it reconnects with the new settings
 bool configured();              // host and token are set
 uint32_t version();             // changes with every save
@@ -57,6 +66,8 @@ bool autoAvailable(bool tile, uint8_t type);  // does this slot type have an Aut
 // An energy field: "auto" (the sensors of Home Assistant's Energy dashboard) or entity IDs separated by commas, which are added up
 bool validEnergyList(const char *list);
 bool nextListed(const char *&at, char *out, size_t size);  // the next ID of such a list; false at the end
+bool validEntityList(const char *list);  // one or more entity IDs separated by commas ("auto" is not an ID); empty is allowed
+bool multiTile(uint8_t type);  // tile types that combine several entities (people, power, temperature, humidity)
 bool validEntity(const char *id);  // lower case "domain.object", nothing else: the template is built from it unescaped
 
 }  // namespace ha

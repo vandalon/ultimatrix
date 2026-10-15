@@ -218,6 +218,8 @@ void FirmwareUpdate::scheduleAfterReboot(const char *mode) {
   if (prefs.begin("um-updates", false)) { prefs.putString("pending", mode && *mode ? mode : kMode); prefs.end(); }
 }
 
+static bool bootForUpdate = false;  // this boot was restarted to install an update: no second restart
+
 bool FirmwareUpdate::takeScheduled(char *mode, size_t size) {
   Preferences prefs;
   if (!prefs.begin("um-updates", false)) return false;
@@ -226,6 +228,7 @@ bool FirmwareUpdate::takeScheduled(char *mode, size_t size) {
   prefs.end();
   if (!pending.length() || !knownMode(pending.c_str())) return false;
   strlcpy(mode, pending.c_str(), size);
+  bootForUpdate = true;
   return true;
 }
 
@@ -256,8 +259,13 @@ void FirmwareUpdate::task(void *self) {
   {
     // Feed tasks and their stacks have already been reclaimed by service().
     std::unique_lock<std::mutex> gate(networkBudget());
-    if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < minFreeBlock()) {
-      update.message("Not enough free memory while the clock is running. Restarting to install the update.", true);
+#ifdef UM_HOME
+    const bool alwaysReboot = !bootForUpdate;  // the Home face keeps too much live data to download beside it: always install after a restart
+#else
+    const bool alwaysReboot = false;
+#endif
+    if (alwaysReboot || heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < minFreeBlock()) {
+      update.message(alwaysReboot ? "Restarting to install the update." : "Not enough free memory while the clock is running. Restarting to install the update.", true);
       std::lock_guard<std::mutex> guard(update._lock); update._status.lowMemory = true;
     } else update.run();
   }

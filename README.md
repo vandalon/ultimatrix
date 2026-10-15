@@ -10,25 +10,26 @@ There are eight clock faces. Each has its own firmware image, so the clock runs 
 
 | Preview | Face | Build name | What it shows |
 | --- | --- | --- | --- |
-| <img src="docs/previews/home.gif" alt="Home Assistant clock" width="128" height="128"> | Home | `home` | The clock with Home Assistant beside it: an Energy page, the one it starts on (house, solar or battery, and grid, now and today, with the last 18 hours), and a Home page (temperature, humidity, who is home, and icons for doors, windows, garage, washer, lights and the alarm). Alerts for the doorbell, a finished washer, a door left open and the alarm. It connects to Home Assistant over its WebSocket API with a long-lived access token, set up on the settings page. |
+| <img src="docs/previews/home.gif" alt="Home Assistant clock" width="128" height="128"> | Home | `home` | The clock with Home Assistant beside it: an Energy page, the one it starts on (house, solar or battery, and grid, now and today, with the last 20 hours), and a Home page (temperature, humidity, who is home, and icons for doors, windows, garage, washer, lights and the alarm). Alerts for the doorbell, a finished washer, a door left open and the alarm. It connects to Home Assistant over its WebSocket API with a long-lived access token, set up on the settings page. |
 | <img src="docs/previews/football.gif" alt="Football clock" width="128" height="128"> | Football | `football` | Live scores, fixtures, results, league tables and goal celebrations. Choose up to 10 competitions and 8 favourite teams. |
 | <img src="docs/previews/f1.gif" alt="Formula 1 clock" width="128" height="128"> | Formula 1 | `f1` | Race weekends, session results, standings and live timing. Favourite drivers get priority on race screens. |
 | <img src="docs/previews/motogp.gif" alt="MotoGP clock" width="128" height="128"> | MotoGP | `motogp` | Race weekends, results, standings and live timing, using the same display layout as F1. |
 | <img src="docs/previews/tetris.gif" alt="Tetris clock" width="128" height="128"> | Tetris | `tetris` | Falling pieces that form the time and date. |
 | <img src="docs/previews/word.gif" alt="Words clock" width="128" height="128"> | Words | `word` | The time in 16 languages, with a weekday, date and minute bar. Choose letter shuffle, letter lift, pixel dissolve, soft wipe, all four in rotation, or no transition. |
-| <img src="docs/previews/mario.gif" alt="Mario clock" width="128" height="128"> | Mario | `mario` | Mario walks through scrolling worlds, jumps over pipes and ledges, and collects coins, 1-UP mushrooms and stars. Fixed clock blocks update when he hits them. A flagpole, castle and fireworks scene plays at noon. |
-| <img src="docs/previews/luigi.gif" alt="Luigi clock" width="128" height="128"> | Luigi | `luigi` | The same scrolling worlds and fixed clock blocks, with a taller Luigi, flutter jumps, a Subcon jar and a Shy Guy. He collects items and has the same noon finale. |
+| <img src="docs/previews/mario.gif" alt="Mario clock" width="128" height="128"> | Mario | `mario` | Mario in scrolling worlds, with clock blocks showing the time. |
+| <img src="docs/previews/luigi.gif" alt="Luigi clock" width="128" height="128"> | Luigi | `luigi` | A Luigi version of the scrolling-world clock. |
 | <img src="docs/previews/pacman.gif" alt="Pac-Man clock" width="128" height="128"> | Pac-Man | `pacman` | A game that plays itself, with a new maze each level and four ghosts. The clock sits over a dimmed part of the maze. Clock, border, dots and each ghost have separate colour choices. |
 
 Football starts with Eredivisie and KNVB Cup selected, and the Dutch national team as a favourite. Competitions are grouped by country, and favourite teams have a searchable picker.
 
-Mario and Luigi can rotate to a different world each hour, stay in one world, or cycle through them in demo mode. The worlds are Overground, Underground, Castle, Snow, Underwater, Cloud top, Ghost house, Lava and Airship.
-
-Both characters walk automatically, with occasional running bursts at twice the walking speed. The ground and nearby objects scroll faster than distant scenery. They jump over pipes, Piranha Plants and ledges, and collect items along a repeating course. Coins add to the counter, mushrooms show a 1-UP, and stars flash the character's colours. High jumps use tucked, forward-facing legs and pass in front of the fixed clock blocks. Scene animations run 20% faster at about 30 frames per second.
-
-Before a minute change, the character walks under the minute block and pauses briefly before jumping. At an hour change, the minute block is hit first, then the hour block. After landing, the character walks off to the right. A quick swipe brings in the next world, and the character enters from the left. A pinned world uses the same walk-out sequence and keeps the selected world. Each minute hit releases either a green 1-UP or a red Super Mushroom. It slides off the block, falls to the ground and travels toward the character for pickup. After landing, the character keeps walking forward at the usual pace while the camera catches up smoothly and brings them back to the middle of the screen.
-
 ## Home Assistant
+
+<p>
+  <img src="docs/photos/home-assistant-home.jpg" alt="Home Assistant Home page on the LED matrix clock" width="48%">
+  <img src="docs/photos/home-assistant-energy.jpg" alt="Home Assistant Energy page on the LED matrix clock" width="48%">
+</p>
+
+Home and Energy pages on a real panel.
 
 The `home` face needs Home Assistant on the same network (or reachable from it).
 
@@ -36,9 +37,15 @@ The `home` face needs Home Assistant on the same network (or reachable from it).
 2. Switch the clock to the Home face (settings page, Clock face), open its settings page and fill in the Home Assistant card: address (for example `homeassistant.local:8123`) and the token. The clock keeps the token and never shows it again.
 3. Choose the pages (the Energy page comes first; it is left out until you enter its entities) and what each tile and icon shows. Every slot is either Auto (all door sensors, all lights, the average temperature and so on) or one entity or group that you enter. The energy rows use the entity IDs of your power and energy sensors.
 
+The Home page has four configurable tiles in a 2×2 layout: top left, top right, bottom left and bottom right. Each can show temperature, humidity, people home, power, a custom number, CO₂, rain, EV charge, energy price, outdoor humidity, weather, or nothing. Defaults are indoor temperature, indoor humidity, EV charge and weather. EV charge needs your vehicle’s battery-percentage sensor; CO₂ and rain also need a sensor; energy price on Auto uses the Energy dashboard’s grid tariff. CO₂ is shown in ppm; rain and price use the sensor’s numeric value without conversion or a unit suffix.
+
+Weather follows the current condition and temperature of a `weather.*` entity. Auto selects the first available weather entity; Outdoor humidity Auto reads its humidity. Turn Auto off to choose a specific weather entity or outdoor humidity sensor. Counts appear below the state icons, and the clock colon gently breathes over three seconds. Both data pages use a plain black background. The default bottom bar shows low batteries, offline devices, water leaks, open blinds, playing media and active heating; each slot remains configurable. Low batteries includes percentage sensors at 20% or less and low-battery binary sensors, deduplicated by device. Offline counts devices with unavailable entities; entities without an assigned device count separately. Blinds includes blinds, curtains, shades and shutters that are not closed. Heating counts climate entities whose current action is heating. Choose an entity or group instead of Auto to limit a count. For Lights, Auto counts individual lights; with Auto off, selected lights that are on are counted once per Home Assistant area. Lights without an area are excluded from this room count. Occupied rooms counts distinct Home Assistant areas with active motion, occupancy or presence sensors; assign sensors to areas to include them. Washer-done popups have their own Washer running field under Alerts and work without a visible washer icon. Existing fourth-slot washer settings move there automatically.
+
+The optional Now playing page shows the title and artist over a full-panel album cover for the first of the media players you pick (up to four, with suggestions as you type) that is playing. It only appears in the rotation while one is playing, and long titles scroll. The cover comes from the player's picture through Home Assistant (JPEG only; other pictures, or none, show a music note), so it needs the same access token. It is shown only when the picture is on Home Assistant itself.
+
 Entity fields suggest matching entities from Home Assistant as you type. "Fill from Home Assistant" on the Energy page reads the sensors of Home Assistant's own Energy dashboard (grid, solar and battery meters, and power sensors where they exist) into the empty fields; anything you typed stays. Meters that count for ever are fine for the kWh columns: the clock shows their change since midnight, taken from Home Assistant's statistics. For the grid and solar meters it takes the first sensor listed (the import side, and the first tariff).
 
-The clock opens one WebSocket to `/api/websocket`, signs in with the token and subscribes to a single template that Home Assistant renders itself, so it only receives a short line of values whenever they change. Each popup (alarm, doorbell, a finished washer, a door left open) has its own options: also at night (it shows through the night clock and the birthday screen), full brightness while it is up, and flashing the whole panel in its colour. Over `https` the certificate is not verified, like the other feeds. Preview the screens with `python3 firmware/tools/preview/home.py` (needs ffmpeg).
+The clock opens one WebSocket to `/api/websocket`, signs in with the token and subscribes to a single template that Home Assistant renders itself, so it only receives a short line of values whenever they change. Each popup (alarm, doorbell, a finished washer, a door left open) has its own options: also at night (it shows through the night clock and the birthday screen), full brightness while it is up, and flashing the whole panel in its colour. HTTP and HTTPS connections are supported. HTTPS is reported working on the current Home Assistant setup; the certificate is not verified, like the other feeds. Preview the screens with `python3 firmware/tools/preview/home.py` (needs ffmpeg).
 
 ## Hardware
 
@@ -127,7 +134,7 @@ Brightness can be fixed or follow a light sensor. With automatic brightness enab
 
 Most faces can switch to a dim numeric clock during chosen hours, from sunset to sunrise, or when the sensor detects a dark room. It is dark red by default. Pac-Man uses the border colour for its night clock.
 
-Mario and Luigi handle night differently. Their scenes follow sunset and sunrise at the detected location, with stars and a moon in outdoor scenes. Hourly rotation skips Snow, Underwater, Cloud top and Airship at night; pinned worlds and demo mode keep your choice. Their scenes do not use the night schedule. A dark room, detected by the light sensor, switches them to the dim numeric clock.
+Mario and Luigi scenes follow sunrise and sunset rather than the night schedule. A dark room can switch them to the dim numeric clock.
 
 Changes tied to sunrise and sunset need a detected location. Automatic brightness and the night schedule are off by default.
 
@@ -195,8 +202,6 @@ For one animated preview, use `--face football` with `showcase.py`, or `--face p
 
 Browse the saved previews: [Home](docs/previews/home.gif), [Football](docs/previews/football.gif), [F1](docs/previews/f1.gif), [MotoGP](docs/previews/motogp.gif), [Tetris](docs/previews/tetris.gif), [Words](docs/previews/word.gif), [Mario](docs/previews/mario.gif), [Luigi](docs/previews/luigi.gif), [Pac-Man](docs/previews/pacman.gif) and [boot screens](docs/previews/boot.gif). More recent examples cover [Words transitions](docs/previews/word-transitions.gif) and [Pac-Man clock colours](docs/previews/pacman-clock-colours.png).
 
-The complete hour-change sequences have separate previews: [Mario](docs/previews/mario-hour.gif) and [Luigi](docs/previews/luigi-hour.gif).
-
 These images were rendered from the current code on 14 October 2026. They help review the drawing; they do not establish how it looks or behaves on a real panel.
 
 ## Development status
@@ -204,8 +209,6 @@ These images were rendered from the current code on 14 October 2026. They help r
 As of 14 October 2026, the firmware builds with ESP-IDF and Arduino as a component. The shared runtime, local setup and settings, brightness controls, night display, signed updater and eight faces are implemented. The drawing and feed code are still being cleaned up.
 
 All eight faces have successful builds recorded during development. That does not mean the latest source has been rebuilt for every face. The recent Words transitions and Pac-Man changes have been checked in native previews and browser mocks; the latest Pac-Man clock-colour change has not had a firmware build or device check.
-
-The latest Mario and Luigi walking poses, pipes, jumps and hour-change sequences have been checked in native previews. This revision has not had a firmware build or panel check.
 
 Football has had initial device checks for boot, Wi-Fi, feeds, saved settings, mDNS and telnet. F1 has had a short device check of memory use and update checking.
 

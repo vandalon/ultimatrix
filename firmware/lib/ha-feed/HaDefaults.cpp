@@ -12,22 +12,22 @@ void defaults(Config &c) {
   memset(&c, 0, sizeof(c));
   strlcpy(c.host, "homeassistant.local", sizeof(c.host));
   c.port = 8123;
-  c.pages = PAGE_HOME | PAGE_ENERGY;
+  c.pages = PAGE_HOME | PAGE_ENERGY | PAGE_DEVICES;
   c.pageSecs = 10;
   c.gridImportPositive = 1;
   c.batteryDischargePositive = 1;
   c.tiles[0] = {TILE_TEMP, 1, 0, 0, 0, "", ""};
   c.tiles[1] = {TILE_HUMIDITY, 1, 0, 0, 0, "", ""};
-  c.tiles[2] = {TILE_PEOPLE, 1, 0, 0, 0, "", ""};
+  c.tiles[2] = {TILE_EV, 0, 0, 0, 0, "", ""};
   c.alarmFlags = AF_NIGHT | AF_BRIGHT | AF_FLASH;  // an alarm is not to be missed
   c.doorbellFlags = AF_NIGHT | AF_BRIGHT;
-  const uint8_t icons[kIcons] = {ICON_DOOR, ICON_WINDOW, ICON_GARAGE, ICON_WASHER, ICON_LIGHTS, ICON_LOCK};
-  for (int i = 0; i < kIcons; i++) c.icons[i] = {icons[i], uint8_t(autoAvailable(false, icons[i]) ? 1 : 0), uint8_t(i == 2 ? 10 : 0), 0, 0, "", ""};
+  const uint8_t icons[kIcons] = {ICON_LOW_BATTERY, ICON_OFFLINE, ICON_LEAK, ICON_BLINDS, ICON_MEDIA, ICON_HEATING};
+  for (int i = 0; i < kIcons; i++) c.icons[i] = {icons[i], uint8_t(autoAvailable(false, icons[i]) ? 1 : 0), 0, 0, 0, "", ""};
 }
 
 bool autoAvailable(bool tile, uint8_t type) {
-  if (tile) return type == TILE_TEMP || type == TILE_HUMIDITY || type == TILE_PEOPLE;
-  return type == ICON_DOOR || type == ICON_WINDOW || type == ICON_GARAGE || type == ICON_LIGHTS || type == ICON_LOCK;
+  if (tile) return type == TILE_TEMP || type == TILE_HUMIDITY || type == TILE_PEOPLE || type == TILE_WEATHER || type == TILE_OUTDOOR_HUMIDITY || type == TILE_PRICE || type == TILE_EV;
+  return type == ICON_DOOR || type == ICON_WINDOW || type == ICON_GARAGE || type == ICON_LIGHTS || type == ICON_LOCK || type == ICON_PRESENCE || type == ICON_CHARGER || (type >= ICON_LOW_BATTERY && type <= ICON_HEATING);
 }
 
 bool validEntity(const char *id) {
@@ -58,5 +58,17 @@ bool validEnergyList(const char *list) {
   while (nextListed(at, id, sizeof(id))) { if (!id[0] || !validEntity(id)) return false; count++; }
   return count > 0;
 }
+
+bool validEntityList(const char *list) {
+  if (!list || !*list) return true;
+  if (!strcmp(list, "auto")) return false;
+  const char *at = list;
+  char id[kEntity];
+  int count = 0;
+  while (nextListed(at, id, sizeof(id))) { if (strcmp(id, "-") && strcmp(id, "off") && !validEntity(id)) return false; count++; }  // EV tile: "-" is a part left to detection, "off" one that is not used
+  return count > 0;
+}
+
+bool multiTile(uint8_t type) { return type == TILE_TEMP || type == TILE_HUMIDITY || type == TILE_PEOPLE || type == TILE_POWER; }
 
 }  // namespace ha

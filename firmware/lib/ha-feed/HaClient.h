@@ -21,6 +21,7 @@ class HaClient {
       enum : uint8_t { NONE, PENDING, READY, FAILED_ASKING } state = NONE;
       char id[ha::E_COUNT][ha::kEntity] = {};
       char gridTo[ha::kEntity] = "";  // the meters of what the grid receives
+      char price[ha::kEntity] = "";   // the grid's tariff: entity ID or fixed number
       char note[56] = "";
     };
     void requestPrefs();             // ask (the answer arrives in a moment)

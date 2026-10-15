@@ -11,6 +11,8 @@
 #include <memory>
 #include <new>
 #include "Console.h"
+#include "HaMedia.h"
+#include "HaDevices.h"
 
 extern std::atomic<bool> firmwareUpdating;
 
@@ -269,7 +271,7 @@ bool HaClient::session(uint32_t version) {
   bool historyAsked = false;  // Home Assistant wants every id higher than the one before
   bool statisticsAsked = false;
   bool resolving = false;
-  uint32_t templateId = 0;
+  uint32_t templateId = 0, mediaId = 0, devicesId = 0;
   char gridTo[ha::kEntity] = "";  // meters to subtract from the grid's kWh
   auto subscribe = [&]() -> bool {
     set(SUBSCRIBING, "Subscribing");
@@ -290,6 +292,25 @@ bool HaClient::session(uint32_t version) {
     at += built;
     memcpy(body.get() + at, "\"}", 3);
     socket.text(body.get(), at + 2);
+    // The Now playing page has a template of its own: a player starting or a new track arrives at once, and without the page nothing is asked
+    mediaId = 0;
+    if (config->pages & (ha::PAGE_MEDIA | ha::PAGE_ART_BACKDROP)) {
+      mediaId = ++lastId;
+      at = snprintf(head, sizeof(head), "{\"id\":%u,\"type\":\"render_template\",\"template\":\"", (unsigned)mediaId);
+      memcpy(body.get(), head, at);
+      built = ha::media::buildTemplate(*config, body.get() + at, kTemplateMax);
+      if (built) { at += built; memcpy(body.get() + at, "\"}", 3); socket.text(body.get(), at + 2); }
+      else mediaId = 0;
+    }
+    devicesId = 0;
+    if (config->pages & ha::PAGE_DEVICES) {
+      devicesId = ++lastId;
+      at = snprintf(head, sizeof(head), "{\"id\":%u,\"type\":\"render_template\",\"template\":\"", (unsigned)devicesId);
+      memcpy(body.get(), head, at);
+      built = ha::devices::buildTemplate(body.get() + at, kTemplateMax);
+      if (built) { at += built; memcpy(body.get() + at, "\"}", 3); socket.text(body.get(), at + 2); }
+      else devicesId = 0;
+    }
     return true;
   };
   set(AUTHENTICATING, "Signing in");
@@ -382,6 +403,7 @@ bool HaClient::session(uint32_t version) {
       // Energy fields set to "auto" are the sensors of the Energy dashboard: ask for them first, then subscribe
       bool wantsAuto = false;
       for (int i = 0; i < ha::E_COUNT; i++) wantsAuto |= !strcmp(config->energy[i], "auto");
+      for (int i = 0; i < ha::kHomeTiles; i++) wantsAuto |= ha::tileSlot(*config, i).type == ha::TILE_PRICE && ha::tileSlot(*config, i).autoMode;
       if (wantsAuto) {
         char ask[56];
         prefsId = ++lastId;
@@ -397,7 +419,7 @@ bool HaClient::session(uint32_t version) {
         if (strstr(text, "unauthorized") || strstr(text, "admin")) strlcpy(found.note, "Needs a token of an administrator", sizeof(found.note));
         else if (stringAfter(text, "\"message\":\"", reason, sizeof(reason))) snprintf(found.note, sizeof(found.note), "Refused: %.30s", reason);
         else strlcpy(found.note, "Home Assistant refused", sizeof(found.note));
-      } else if (ha::parseEnergyPrefs(text, found.id, found.gridTo)) {
+      } else if (ha::parseEnergyPrefs(text, found.id, found.gridTo, found.price)) {
         found.state = EnergyPrefs::READY;
       } else {
         found.state = EnergyPrefs::FAILED_ASKING;
@@ -406,6 +428,7 @@ bool HaClient::session(uint32_t version) {
       { std::lock_guard<std::mutex> guard(_lock); _prefs = found; }
       if (resolving) {
         resolving = false;
+        ha::setAutoPrice(found.state == EnergyPrefs::READY ? found.price : "");
         if (found.state == EnergyPrefs::READY && !strcmp(config->energy[ha::E_GRID_KWH], "auto")) strlcpy(gridTo, found.gridTo, sizeof(gridTo));
         for (int i = 0; i < ha::E_COUNT; i++)
           if (!strcmp(config->energy[i], "auto")) strlcpy(config->energy[i], found.state == EnergyPrefs::READY ? found.id[i] : "", ha::kEntity);
@@ -482,6 +505,28 @@ bool HaClient::session(uint32_t version) {
         snprintf(shown, sizeof(shown), "Rejected: %s", reason);
         set(FAILED, shown);
         break;
+      }
+    } else if (mediaId && (uint32_t)idOf(text) == mediaId) {
+      const char *result = strstr(text, "\"result\":\"");
+      if (result && strstr(text, "\"type\":\"event\"")) {
+        std::unique_ptr<char[]> line(new (std::nothrow) char[1800]);
+        std::unique_ptr<ha::media::Snapshot> found(new (std::nothrow) ha::media::Snapshot);
+        if (line && found) {
+          ha::media::unescape(result + 10, line.get(), 1800);
+          ha::media::parseResult(line.get(), *found);
+          ha::media::publish(*found);
+        }
+      }
+    } else if (devicesId && (uint32_t)idOf(text) == devicesId) {
+      const char *result = strstr(text, "\"result\":\"");
+      if (result && strstr(text, "\"type\":\"event\"")) {
+        std::unique_ptr<char[]> line(new (std::nothrow) char[600]);
+        std::unique_ptr<ha::devices::Snapshot> found(new (std::nothrow) ha::devices::Snapshot);
+        if (line && found) {
+          ha::media::unescape(result + 10, line.get(), 600);
+          ha::devices::parseResult(line.get(), *found);
+          ha::devices::publish(*found);
+        }
       }
     } else if (strstr(text, "\"type\":\"event\"") && templateId && (uint32_t)idOf(text) == templateId) {
       const char *result = strstr(text, "\"result\":\"");

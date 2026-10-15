@@ -29,13 +29,19 @@ inline uint16_t mix(uint16_t a, uint16_t b, int t) {
 // level 255 is the colour itself, 0 is black
 inline uint16_t dim(uint16_t c, int level) { return mix(0, c, level); }
 
+// Everything a face draws through put/box can be shifted sideways and cut to a column range (page slides); the default is the whole panel
+struct View { int dx = 0, x0 = 0, x1 = W; };
+inline View view;
+
 inline void put(MatrixPanel_I2S_DMA &d, int x, int y, uint16_t c) {
-  if ((unsigned)x < (unsigned)W && (unsigned)y < (unsigned)H) d.drawPixel(x, y, c);
+  x += view.dx;
+  if (x >= view.x0 && x < view.x1 && (unsigned)y < (unsigned)H) d.drawPixel(x, y, c);
 }
 inline void box(MatrixPanel_I2S_DMA &d, int x, int y, int w, int h, uint16_t c) {
-  if (x < 0) { w += x; x = 0; }
+  x += view.dx;
+  if (x < view.x0) { w -= view.x0 - x; x = view.x0; }
   if (y < 0) { h += y; y = 0; }
-  if (x + w > W) w = W - x;
+  if (x + w > view.x1) w = view.x1 - x;
   if (y + h > H) h = H - y;
   if (w > 0 && h > 0) d.fillRect(x, y, w, h, c);
 }

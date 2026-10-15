@@ -9,6 +9,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - .github/workflows/release.yml: release CI
 - .gitignore: local tooling, build output and handoff/log exclusions
 - docs/: ARCHITECTURE.md (runtime/design), UPDATES.md (signed OTA), FOOTBALL_SNAPSHOT_PLAN.md and TETRIS_MIGRATION_PLAN.md (migration plans)
+- docs/photos/: real-panel Home Assistant photos used in README
 - docs/previews/: README GIFs and welcome-preview.html (standalone welcome mockup)
 - hardware/enclosure/: parametric OpenSCAD P3/P2.5 casing prototype, optical grid samples, STL exports and fit limitations
 - web-flasher/index.html: ESP Web Tools installer; uses generated firmware/<mode>/manifest.json payloads
@@ -27,7 +28,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - pacman/: self-playing maze clock; Maze.h generates/stores the maze; palette in lib/core/PacmanColors.h
 - word/: word clock; WordFont draws glyphs, WordLanguages defines language layouts
 - tetris/: falling-digit clock; TetrisRenderer draws, TetrisScreens controls timing/frame state
-- home/: Home Assistant face; Clockface.cpp fills a Frame (pages, alerts, hourly bars) from HaClient, HomeRenderer.cpp draws it (shared with the native preview)
+- home/: Home Assistant face; Clockface.cpp fills a Frame (pages, alerts, hourly bars) from HaClient, HomeRenderer.cpp draws the configurable tiles (including weather) and the Now playing page, configurable status counts, plain background and breathing colon (shared with the native preview)
 - f1/: shared F1/MotoGP face; F1Renderer draws, F1Screens controls pages/timing, LoadingTyre.h holds the loading tyre bitmap
 - football/: sports face; FootballRenderer draws, FootballScreens controls pages/timing (feed: lib/football-feed)
 - MotoGP has no separate clockface directory: reuses f1/ with UM_MOTOGP and lib/motogp-feed
@@ -54,7 +55,8 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - football-feed/: FootballTicker collects ESPN data; EspnParse parses it; FootballSnapshot.h defines display snapshots; GoalAnimation, TeamColors, TeamKit.h handle goal visuals and kits
 - motogp-feed/: MotoGpTicker.cpp collects results/live timing into F1Ticker snapshots; MotoGpScan.h parses streams; MotoGpRiders.h maps riders/bikes
 - tetris/: TetrisDigits, TetrisLayout, TetrisShapes (digit animation, layout and block shapes)
-- ha-feed/: HaConfig (slot settings in one NVS blob, token write-only), HaDefaults (defaults and entity rules), HaTemplate (builds the Jinja template, parses the result line), HaClient (WebSocket task: auth, render_template subscription, reconnect)
+- ha-feed/: HaConfig (slot settings in one NVS blob, separate fourth-tile/legacy-weather/washer-alert keys, token write-only), HaDefaults (defaults and entity rules), HaTemplate (builds the Jinja template, parses the result line), HaClient (WebSocket task: auth, render_template subscriptions, reconnect), HaMedia (Now playing: players template/parser, album-art fetch + ROM JPEG decode to 36x36)
+- firmware/lib/ha-feed/HaDevices.cpp/.h — Devices page: names of low-battery and offline devices (own HA template + parser)
 - faces/: FaceKit.h, MiniFont.h, PlumberSprites.h (drawing helpers, small font and walking poses); PlumberWorld.h defines courses, mushroom drops, items and Piranha pipes
 
 ### web/ (settings UI served by device)

@@ -453,9 +453,13 @@ document.querySelector('#welcome-start-button')?.addEventListener('click', async
 });
 
 // Home Assistant (Home face): its own card and save button, outside the autosaving form so the token is only sent when typed
-const HA_TILES = ['Temperature', 'Humidity', 'People home', 'Power', 'Custom number'], HA_TILE_AUTO = [true, true, true, false, false];
-const HA_ICONS = ['Door', 'Window', 'Garage door', 'Washer', 'Dryer', 'Lights', 'Lock or alarm', 'Charger', 'Off'], HA_ICON_AUTO = [true, true, true, false, false, true, true, false, false];
-const HA_TILE_KIND = ['temperature', 'humidity', 'person', 'power', 'sensor'], HA_ICON_KIND = ['door', 'window', 'garage', 'any', 'any', 'light', 'lock', 'any', 'any'];
+const HA_TILES = ['Temperature', 'Humidity', 'People home', 'Power', 'Custom number', 'CO₂ (ppm)', 'Rain', 'EV charge (%)', 'Energy price', 'Outdoor humidity', 'Weather', 'Off'], HA_TILE_AUTO = [true, true, true, false, false, false, false, false, true, true, true, false];
+const HA_ICONS = ['Door', 'Window', 'Garage door', 'Washer', 'Dryer', 'Lights', 'Lock or alarm', 'Charger', 'Off', 'Occupied rooms', 'Low batteries', 'Offline devices', 'Water leaks', 'Blinds open', 'Media playing', 'Heating'], HA_ICON_AUTO = [true, true, true, false, false, true, true, true, false, true, true, true, true, true, true, true];
+const HA_TILE_KIND = ['temperature', 'humidity', 'person', 'power', 'sensor', 'co2', 'rain', 'battery', 'price', 'humidity', 'weather', 'any'], HA_ICON_KIND = ['door', 'window', 'garage', 'any', 'any', 'light', 'lock', 'any', 'any', 'presence', 'battery_status', 'any', 'leak', 'blinds', 'media', 'climate'];
+// What Auto detects for each type, shown as grey tags while the entity field is empty
+const HA_TILE_DETECT = {0: 'temperature', 1: 'humidity', 2: 'person', 9: 'weather', 10: 'weather'}, HA_TILE_NOTE = {8: 'The tariff of the Energy dashboard’s grid source'};
+const HA_ICON_DETECT = {0: 'door', 1: 'window', 2: 'garage', 5: 'light', 6: 'lock', 7: 'charging', 9: 'presence', 10: 'battery_status', 12: 'leak', 13: 'blinds', 14: 'media', 15: 'climate'}, HA_ICON_NOTE = {11: 'Every device Home Assistant reports as unavailable'};
+const HA_CAR = /car|ev_|_ev|tesla|vehicle|charger|wallbox/;
 const HA_ENERGY_KIND = ['power', 'power', 'power', 'battery', 'power', 'energy', 'energy', 'energy', 'energy'];
 const HA_ENERGY = ['House power now', 'Solar power now', 'Battery power now', 'Battery charge (%)', 'Grid power now', 'House energy today', 'Solar energy today', 'Battery energy today', 'Grid energy today'];
 let haStarted = false, haTimer = 0;
@@ -492,6 +496,101 @@ function haBindSuggest(input, kind) {
   input.addEventListener('focus', ask);
   input.addEventListener('input', ask);
 }
+// Several entities in one field, as tags (like the favourite teams): the value stays "id,id,id", with "auto" as a single tag
+const HA_TILE_MULTI = [0, 1, 2, 3];  // temperature, humidity, people and power tiles combine several entities
+function haLock(root, off) { root.querySelector('input').disabled = off; root.style.opacity = off ? 0.5 : ''; root.style.pointerEvents = off ? 'none' : ''; }
+function haTags(value, placeholder, kind, limit = 95) {
+  let ids = (value || '').split(',').map(id => id.trim()).filter(Boolean);
+  const list = haEl('div', {className: 'tags'}), input = haEl('input', {type: 'text', placeholder, autocomplete: 'off', spellcheck: false});
+  const box = haEl('div', {className: 'tag-box'}, list, input), menu = haEl('div', {className: 'suggest', hidden: true}), note = haEl('p', {className: 'hint'});
+  const root = haEl('div', {}, box, menu, note);
+  let shown = [], active = 0, seq = 0;
+  const changed = () => { render(); root.dispatchEvent(new Event('change', {bubbles: true})); };
+  const render = () => {
+    list.replaceChildren(...ids.map(id => {
+      const remove = haEl('button', {type: 'button', className: 'tag-x', textContent: '×'}); remove.setAttribute('aria-label', 'Remove ' + id);
+      remove.addEventListener('click', () => { ids = ids.filter(one => one !== id); changed(); input.focus(); });
+      return haEl('span', {className: 'tag'}, id, remove);
+    }));
+    note.textContent = ids.join(',').length > limit ? 'Too many for the clock to store: remove one.' : '';
+    note.hidden = !note.textContent;
+  };
+  const add = id => {
+    id = id.trim().toLowerCase();
+    if (!/^[a-z_]+\.[a-z0-9_]+$/.test(id) || ids.includes(id)) return false;
+    ids = ids.filter(one => one !== 'auto' && one !== 'off'); ids.push(id); input.value = ''; menu.hidden = true; changed(); return true;
+  };
+  const suggest = async () => {
+    const mine = ++seq, typed = input.value.trim().toLowerCase();
+    try {
+      const all = await haEntities(kind());
+      if (mine !== seq) return;
+      shown = all.filter(item => !ids.includes(item.id) && (!typed || item.id.includes(typed) || item.name.toLowerCase().includes(typed))).slice(0, 8); active = 0;
+      menu.replaceChildren(...shown.map((item, i) => {
+        const row = haEl('div', {className: 'suggest-item' + (i === active ? ' active' : ''), textContent: item.name + ' · ' + item.id + (item.unit ? ' (' + item.unit + ')' : '')});
+        row.addEventListener('mousedown', event => { event.preventDefault(); add(item.id); input.focus(); });
+        return row;
+      }));
+      menu.hidden = !shown.length;
+    } catch (_) { menu.hidden = true; }
+  };
+  const mark = () => [...menu.children].forEach((row, i) => row.classList.toggle('active', i === active));
+  input.addEventListener('focus', suggest); input.addEventListener('input', suggest);
+  input.addEventListener('blur', () => { if (input.value.trim()) add(input.value); menu.hidden = true; });
+  input.addEventListener('keydown', event => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { if (shown.length) { event.preventDefault(); active = (active + (event.key === 'ArrowDown' ? 1 : shown.length - 1)) % shown.length; mark(); } }
+    else if (event.key === 'Enter' || event.key === ',') { event.preventDefault(); if (!menu.hidden && shown[active] && !/^[a-z_]+\.[a-z0-9_]+$/.test(input.value.trim().toLowerCase())) add(shown[active].id); else add(input.value); }
+    else if (event.key === 'Escape') menu.hidden = true;
+    else if (event.key === 'Backspace' && !input.value && ids.length) { ids.pop(); changed(); }
+  });
+  box.addEventListener('click', () => input.focus());
+  Object.defineProperty(root, 'value', {get: () => ids.join(','), set: text => { ids = (text || '').split(',').map(id => id.trim()).filter(Boolean); render(); }});
+  render();
+  return root;
+}
+// An empty entity field means Auto: the entities found in Home Assistant show as grey tags (refresh detects again). Removing one of them, or typing your own entity, turns it into your own list.
+function haAutoRow(type, autoBox, entity, off, can, detect, notes, allowNone = false) {
+  const preview = haEl('div', {className: 'ha-detected'}), refresh = haEl('button', {type: 'button', className: 'ha-refresh', title: 'Detect again', textContent: '↻'}), field = entity.querySelector('input');
+  let seq = 0;
+  const show = async fresh => {
+    const mine = ++seq, t = type.value;
+    preview.hidden = !autoBox.checked;
+    if (!autoBox.checked) return;
+    if (notes[t]) { preview.textContent = notes[t]; return; }
+    preview.textContent = 'Detecting…';
+    try {
+      const kind = detect[t] === 'ev_battery' ? 'battery' : detect[t];
+      if (fresh) { delete haCache[kind]; try { localStorage.removeItem('ha-' + kind); } catch (_) {} }
+      let list = await haEntities(kind);
+      if (detect[t] === 'charging' || detect[t] === 'ev_battery') list = list.filter(item => HA_CAR.test(item.id));
+      if (mine !== seq) return;
+      const ids = list.map(item => item.id);
+      if (!ids.length) { preview.textContent = 'Nothing found in Home Assistant.'; return; }
+      preview.replaceChildren(...ids.slice(0, 12).map(id => {
+        const tag = haEl('span', {className: 'tag tag-auto'}, id);
+        {
+          const x = haEl('button', {type: 'button', className: 'tag-x', textContent: '×'}); x.setAttribute('aria-label', 'Remove ' + id);
+          x.addEventListener('click', () => { entity.value = ids.filter(one => one !== id).join(',') || (allowNone ? 'off' : ''); entity.dispatchEvent(new Event('change', {bubbles: true})); });
+          tag.append(x);
+        }
+        return tag;
+      }), ...(ids.length > 12 ? [haEl('span', {className: 'hint', textContent: '+' + (ids.length - 12) + ' more'})] : []));
+    } catch (_) { preview.textContent = 'Could not ask Home Assistant.'; }
+  };
+  const sync = () => {
+    const ok = !!can[type.value];
+    autoBox.checked = ok && !entity.value.trim();
+    refresh.style.visibility = ok ? '' : 'hidden';
+    haLock(entity, off(type.value));
+    field.placeholder = autoBox.checked ? 'Using what was detected. Type to choose your own…' : 'Type to find an entity…';
+    show(false);
+  };
+  type.addEventListener('change', sync); entity.addEventListener('change', sync);
+  refresh.addEventListener('click', () => show(true));
+  return {refresh, preview, sync};
+}
+// The three entities of the EV tile as "charge,charging,plugged": "-" for one left to detection, "off" for one that is not used, nothing at all when all three are
+function haEvEntity(ev) { const ids = ev.map(e => e.field.value.split(',')[0] || '-'); /* one entity per part */ while (ids.length && ids[ids.length - 1] === '-') ids.pop(); return ids.join(','); }
 async function initHomeAssistant() {
   if (haStarted) return;
   haStarted = true;
@@ -522,38 +621,46 @@ async function initHomeAssistant() {
   tlsBox.addEventListener('change', () => { if (tlsBox.checked && ['8123', '80'].includes(port.value)) port.value = 443; else if (!tlsBox.checked && port.value === '443') port.value = 8123; });
 
   const [energyBox, energyLabel] = haCheck('Energy page', state.pages & 2), [homeBox, homeLabel] = haCheck('Home page', state.pages & 1);
+  const [mediaBox, mediaLabel] = haCheck('Now playing page', state.pages & 4), [devicesBox, devicesLabel] = haCheck('Device problems page', state.pages & 8), [backdropBox, backdropLabel] = haCheck('Show the album art, dimmed, behind every page', state.pages & 16);
   const secs = haEl('input', {type: 'number', min: 3, max: 120, value: state.pageSecs});
-  const pages = haGroup('Pages', 'The clock starts on the Energy page and rotates between the pages you tick. A page without data (the Energy page needs its entities below) is skipped.');
-  pages.append(haEl('div', {className: 'ha-two'}, energyLabel, homeLabel), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Seconds per page'}), secs));
+  const pages = haGroup('Pages', 'The clock starts on the Energy page and rotates between the pages you tick. A page without data is skipped: the Energy page needs its entities below, Now playing needs something playing, and Device problems lists low batteries (20% or less) and offline devices, so it only shows while there are any. The album art option needs a media player under Now playing; while it plays, its cover sits at a quarter brightness behind every other page.');
+  pages.append(haEl('div', {className: 'ha-two ha-three'}, energyLabel, homeLabel, mediaLabel, devicesLabel), haEl('div', {className: 'field'}, backdropLabel), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Seconds per page'}), secs));
   body.append(pages);
+  const playing = haGroup('Now playing', 'Pick up to four rooms (media players). The page shows the title, the artist and the album art of the first of them that is playing (the order below), and is skipped when none is. Album art needs a JPEG picture from Home Assistant; other pictures show a note.');
+  const rooms = haTags((state.media || []).filter(Boolean).join(','), 'Type to find a media player…', () => 'media', 400);
+  playing.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Rooms'}), rooms));
+  body.append(playing);
 
   const rows = {tiles: [], icons: []};
-  const tiles = haGroup('Tiles', 'Auto averages or counts everything of that kind. To use one sensor or a group instead, untick Auto and enter its entity ID.');
+  const tiles = haGroup('Tiles (up to six)', 'Choose each visible reading; set a tile to Off to hide it. The tiles that are on spread evenly over the panel, in this order, left to right. EV charge, CO₂, rain and price need a sensor entity. Rain and price show the sensor’s value without a unit suffix or conversion. While a field is empty the clock uses everything it detects in Home Assistant (grey tags; ↻ detects again): outdoor humidity reads the weather entity, price the tariff of the Energy dashboard’s grid source, and temperature and humidity are averaged. To use your own instead, type an entity or remove a grey tag; temperature, humidity, people and power tiles accept several (averaged, or added up for power).');
   state.tiles.forEach(slot => {
-    const type = haSelect(HA_TILES, slot.type), [autoBox, autoLabel] = haCheck('Auto', slot.auto), entity = haInput(slot.entity, 'sensor.living_room_temperature'), unit = haInput(slot.unit, 'unit', {maxLength: 3});
-    const sync = () => { const can = HA_TILE_AUTO[type.value]; autoBox.disabled = !can; if (!can) autoBox.checked = false; entity.disabled = autoBox.checked; unit.hidden = type.value !== '4'; };
-    type.addEventListener('change', sync); autoBox.addEventListener('change', sync); sync();
-    haBindSuggest(entity, () => HA_TILE_KIND[type.value] || 'sensor');
-    tiles.append(haEl('div', {className: 'ha-row'}, type, autoLabel, entity, unit));
-    rows.tiles.push({type, autoBox, entity, unit});
+    const type = haSelect(HA_TILES, slot.type), autoBox = {checked: slot.auto}, entity = haTags(slot.type === 7 ? '' : slot.entity, 'Type to find an entity…', () => HA_TILE_KIND[type.value] || 'sensor'), unit = haInput(slot.unit, 'unit', {maxLength: 3});
+    const auto = haAutoRow(type, autoBox, entity, value => value === '11', HA_TILE_AUTO, HA_TILE_DETECT, HA_TILE_NOTE);
+    // EV charge is one tile with three entities: the charge, whether it charges and whether it is plugged in (an empty one is detected)
+    const parts = (slot.type === 7 ? slot.entity : '').split(',').map(id => id.trim() === '-' ? '' : id.trim()), evKind = ['battery', 'charging', 'plug'], evName = ['Charge', 'Charging', 'Plugged in'], evDetect = ['ev_battery', 'charging', 'plug'];
+    const ev = evName.map((name, k) => { const field = haTags(parts[k] || '', 'Type to find an entity…', () => evKind[k]), found = haAutoRow(type, {checked: false}, field, () => false, {7: true}, {7: evDetect[k]}, {}, true); return {field, found, name}; });
+    const evBlock = haEl('div', {className: 'ha-ev'}, ...ev.map(e => haEl('div', {className: 'ha-ev-row'}, haEl('span', {className: 'hint', textContent: e.name, title: 'One entity. Remove the others from the detected list to choose.'}), e.found.refresh, haEl('div', {}, e.field, e.found.preview))));
+    const sync = () => { const isEv = type.value === '7'; if (!isEv && !HA_TILE_MULTI.includes(+type.value) && entity.value.includes(',')) entity.value = entity.value.split(',')[0]; unit.hidden = type.value !== '4'; entity.style.display = isEv ? 'none' : ''; auto.preview.style.display = isEv ? 'none' : ''; evBlock.hidden = !isEv; };
+    type.addEventListener('change', sync); sync(); auto.sync(); ev.forEach(e => e.found.sync());
+    tiles.append(haEl('div', {className: 'ha-row'}, type, auto.refresh, haEl('div', {}, entity, auto.preview, evBlock), unit));
+    rows.tiles.push({type, autoBox, entity, unit, ev});
   });
   body.append(tiles);
 
-  const icons = haGroup('State icons', 'Lit when something of that kind is open, running or on. Alert after: flash a message once it has been lit that many minutes (doors, windows, garage), 0 for never.');
+  const icons = haGroup('State icons', 'Low batteries counts devices at 20% or less (or reporting low battery). Offline counts devices with unavailable entities; entities without a device count separately. Heating uses actual heating activity. Select a group to limit what is counted. Lights with your own entities counts rooms with those lights on, not individual bulbs (lights without an area are left out); while the field is empty it counts every light. An empty field uses everything detected (grey tags; ↻ detects again); type an entity or remove a grey tag to use your own. Occupied rooms counts distinct Home Assistant areas with active motion or occupancy sensors; sensors without an area are left out. Lit when something of that kind is open, running or on. Alert after: flash a message once it has been lit that many minutes (doors, windows, garage), 0 for never.');
   state.icons.forEach(slot => {
-    const type = haSelect(HA_ICONS, slot.type), [autoBox, autoLabel] = haCheck('Auto', slot.auto), entity = haInput(slot.entity, 'binary_sensor.front_door'), alert = haEl('input', {type: 'number', min: 0, max: 240, value: slot.alertMins, title: 'Alert after (minutes)'});
-    const sync = () => { const can = HA_ICON_AUTO[type.value]; autoBox.disabled = !can; if (!can) autoBox.checked = false; entity.disabled = autoBox.checked || type.value === '8'; alert.hidden = !['0', '1', '2'].includes(type.value); };
-    type.addEventListener('change', sync); autoBox.addEventListener('change', sync); sync();
-    haBindSuggest(entity, () => HA_ICON_KIND[type.value] || 'any');
-    icons.append(haEl('div', {className: 'ha-row'}, type, autoLabel, entity, alert));
+    const type = haSelect(HA_ICONS, slot.type), autoBox = {checked: slot.auto}, entity = haTags(slot.entity, 'Type to find an entity…', () => HA_ICON_KIND[type.value] || 'any'), alert = haEl('input', {type: 'number', min: 0, max: 240, value: slot.alertMins, title: 'Alert after (minutes)'});
+    const auto = haAutoRow(type, autoBox, entity, value => value === '8', HA_ICON_AUTO, HA_ICON_DETECT, HA_ICON_NOTE);
+    const sync = () => { alert.hidden = !['0', '1', '2'].includes(type.value); };
+    type.addEventListener('change', sync); sync(); auto.sync();
+    icons.append(haEl('div', {className: 'ha-row'}, type, auto.refresh, haEl('div', {}, entity, auto.preview), alert));
     rows.icons.push({type, autoBox, entity, alert});
   });
   body.append(icons);
 
-  const energy = haGroup('Energy page', 'Entity IDs of your power and energy sensors (watts or kilowatts are both fine; energy meters that count for ever are fine too: the clock shows their change since midnight). Start typing to get suggestions from Home Assistant. Leave a row empty to hide it. The middle row shows solar, or the battery while the battery powers the house and there is no solar.');
+  const energy = haGroup('Energy page', 'Your power and energy sensors (watts or kilowatts are both fine; energy meters that count for ever are fine too: the clock shows their change since midnight). Start typing to get suggestions from Home Assistant; add several sensors to a row (for example two meters) and the clock adds them up. Leave a row empty to hide it. The middle row shows solar, or the battery while the battery powers the house and there is no solar.');
   const energyFields = [];
-  const energyInputs = state.energy.map((id, index) => { const input = haInput(id, 'sensor.' + HA_ENERGY[index].toLowerCase().replace(/[^a-z]+/g, '_')); const field = haEl('div', {className: 'field'}, haEl('label', {textContent: HA_ENERGY[index]}), input); energyFields.push(field); energy.append(field); return input; });
-  energyInputs.forEach((input, index) => haBindSuggest(input, () => HA_ENERGY_KIND[index]));
+  const energyInputs = state.energy.map((id, index) => { const input = haTags(id, 'Type to find ' + (HA_ENERGY_KIND[index] === 'battery' ? 'a battery' : 'a ' + HA_ENERGY_KIND[index]) + ' sensor…', () => HA_ENERGY_KIND[index]); const field = haEl('div', {className: 'field'}, haEl('label', {textContent: HA_ENERGY[index]}), input); energyFields.push(field); energy.append(field); return input; });
   const detectNote = haEl('p', {className: 'hint', textContent: ''});
   const detectButton = haEl('button', {type: 'button', className: 'secondary', textContent: 'Fill from Home Assistant'});
   // The sensors of Home Assistant's own Energy dashboard: empty fields are filled, anything already typed stays
@@ -626,10 +733,13 @@ async function initHomeAssistant() {
   energy.append(haEl('div', {className: 'ha-two'}, gridLabel, batteryLabel));
   body.append(energy);
 
-  const alerts = haGroup('Alerts', 'Alarm alerts need no setup: any alarm panel that triggers shows ALARM. A finished washer, dryer or charger is noticed from its state icon.');
+  const alerts = haGroup('Alerts', 'Alarm alerts need no setup: any alarm panel that triggers shows ALARM. Washer-done alerts work independently of the state icons. Dryer and charger alerts use their state icons.');
   const doorbell = haInput(state.doorbell, 'binary_sensor.doorbell');
   haBindSuggest(doorbell, () => 'binary');
   alerts.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Doorbell (turns on when pressed)'}), doorbell));
+  const washer = haInput(state.washer?.entity || '', 'binary_sensor.washer_running');
+  haBindSuggest(washer, () => 'any');
+  alerts.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Washer running (popup when it finishes)'}), washer));
   body.append(alerts);
 
   const popups = haGroup('Popups', 'What each popup does. Also at night: show it through the night clock. Full brightness: light the panel fully while it is up. Flash: flash the whole panel in the popup\'s colour.');
@@ -640,7 +750,7 @@ async function initHomeAssistant() {
     popups.append(row);
     return {row, name, value: () => (night.checked ? 1 : 0) | (bright.checked ? 2 : 0) | (flash.checked ? 4 : 0)};
   };
-  const alarmPopup = addPopup('Alarm triggered', state.alarmFlags), bellPopup = addPopup('Doorbell', state.doorbellFlags);
+  const alarmPopup = addPopup('Alarm triggered', state.alarmFlags), bellPopup = addPopup('Doorbell', state.doorbellFlags), washerPopup = addPopup('Washer finished', state.washer?.flags || 0);
   rows.icons.forEach((row, i) => {
     row.popup = addPopup('', state.icons[i].flags);
     const refresh = () => {
@@ -654,15 +764,16 @@ async function initHomeAssistant() {
   body.insertBefore(energy, tiles);  // the Energy page is the main one: its entities come first
 
   const status = document.querySelector('#ha-status'), result = document.querySelector('#ha-result'), button = document.querySelector('#ha-save');
-  const showStatus = async () => { try { const s = await (await fetch('/api/ha', {cache: 'no-store'})).json(); status.textContent = 'Connection: ' + s.status + '.'; } catch (_) {} haTimer = setTimeout(showStatus, 4000); };
+  const showStatus = async () => { try { const s = await (await fetch('/api/ha', {cache: 'no-store'})).json(); status.textContent = 'Connection: ' + s.status + '.' + ((mediaBox.checked || backdropBox.checked) && s.art ? ' Album art: ' + s.art + '.' : ''); } catch (_) {} haTimer = setTimeout(showStatus, 4000); };
   showStatus();
   let lastSent = '', haSaving = false, haSaveTimer;
   const build = () => {
-    const body = new URLSearchParams({host: host.value, port: port.value || '8123', tls: tlsBox.checked ? '1' : '0', pages: String((homeBox.checked ? 1 : 0) | (energyBox.checked ? 2 : 0)), pageSecs: secs.value,
-      gridImportPositive: gridBox.checked ? '1' : '0', batteryDischargePositive: batteryBox.checked ? '1' : '0', doorbell: doorbell.value,
+    const body = new URLSearchParams({host: host.value, port: port.value || '8123', tls: tlsBox.checked ? '1' : '0', pages: String((homeBox.checked ? 1 : 0) | (energyBox.checked ? 2 : 0) | (mediaBox.checked ? 4 : 0) | (devicesBox.checked ? 8 : 0) | (backdropBox.checked ? 16 : 0)), pageSecs: secs.value,
+      gridImportPositive: gridBox.checked ? '1' : '0', batteryDischargePositive: batteryBox.checked ? '1' : '0', doorbell: doorbell.value, washerEntity: washer.value, washerFlags: String(washerPopup.value()),
       alarmFlags: String(alarmPopup.value()), doorbellFlags: String(bellPopup.value())});
     if (token.value.trim()) body.set('token', token.value.trim());
-    rows.tiles.forEach((row, i) => { body.set('tile' + i + 'Type', row.type.value); body.set('tile' + i + 'Auto', row.autoBox.checked ? '1' : '0'); body.set('tile' + i + 'Entity', row.entity.value); body.set('tile' + i + 'Unit', row.unit.value); });
+    for (let i = 0; i < 4; i++) body.set('media' + i, rooms.value.split(',').map(id => id.trim()).filter(Boolean)[i] || '');
+    rows.tiles.forEach((row, i) => { body.set('tile' + i + 'Type', row.type.value); body.set('tile' + i + 'Auto', (row.type.value === '7' ? row.ev.every(e => !e.field.value) : row.autoBox.checked) ? '1' : '0'); body.set('tile' + i + 'Entity', row.type.value === '7' ? haEvEntity(row.ev) : row.entity.value); body.set('tile' + i + 'Unit', row.unit.value); });
     rows.icons.forEach((row, i) => { body.set('icon' + i + 'Type', row.type.value); body.set('icon' + i + 'Auto', row.autoBox.checked ? '1' : '0'); body.set('icon' + i + 'Entity', row.entity.value); body.set('icon' + i + 'Alert', row.alert.value || '0'); body.set('icon' + i + 'Flags', String(row.popup.value())); });
     energyInputs.forEach((input, i) => body.set('energy' + i, input.value));
     return body;
@@ -676,8 +787,10 @@ async function initHomeAssistant() {
     try {
       const response = await fetch('/api/ha', {method: 'POST', body}); const answer = await response.json();
       result.textContent = answer.message || (response.ok ? 'Saved.' : 'Not saved.');
+      result.classList.toggle('bad', !response.ok);
+      if (!response.ok) message(result.textContent, true); else if (!notice.hidden && notice.classList.contains('error')) notice.hidden = true;
       if (response.ok) { lastSent = sent; if (token.value) { token.value = ''; token.placeholder = 'Saved. Type to replace it.'; lastSent = build().toString(); } clearTimeout(haTimer); setTimeout(showStatus, 1500); }
-    } catch (_) { result.textContent = 'The clock did not answer.'; }
+    } catch (_) { result.textContent = 'The clock did not answer.'; result.classList.add('bad'); message(result.textContent, true); }
     haSaving = false;
   };
   // Saves by itself a moment after the last change (a fix to an invalid entry is saved again the same way)

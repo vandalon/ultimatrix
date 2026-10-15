@@ -34,6 +34,7 @@
 #elif defined(UM_HOME)
 #include <HaClient.h>
 #include <HaConfig.h>
+#include <HaMedia.h>
 #include <HaQuery.h>
 #endif
 #include <BackgroundWait.h>
@@ -930,18 +931,22 @@ static void haState() {
   const ha::Config &c = ha::config();
   char status[64];
   HaClient::instance().status(status, sizeof(status));
+  char artNote[48];
+  ha::media::artNote(artNote, sizeof(artNote));
   String json;
   json.reserve(2600);
   json = "{\"host\":" + jsonText(c.host) + ",\"port\":" + String(c.port) + ",\"tls\":" + String(c.tls ? "true" : "false");
   json += ",\"tokenSet\":" + String(c.token[0] ? "true" : "false") + ",\"pages\":" + String(c.pages) + ",\"pageSecs\":" + String(c.pageSecs);
   json += ",\"gridImportPositive\":" + String(c.gridImportPositive ? "true" : "false") + ",\"batteryDischargePositive\":" + String(c.batteryDischargePositive ? "true" : "false");
-  json += ",\"state\":" + String((int)HaClient::instance().state()) + ",\"status\":" + jsonText(status) + ",\"tiles\":[";
-  for (int i = 0; i < ha::kTiles; i++) json += (i ? "," : "") + haSlotJson(c.tiles[i]);
+  json += ",\"state\":" + String((int)HaClient::instance().state()) + ",\"status\":" + jsonText(status) + ",\"art\":" + jsonText(artNote) + ",\"tiles\":[";
+  for (int i = 0; i < ha::kHomeTiles; i++) json += (i ? "," : "") + haSlotJson(ha::tileSlot(c, i));
   json += "],\"icons\":[";
   for (int i = 0; i < ha::kIcons; i++) json += (i ? "," : "") + haSlotJson(c.icons[i]);
   json += "],\"energy\":[";
   for (int i = 0; i < ha::E_COUNT; i++) json += (i ? "," : "") + jsonText(c.energy[i]);
-  json += "],\"doorbell\":" + jsonText(c.doorbell) + ",\"doorbellFlags\":" + String(c.doorbellFlags) + ",\"alarmFlags\":" + String(c.alarmFlags) + "}";
+  json += "],\"media\":[";
+  for (int i = 0; i < ha::kRooms; i++) json += (i ? "," : "") + jsonText(ha::mediaPlayers()[i]);
+  json += "],\"washer\":" + haSlotJson(ha::washerAlert()) + ",\"weather\":" + jsonText(ha::weatherEntity()) + ",\"doorbell\":" + jsonText(c.doorbell) + ",\"doorbellFlags\":" + String(c.doorbellFlags) + ",\"alarmFlags\":" + String(c.alarmFlags) + "}";
   server.sendHeader("Cache-Control", "no-store");
   server.send(200, "application/json", json);
 }
@@ -972,6 +977,16 @@ static bool haEnergyList(const String &name, char *out) {
   value.toLowerCase();
   value.replace(" ", "");
   if (value.length() >= ha::kEntity || !ha::validEnergyList(value.c_str())) return false;
+  strlcpy(out, value.c_str(), ha::kEntity);
+  return true;
+}
+
+static bool haEntityList(const String &name, char *out) {
+  String value = server.arg(name);
+  value.trim();
+  value.toLowerCase();
+  value.replace(" ", "");
+  if (value.length() >= ha::kEntity || !ha::validEntityList(value.c_str())) return false;
   strlcpy(out, value.c_str(), ha::kEntity);
   return true;
 }
@@ -1053,7 +1068,7 @@ static void haSave() {
   }
   if (server.hasArg("clearToken")) c->token[0] = 0;
   if (server.hasArg("pages")) {
-    if (!number("pages", 1, 3, value)) { settingsResponse(400, "Choose at least one page."); return; }
+    if (!number("pages", 1, 31, value) || !(value & 15)) { settingsResponse(400, "Choose at least one page."); return; }
     c->pages = value;
   }
   if (server.hasArg("pageSecs")) {
@@ -1062,14 +1077,20 @@ static void haSave() {
   }
   if (server.hasArg("gridImportPositive")) c->gridImportPositive = server.arg("gridImportPositive") == "1";
   if (server.hasArg("batteryDischargePositive")) c->batteryDischargePositive = server.arg("batteryDischargePositive") == "1";
-  for (int i = 0; i < ha::kTiles; i++) {
+  ha::Slot extra[ha::kHomeTiles - ha::kTiles];
+  for (int i = 0; i < ha::kHomeTiles - ha::kTiles; i++) extra[i] = ha::extraTile(ha::kTiles + i);
+  for (int i = 0; i < ha::kHomeTiles; i++) {
     String key = "tile" + String(i);
     if (!server.hasArg(key + "Type")) continue;
-    ha::Slot &slot = c->tiles[i];
+    ha::Slot &slot = i < ha::kTiles ? c->tiles[i] : extra[i - ha::kTiles];
     if (!number((key + "Type").c_str(), 0, ha::TILE_TYPES - 1, value)) { settingsResponse(400, "Choose a tile type from the list."); return; }
     slot.type = value;
     slot.autoMode = server.hasArg(key + "Auto") && server.arg(key + "Auto") == "1" && ha::autoAvailable(true, slot.type);
-    if (!haEntity(key + "Entity", slot.entity)) { settingsResponse(400, "Entity IDs look like sensor.living_room_temperature."); return; }
+    if (!haEntityList(key + "Entity", slot.entity)) { settingsResponse(400, "Entity IDs look like sensor.living_room_temperature."); return; }
+    if (strchr(slot.entity, ',') && !ha::multiTile(slot.type) && slot.type != ha::TILE_EV) { settingsResponse(400, "This tile type takes one entity."); return; }
+    if (slot.type == ha::TILE_WEATHER && slot.entity[0] && !slot.autoMode && strncmp(slot.entity, "weather.", 8)) {
+      settingsResponse(400, "Weather tiles need a weather entity, for example weather.home."); return;
+    }
     String unit = server.arg(key + "Unit");
     unit.trim();
     strlcpy(slot.unit, unit.c_str(), sizeof(slot.unit));
@@ -1082,7 +1103,7 @@ static void haSave() {
     if (!number((key + "Type").c_str(), 0, ha::ICON_TYPES - 1, value)) { settingsResponse(400, "Choose an icon type from the list."); return; }
     slot.type = value;
     slot.autoMode = server.arg(key + "Auto") == "1" && ha::autoAvailable(false, slot.type);
-    if (!haEntity(key + "Entity", slot.entity)) { settingsResponse(400, "Entity IDs look like binary_sensor.front_door."); return; }
+    if (!haEntityList(key + "Entity", slot.entity)) { settingsResponse(400, "Entity IDs look like binary_sensor.front_door."); return; }
     if (!number((key + "Alert").c_str(), 0, 240, value)) value = 0;
     slot.alertMins = value;
     slot.flags = number((key + "Flags").c_str(), 0, 7, value) ? value : 0;
@@ -1094,8 +1115,30 @@ static void haSave() {
   if (number("doorbellFlags", 0, 7, value)) c->doorbellFlags = value;
   if (number("alarmFlags", 0, 7, value)) c->alarmFlags = value;
   if (server.hasArg("doorbell") && !haEntity("doorbell", c->doorbell)) { settingsResponse(400, "Entity IDs look like binary_sensor.doorbell."); return; }
+  char rooms[ha::kRooms][ha::kEntity];
+  memcpy(rooms, ha::mediaPlayers(), sizeof(rooms));
+  for (int i = 0; i < ha::kRooms; i++) {
+    const String key = "media" + String(i);
+    if (server.hasArg(key) && (!haEntity(key, rooms[i]) || (rooms[i][0] && strncmp(rooms[i], "media_player.", 13)))) {
+      settingsResponse(400, "Choose media players, for example media_player.living_room."); return;
+    }
+  }
+  char weather[ha::kEntity];
+  strlcpy(weather, ha::weatherEntity(), sizeof(weather));
+  if (server.hasArg("weather") && (!haEntity("weather", weather) || (weather[0] && strncmp(weather, "weather.", 8)))) {
+    settingsResponse(400, "Choose a weather entity, for example weather.home."); return;
+  }
+  ha::Slot washer = ha::washerAlert();
+  if (server.hasArg("washerEntity") && !haEntity("washerEntity", washer.entity)) {
+    settingsResponse(400, "Enter the washer running entity, for example binary_sensor.washer_running."); return;
+  }
+  if (number("washerFlags", 0, 7, value)) washer.flags = value;
+  for (int i = 0; i < ha::kHomeTiles - ha::kTiles; i++) ha::extraTile(ha::kTiles + i) = extra[i];
+  ha::washerAlert() = washer;
   ha::config() = *c;
-  if (!ha::save()) { settingsResponse(500, "The settings could not be saved."); return; }
+  strlcpy(ha::weatherEntity(), weather, ha::kEntity);
+  memcpy(ha::mediaPlayers(), rooms, sizeof(rooms));
+  if (!ha::save()) { settingsResponse(500, (String("The settings could not be saved (") + ha::saveFailure() + ", flash full?).").c_str()); return; }
   settingsResponse(200, "Saved.");
 }
 #endif

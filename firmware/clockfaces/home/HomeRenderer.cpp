@@ -30,18 +30,56 @@ uint16_t tone(uint8_t t) {
 
 namespace {
 
-// A starry night behind everything else: most stars a single dim pixel, a few brighter points for a bit of
-// twinkle, scattered across the whole screen so the clock's own content just paints over them.
-struct Star { uint8_t x, y; bool bright; };
-constexpr Star kStars[] = {{3, 3, false}, {9, 8, true}, {16, 4, false}, {22, 2, false}, {28, 7, false}, {36, 3, false},
-                           {42, 9, false}, {48, 5, false}, {54, 3, true}, {60, 8, false}, {62, 16, false}, {2, 20, true},
-                           {1, 30, false}, {8, 25, false}, {14, 33, false}, {20, 28, false}, {26, 36, false}, {33, 22, true},
-                           {40, 30, false}, {46, 26, false}, {52, 33, false}, {61, 24, false}, {60, 34, true}, {2, 38, false},
-                           {61, 44, false}, {3, 50, false}, {10, 55, false}, {17, 58, false}, {24, 54, false}, {31, 59, true},
-                           {38, 55, false}, {45, 58, false}, {51, 50, false}, {58, 52, false}, {44, 8, true}, {18, 10, false}};
+const uint16_t kDivider = rgb(12, 20, 27);
 
-void backdrop(MatrixPanel_I2S_DMA &d) {
-  for (const Star &s : kStars) put(d, s.x, s.y, s.bright ? rgb(28, 54, 66) : rgb(14, 30, 38));
+// ---- Letters of the labels and popups: 4x5 (I 3 wide, M and W 5 wide) instead of the shared 3x5 font, whose M, N and W look alike ----
+// Five bits per row, left pixel = bit 4. Marks stay in the 3x5 font.
+const uint8_t kLetters[26][5] = {{12,18,30,18,18},{28,18,28,18,28},{14,16,16,16,14},{28,18,18,18,28},{30,16,28,16,30},{30,16,28,16,16},{14,16,22,18,14},{18,18,30,18,18},{28,8,8,8,28},{6,2,2,18,12},{18,20,24,20,18},{16,16,16,16,30},{17,27,21,17,17},{18,26,22,18,18},{12,18,18,18,12},{28,18,28,16,16},{12,18,18,22,14},{28,18,28,20,18},{14,16,12,2,28},{28,8,8,8,8},{18,18,18,18,12},{18,18,18,12,4},{17,17,21,21,10},{18,18,12,18,18},{18,18,12,8,8},{30,2,12,16,30}};
+const uint8_t kDigits[10][5] = {{12,18,18,18,12},{8,24,8,8,28},{12,2,12,16,30},{28,2,12,2,28},{18,18,30,2,2},{30,16,28,2,28},{12,16,28,18,12},{30,2,4,8,8},{12,18,12,18,12},{12,18,14,2,12}};
+const uint8_t kDigitWidth[10] = {4,3,4,4,4,4,4,4,4,4};
+const uint8_t kLetterWidth[26] = {4,4,4,4,4,4,4,4,3,4,4,4,5,4,4,4,4,4,4,3,4,4,5,4,4,4};
+
+int letterWidth(char c) {
+  c = toupper(c);
+  if (c >= '0' && c <= '9') return kDigitWidth[c - '0'];
+  return c >= 'A' && c <= 'Z' ? kLetterWidth[c - 'A'] : 3;
+}
+
+int homeWidth(const char *s) {
+  int n = 0;
+  for (; *s; ++s) n += letterWidth(*s) + 1;
+  return n ? n - 1 : 0;
+}
+
+void homeGlyph(MatrixPanel_I2S_DMA &d, char c, int x, int y, uint16_t color) {
+  c = toupper(c);
+  if (c >= 'A' && c <= 'Z') {
+    for (int j = 0; j < 5; j++)
+      for (int i = 0; i < 5; i++)
+        if (kLetters[c - 'A'][j] >> (4 - i) & 1) put(d, x + i, y + j, color);
+  } else if (c >= '0' && c <= '9') {
+    for (int j = 0; j < 5; j++)
+      for (int i = 0; i < 5; i++)
+        if (kDigits[c - '0'][j] >> (4 - i) & 1) put(d, x + i, y + j, color);
+  } else {
+    const uint8_t *g = miniGlyph(c);
+    for (int j = 0; j < 5; j++)
+      for (int i = 0; i < 3; i++)
+        if (g[j] >> (2 - i) & 1) put(d, x + i, y + j, color);
+  }
+}
+
+// A line that is too wide for the panel goes back to the narrow 3x5 font
+void homeText(MatrixPanel_I2S_DMA &d, const char *s, int x, int y, uint16_t color) {
+  if (x >= 0 && homeWidth(s) + x <= W) {
+    for (; *s; ++s) { homeGlyph(d, *s, x, y, color); x += letterWidth(*s) + 1; }
+  } else miniText(d, s, x, y, color);
+}
+
+void homeCentered(MatrixPanel_I2S_DMA &d, const char *s, int y, uint16_t color) {
+  const int width = homeWidth(s);
+  if (width <= W - 2) homeText(d, s, (W - width) / 2, y, color);
+  else miniCentered(d, s, y, color);
 }
 
 // ---- Bitmaps: '#' is lit ----
@@ -56,14 +94,13 @@ const char *const kBolt[] = {"......###..", ".....###...", "....###....", "...##
 const char *const kRing[] = {"...#####...", "..#.....#..", ".#.......#.", ".#.......#.", ".#...#...#.", ".#.......#.", ".#.......#.",
                              "..#.....#..", "...#####..."};
 
-const char *const kDoor[] = {".#####.", ".#...#.", ".#...#.", ".#.#.#.", ".#...#.", ".#...#.", "#######"};
-const char *const kWindow[] = {"#######", "#..#..#", "#..#..#", "#######", "#..#..#", "#..#..#", "#######"};
-const char *const kGarage[] = {"...#...", "..#.#..", ".#...#.", ".#####.", ".#...#.", ".#####.", ".#...#."};
-const char *const kWasher[] = {"#######", "#.....#", "#.###.#", "#.#.#.#", "#.###.#", "#.....#", "#######"};
-const char *const kDryer[] = {"#######", "#.....#", "#.#.#.#", "#.....#", "#.#.#.#", "#.....#", "#######"};
+// The car of the EV tile, and the badges in its top right corner while it is charging or plugged in
+const char *const kSmallCar[] = {"..####..", ".#....#.", "########", "#.#..#.#", ".##..##."};
+const char *const kBoltBadge[] = {"..#", ".#.", "###", ".#.", "#.."};
+const char *const kPlugBadge[] = {"#.#", "###", "###", ".#.", ".#."};
+
+const char *const kGarage[] = {"#########", "#.......#", "#.#####.#", "#.......#", "#.#####.#", "#.......#", "#.#####.#", "#.......#", "#########"};
 const char *const kBulb[] = {"..###..", ".#####.", ".#####.", ".#####.", "..###..", "..###..", "...#..."};
-const char *const kLock[] = {"..###..", ".#...#.", ".#...#.", "#######", "###.###", "###.###", "#######"};
-const char *const kPlug[] = {".#...#.", ".#...#.", "#######", "#######", ".#####.", "..###..", "...#..."};
 const char *const kHouse[] = {"...#...", "..#.#..", ".#...#.", "#.....#", "#.###.#", "#.#.#.#", "#######"};
 const char *const kSun[] = {"...#...", ".#...#.", "..###..", "#.###.#", "..###..", ".#...#.", "...#..."};
 const char *const kPole[] = {".#####.", "...#...", ".#####.", "...#...", "...#...", "...#...", "..###.."};
@@ -89,17 +126,63 @@ template <int N> void bitmap(MatrixPanel_I2S_DMA &d, const char *const (&rows)[N
 // The 7x7 icon of an index
 void smallIcon(MatrixPanel_I2S_DMA &d, uint8_t icon, int x, int y, uint16_t color) {
   switch (icon) {
-    case SI_DOOR: bitmap(d, kDoor, x, y, color); break;
-    case SI_WINDOW: bitmap(d, kWindow, x, y, color); break;
-    case SI_GARAGE: bitmap(d, kGarage, x, y, color); break;
-    case SI_WASHER: bitmap(d, kWasher, x, y, color); break;
-    case SI_DRYER: bitmap(d, kDryer, x, y, color); break;
+    case SI_DOOR: {
+      const char *const rows[] = {".#######.", ".#.....#.", ".#.....#.", ".#.....#.", ".#....##.", ".#.....#.", ".#.....#.", ".#.....#.", "#########"};
+      bitmap(d, rows, x - 1, y - 1, color); break;
+    }
+    case SI_WINDOW: {
+      const char *const rows[] = {"#########", "#...#...#", "#...#...#", "#...#...#", "#########", "#...#...#", "#...#...#", "#...#...#", "#########"};
+      bitmap(d, rows, x - 1, y - 1, color); break;
+    }
+    case SI_GARAGE: bitmap(d, kGarage, x - 1, y - 1, color); break;
+    case SI_WASHER: {
+      const char *const rows[] = {"#########", "#.#.....#", "#########", "#..###..#", "#.#...#.#", "#.#...#.#", "#..###..#", "#.......#", "#########"};
+      bitmap(d, rows, x - 1, y - 1, color); break;
+    }
+    case SI_DRYER: {
+      const char *const rows[] = {"#########", "#.#.#...#", "#########", "#..###..#", "#.#...#.#", "#.#.#.#.#", "#..###..#", "#.......#", "#########"};
+      bitmap(d, rows, x - 1, y - 1, color); break;
+    }
     case SI_BULB: bitmap(d, kBulb, x, y, color); break;
-    case SI_LOCK: bitmap(d, kLock, x, y, color); break;
-    case SI_PLUG: bitmap(d, kPlug, x, y, color); break;
+    case SI_LOCK: {
+      const char *const rows[] = {"..#####..", ".#.....#.", ".#.....#.", ".#.....#.", "#########", "####.####", "####.####", "####.####", "#########"};
+      bitmap(d, rows, x - 1, y - 1, color); break;
+    }
+    case SI_PLUG: {
+      const char *const rows[] = {"..#...#..", "..#...#..", "..#...#..", "#########", "#########", ".#######.", "..#####..", "...###...", "....#...."};
+      bitmap(d, rows, x - 1, y - 1, color); break;
+    }
     case SI_HOUSE: bitmap(d, kHouse, x, y, color); break;
     case SI_SUN: bitmap(d, kSun, x, y, color); break;
     case SI_POLE: bitmap(d, kPole, x, y, color); break;
+    case SI_LOW_BATTERY: {
+      const char *const rows[] = {"...###...", ".#######.", ".#.....#.", ".#.....#.", ".#.....#.", ".#.....#.", ".#.###.#.", ".#.....#.", ".#######."};
+      bitmap(d, rows, x - 1, y - 1, color); break;
+    }
+    case SI_OFFLINE: {
+      const char *const rows[] = {"..#####..", ".#.....#.", "#.......#", "...###...", "..#...#..", ".........", "...#.#...", "....#....", "...#.#..."};
+      bitmap(d, rows, x - 1, y - 1, color); break;
+    }
+    case SI_LEAK: {
+      const char *const rows[] = {"....#....", "...###...", "...###...", "..#####..", ".#######.", ".#######.", "..#####..", ".........", "##.###.##"};
+      bitmap(d, rows, x - 1, y - 1, color); break;
+    }
+    case SI_BLINDS: {
+      const char *const rows[] = {"#########", "#.....#.#", "#######.#", "#.....#.#", "#######.#", "#.....#.#", "#######.#", "#.....###", "#######.."};
+      bitmap(d, rows, x - 1, y - 1, color); break;
+    }
+    case SI_MEDIA: {
+      const char *const rows[] = {"#########", "#.......#", "#..#....#", "#..##...#", "#..###..#", "#..##...#", "#..#....#", "#.......#", "#########"};
+      bitmap(d, rows, x - 1, y - 1, color); break;
+    }
+    case SI_HEATING: {
+      const char *const rows[] = {"..#.#.#..", ".#.#.#...", "..#.#.#..", ".........", ".#.#.#.#.", ".#######.", "##.#.#.##", ".#######.", ".#.#.#.#."};
+      bitmap(d, rows, x - 1, y - 1, color); break;
+    }
+    case SI_PRESENCE: {
+      const char *const rows[] = {"...##....", "...##....", "....#....", "..#####..", ".#..#..#.", "....#....", "...#.#...", "..#...#..", ".#.....#."};
+      bitmap(d, rows, x - 1, y - 1, color); break;
+    }
     default: break;
   }
 }
@@ -116,13 +199,27 @@ void battery(MatrixPanel_I2S_DMA &d, int x, int y, int percent, uint16_t color) 
   }
 }
 
+// Every icon ends in the same column (x + 10), so the gap to the number is the same for all of them
 void tileIcon(MatrixPanel_I2S_DMA &d, uint8_t icon, int x, int y, uint16_t color) {
   switch (icon) {
-    case TI_THERMOMETER: bitmap(d, kThermometer, x, y, color); break;
-    case TI_DROP: bitmap(d, kDrop, x, y + 1, color); break;
-    case TI_PERSON: bitmap(d, kPerson, x, y, color); break;
-    case TI_BOLT: bitmap(d, kBolt, x, y, color); break;
-    case TI_RING: bitmap(d, kRing, x, y + 1, color); break;
+    case TI_THERMOMETER: bitmap(d, kThermometer, x + 2, y, color); break;
+    case TI_DROP: bitmap(d, kDrop, x + 2, y + 1, color); break;
+    case TI_PERSON: bitmap(d, kPerson, x + 1, y, color); break;
+    case TI_BOLT: bitmap(d, kBolt, x + 2, y, color); break;
+    case TI_RING: bitmap(d, kRing, x + 1, y + 1, color); break;
+    case TI_CAR: bitmap(d, kSmallCar, x + 3, y + 2, color); break;
+    case TI_CAR_CHARGING: bitmap(d, kSmallCar, x, y + 4, color); bitmap(d, kBoltBadge, x + 8, y, color); break;
+    case TI_CAR_PLUGGED: bitmap(d, kSmallCar, x, y + 4, color); bitmap(d, kPlugBadge, x + 8, y, color); break;
+    case TI_CO2: miniText(d, "CO2", x, y + 3, color); break;
+    case TI_PRICE: {  // a ring with a lowercase e (4x5) inside
+      const char *const e[] = {".##.", "#..#", "####", "#...", ".###"};
+      bitmap(d, kRing, x + 1, y + 1, color); bitmap(d, e, x + 4, y + 3, color); break;
+    }
+    case TI_RAIN: {
+      const char *const rows[] = {"....###....", "..#######..", ".#########.", "###########", "...........", "..#..#..#..", ".#..#..#...", "...........", "..#..#..#.."};
+      bitmap(d, rows, x, y, color); break;
+    }
+    case TI_OUTDOOR_DROP: bitmap(d, kDrop, x + 1, y + 1, color); put(d, x + 10, y, tone(T_SUN)); break;
     default: break;
   }
 }
@@ -133,7 +230,7 @@ int glyphWidth(char c) {
   if (c == '.' || c == ':') return 2;
   if (c == '`') return 3;
   if (c == '%') return 5;
-  return 3;
+  return letterWidth(c);
 }
 
 int textWidth(const char *s) {
@@ -163,10 +260,7 @@ void glyph(MatrixPanel_I2S_DMA &d, char c, int x, int y, uint16_t color) {
       for (int i = 0; i < 5; i++)
         if (kPercent[j][i] == '#') put(d, x + i, y + j, color);
   } else {
-    const uint8_t *g = miniGlyph(c);
-    for (int j = 0; j < 5; j++)
-      for (int i = 0; i < 3; i++)
-        if (g[j] >> (2 - i) & 1) put(d, x + i, y + 2 + j, color);
+    homeGlyph(d, c, x, y + 2, color);
   }
 }
 
@@ -177,16 +271,12 @@ void block(MatrixPanel_I2S_DMA &d, const char *text, int x, int y, uint16_t colo
   }
 }
 
-void blockCentered(MatrixPanel_I2S_DMA &d, const char *text, int cx, int y, uint16_t color) {
-  block(d, text, cx - textWidth(text) / 2, y, color);
-}
-
 // Numbers line up on their decimal point: the point is at dotX, whole numbers end before it, the rest follows
 void blockOnPoint(MatrixPanel_I2S_DMA &d, const char *text, int dotX, int y, uint16_t color) {
   const char *dot = strchr(text, '.');
   char whole[8] = "";
   if (!dot) {
-    // Watts ("850W"): the digits end where the first decimal of a kilowatt value ends, so the W stands under the K
+    // Watts ("850"): the digits end where the first decimal of a kilowatt value ends
     size_t digits = 0;
     while (text[digits] >= '0' && text[digits] <= '9' && digits < sizeof(whole) - 1) digits++;
     if (!digits) { block(d, text, dotX - 1 - textWidth(text), y, color); return; }  // "-": nothing to show
@@ -206,47 +296,112 @@ void blockOnPoint(MatrixPanel_I2S_DMA &d, const char *text, int dotX, int y, uin
 }
 
 // ---- Screens ----
+bool sliding = false;  // a slide between two pages is being drawn: the album art stays put underneath instead of sliding with its page
 // mono >= 0 draws everything in that one colour (black on a flashing panel)
-void header(MatrixPanel_I2S_DMA &d, const Frame &f, bool dots, int mono = -1) {
-  blockCentered(d, f.time, 13, 2, mono >= 0 ? mono : tone(T_BLUE));
-  blockCentered(d, f.date, 51, 2, mono >= 0 ? mono : tone(T_BLUE));  // the same HA blue as the time
-  if (dots && f.pageCount > 1) {
-    const int x0 = 32 - (f.pageCount * 4 - 2) / 2;
-    for (int i = 0; i < f.pageCount; i++) box(d, x0 + i * 4, 4, 2, 2, mono >= 0 ? mono : tone(i == f.pageIndex ? T_BLUE : T_DIM));
+void header(MatrixPanel_I2S_DMA &d, const Frame &f, int mono = -1, int dy = 1) {
+  const View slide = view;  // the clock and date stay put while a page slides
+  view = View();
+  int timeX = 13 - textWidth(f.time) / 2;
+  for (const char *c = f.time; *c; ++c) {
+    const uint16_t color = *c == ':' ? rgb(24 * f.colonLevel / 255, 188 * f.colonLevel / 255, 242 * f.colonLevel / 255) : tone(T_BLUE);
+    glyph(d, *c, timeX, dy, mono >= 0 ? mono : color);
+    timeX += glyphWidth(*c) + 1;
   }
+  homeText(d, f.date, 62 - homeWidth(f.date), 1 + dy, mono >= 0 ? mono : tone(T_MUTE));  // "OCT 15", quieter than the time
+  view = slide;
+}
+
+// The weather tile follows HA's standard condition names; unknown data gets no misleading sunny icon.
+void weatherIcon(MatrixPanel_I2S_DMA &d, const char *condition, int x, int y) {
+  const bool clear = !strcmp(condition, "sunny"), moon = !strcmp(condition, "clear-night");
+  const bool partly = !strcmp(condition, "partlycloudy");
+  const bool rain = !strcmp(condition, "rainy") || !strcmp(condition, "pouring") || !strcmp(condition, "lightning-rainy");
+  const bool snow = !strcmp(condition, "snowy") || !strcmp(condition, "snowy-rainy") || !strcmp(condition, "hail");
+  const bool storm = !strcmp(condition, "lightning") || !strcmp(condition, "lightning-rainy") || !strcmp(condition, "exceptional");
+  if (!clear && !moon && !partly && strcmp(condition, "windy") && strcmp(condition, "windy-variant")) x += 2;  // the 9 px icons end in the same column as the rest
+  if (clear) { smallIcon(d, SI_SUN, x + 4, y + 3, tone(T_SUN)); return; }  // alone, the sun is centred on the number's height and sits next to it
+  if (partly) smallIcon(d, SI_SUN, x, y + 1, tone(T_SUN));
+  if (moon) {
+    const char *const rows[] = {"...###...", "..###....", ".###.....", ".###.....", ".####....", "..#####..", "...###..."};
+    bitmap(d, rows, x + 2, y + 3, tone(T_MUTE)); return;
+  }
+  if (!strcmp(condition, "fog") || !strcmp(condition, "windy") || !strcmp(condition, "windy-variant")) {
+    const bool fog = !strcmp(condition, "fog");
+    box(d, x + 1, y + 2, 8, 1, tone(T_MUTE));
+    box(d, x + (fog ? 0 : 3), y + 5, 8, 1, tone(T_MUTE));
+    box(d, x + 1, y + 8, 8, 1, tone(T_MUTE)); return;
+  }
+  if (partly || rain || snow || storm || !strcmp(condition, "cloudy")) {
+    const char *const cloud[] = {"..####...", ".######..", "#########", ".#######."};
+    bitmap(d, cloud, x + (partly ? 2 : 0), y + (partly ? 7 : 1), tone(T_WHITE));
+    if (rain) for (int i = 0; i < 3; i++) { put(d, x + i * 3 + 1, y + 7, tone(T_BLUE)); put(d, x + i * 3, y + 8, tone(T_BLUE)); }
+    if (snow) { put(d, x + 2, y + 7, tone(T_WHITE)); put(d, x + 6, y + 9, tone(T_WHITE)); put(d, x + 8, y + 6, tone(T_WHITE)); }
+    if (storm) { put(d, x + 5, y + 5, tone(T_SUN)); box(d, x + 4, y + 6, 2, 1, tone(T_SUN)); put(d, x + 4, y + 7, tone(T_SUN)); put(d, x + 3, y + 8, tone(T_SUN)); }
+  } else homeText(d, "-", x + 3, y + 3, tone(T_MUTE));
+}
+
+void tileValue(MatrixPanel_I2S_DMA &d, const char *text, int x, int y, uint16_t color) {
+  if (textWidth(text) <= 18) block(d, text, x, y, color);
+  else if (homeWidth(text) <= 18) homeText(d, text, x, y + 2, color);
+  else homeText(d, "-", x, y + 2, color);  // never spill into the adjacent tile or silently truncate a unit
 }
 
 void homeScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
-  backdrop(d);
-  header(d, f, true);
-  box(d, 4, 10, 56, 1, rgb(20, 32, 42));
-  for (int i = 0; i < 3; i++) {
-    if (f.tileIcon[i] == TI_NONE && !f.tileText[i][0]) continue;
-    const int cx = 11 + i * 21;
-    tileIcon(d, f.tileIcon[i], cx - 5, 17, tone(f.tileTone[i]));
-    blockCentered(d, f.tileText[i], cx, 32, tone(f.tileTone[i]));
+  header(d, f);
+  box(d, 0, 9, 64, 1, kDivider);
+  // The tiles that are on, spread over the middle: one or two per row, rows of 11 px spread evenly (a lone tile in a row is centred)
+  int shown[6], n = 0;
+  for (int i = 0; i < 6; i++)
+    if (f.tileIcon[i] != TI_NONE || f.tileText[i][0]) shown[n++] = i;
+  const int perRow = n <= 2 ? 1 : 2, rows = (n + perRow - 1) / perRow;
+  const int gap = rows == 3 ? 1 : rows == 2 ? 6 : 0;
+  const int top = 10 + (37 - (11 * rows + gap * (rows - 1))) / 2;
+  for (int k = 0; k < n; k++) {
+    const int i = shown[k], row = k / perRow, inRow = k % perRow, y = top + row * (11 + gap);
+    const bool alone = perRow == 1 || (row == rows - 1 && n % 2 == 1);
+    const int x = alone ? (64 - (13 + textWidth(f.tileText[i]))) / 2 : (inRow ? 33 : 0);
+    if (f.tileIcon[i] == TI_WEATHER) weatherIcon(d, f.weather[i], x, y - 1);
+    else tileIcon(d, f.tileIcon[i], x, y, tone(T_MUTE));  // one muted colour for the icons, white values: the colour is kept for what needs attention
+    tileValue(d, f.tileText[i], x + 13, y + 2, tone(T_WHITE));
   }
-  box(d, 4, 45, 56, 1, rgb(20, 32, 42));
-  for (int i = 0; i < 6; i++) smallIcon(d, f.icon[i], 3 + i * 10, 52, tone(f.iconTone[i]));
+  box(d, 0, 46, 64, 1, kDivider);
+  // The state icons are all 9 px wide: equal gaps between them and to the edges, however many are shown
+  int lit[6], m = 0, sum = 0;
+  for (int i = 0; i < 6; i++)
+    if (f.icon[i] != SI_NONE) { lit[m++] = i; sum += 9; }
+  int used = 0;
+  for (int k = 0; k < m; k++) {
+    const int i = lit[k], w = 9;  // all state icons are 9x9
+    const int x = ((64 - sum) * (k + 1) + (m + 1) / 2) / (m + 1) + used;  // k+1 gaps (rounded) plus the icons before this one
+    used += w;
+    if (f.icon[i] == SI_BULB) {
+      const char *const bulb[] = {"...###...", "..#...#..", ".#.....#.", ".#.....#.", "..#...#..", "...#.#...", "...###...", ".........", "...###..."};
+      bitmap(d, bulb, x, 48, tone(f.iconTone[i]));
+    } else smallIcon(d, f.icon[i], x + 1, 49, tone(f.iconTone[i]));
+    char count[4];
+    if (!(f.iconOk >> i & 1)) strlcpy(count, "-", sizeof(count));
+    else if (f.iconCount[i] > 99) strlcpy(count, "99", sizeof(count));
+    else snprintf(count, sizeof(count), "%u", (unsigned)f.iconCount[i]);
+    homeText(d, count, x + w / 2 - homeWidth(count) / 2, 59, tone(f.iconTone[i]));
+  }
 }
 
 void energyScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
-  backdrop(d);
-  header(d, f, true);
-  box(d, 4, 10, 56, 1, rgb(20, 32, 42));
-  miniText(d, "NOW", 10, 12, tone(T_MUTE));
-  miniText(d, "KWH", 45, 12, tone(T_MUTE));
+  header(d, f);
+  box(d, 0, 9, 64, 1, kDivider);
+  homeText(d, "NOW", 8, 13, tone(T_MUTE));
+  homeText(d, "KWH", 43, 13, tone(T_MUTE));
   for (int i = 0; i < 3; i++) {
-    const int y = 19 + i * 9;
+    const int y = 20 + i * 9;  // the three rows sit 2 px lower
     const uint16_t color = tone(f.rowTone[i]);
-    blockOnPoint(d, f.left[i], 13, y, color);
+    blockOnPoint(d, f.left[i], 10, y, color);
     if (f.rowIcon[i] == SI_BATTERY) battery(d, 31, y, f.batterySoc, color);
     else smallIcon(d, f.rowIcon[i], 31, y, color);
     blockOnPoint(d, f.right[i], 50, y, color);
   }
-  box(d, 4, 46, 56, 1, rgb(20, 32, 42));
+  box(d, 0, 46, 64, 1, kDivider);
   for (int i = 0; i < kBars; i++) {
-    const int x = 5 + i * 3;
+    const int x = (64 - (kBars * 3 - 1)) / 2 + i * 3;
     const int use = f.useBars[i], solar = f.solarBars[i];
     if (use) box(d, x, 61 - use + 1, 2, use, tone(i == kBars - 1 ? T_AMBER : T_FADED));
     if (solar) box(d, x, 61 - solar + 1, 2, 1, tone(T_GREEN));
@@ -254,10 +409,73 @@ void energyScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
 }
 
 void statusScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
-  header(d, f, false);
+  header(d, f);
   smallIcon(d, SI_HOUSE, 28, 20, tone(T_BLUE));
-  miniCentered(d, f.line1, 33, tone(T_WHITE));
-  miniCentered(d, f.line2, 41, tone(T_MUTE));
+  homeCentered(d, f.line1, 33, tone(T_WHITE));
+  homeCentered(d, f.line2, 41, tone(T_MUTE));
+}
+
+const char *const kNote[] = {"...########", "...#......#", "...#......#", "...#......#", "...#......#", ".###....###", "####...####", ".##.....##."};
+
+// One line of the Now playing page: centred when it fits, else scrolling to the left with a gap before it comes round again
+void playingLine(MatrixPanel_I2S_DMA &d, const char *s, int y, uint16_t color, uint16_t tick) {
+  const int width = homeWidth(s);
+  if (width <= W - 2) { homeText(d, s, (W - width) / 2, y, color); return; }
+  const int period = width + 8, shift = tick < 20 ? 0 : (tick - 20) % period;
+  for (int copy = 0; copy < 2; copy++) {
+    int x = 1 - shift + copy * period;
+    for (const char *c = s; *c; ++c) {
+      const int w = letterWidth(*c);
+      if (x >= 0 && x + w <= W) homeGlyph(d, *c, x, y, color);
+      x += w + 1;
+    }
+  }
+}
+
+void mediaScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
+  if (f.art && sliding && f.backdrop) {
+    // the dimmed cover is already behind the slide; only the dimmed bands (as dark as the art under them) are drawn here
+  } else if (f.art) {
+    // The cover fills the panel; the clock row and the three text lines sit on dimmed bands
+    for (int y = 0; y < kArt; y++) {
+      const bool dim = y < 9 || y >= 49;
+      for (int x = 0; x < kArt; x++) {
+        uint16_t c = f.art[y * kArt + x];
+        if (dim) c = (y >= 49 && y < 51) ? (c >> 1) & 0x7BEF : (c >> 2) & 0x39E7;
+        put(d, x, y, c);
+      }
+    }
+  } else {
+    bitmap(d, kNote, (W - 11) / 2, 18, tone(T_DIM));
+  }
+  header(d, f);
+  playingLine(d, f.title, 51, tone(T_WHITE), f.scrollTick);
+  playingLine(d, f.artist, 57, tone(T_MUTE), f.scrollTick);
+  if (f.progress) {  // thin line along the bottom edge
+    for (int x = 0; x < W; x++) put(d, x, 63, x < f.progress - 1 ? tone(T_BLUE) : tone(T_DIM));
+  }
+}
+
+// Rows of "dot name": low batteries orange, offline devices in red; names wider than the panel are cut
+void devicesScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
+  header(d, f);
+  box(d, 0, 9, 64, 1, kDivider);
+  for (int i = 0; i < 7 && f.device[i][0]; i++) {
+    const int y = 11 + i * 7;
+    const bool more = f.deviceKind[i] == SI_NONE;
+    if (!more) box(d, 1, y + 1, 3, 3, tone(f.deviceKind[i] == SI_OFFLINE ? T_RED : T_ORANGE));
+    const int left = more ? 1 : 6, room = W - left;
+    const int width = homeWidth(f.device[i]);
+    const int period = width + 8, shift = width <= room || f.scrollTick < 20 ? 0 : (f.scrollTick - 20) % period;
+    for (int copy = 0; copy < (width <= room ? 1 : 2); copy++) {
+      int x = left - shift + copy * period;
+      for (const char *c = f.device[i]; *c; ++c) {
+        const int w = letterWidth(*c);
+        if (x >= left && x + w <= W) homeGlyph(d, *c, x, y, tone(more ? T_MUTE : T_WHITE));
+        x += w + 1;
+      }
+    }
+  }
 }
 
 // The colour a popup flashes in
@@ -275,7 +493,7 @@ void alertScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
   const bool lit = f.alertFlash && phase;  // flashing: the panel is a block of the alert's colour and the writing turns black
   if (lit) box(d, 0, 0, 64, 64, alertColour(f.alert));
   auto ink = [&](uint16_t colour) -> uint16_t { return lit ? 0 : colour; };
-  header(d, f, false, lit ? 0 : -1);
+  header(d, f, lit ? 0 : -1);
   int y = 15;
   switch (f.alert) {
     case ALERT_BELL: bitmap(d, kBell, 24 + (phase ? 1 : -1), y, ink(tone(T_AMBER))); break;
@@ -287,18 +505,60 @@ void alertScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
   const int text = f.alert == ALERT_ALARM ? 31 : 35;
   const uint16_t second = f.alert == ALERT_WASHER ? tone(T_GREEN) : f.alert == ALERT_BELL ? tone(T_MUTE)
                           : f.alert == ALERT_ALARM ? (phase ? tone(T_WHITE) : tone(T_RED)) : tone(T_ORANGE);
-  miniCentered(d, f.line1, text, ink(tone(T_WHITE)));
-  miniCentered(d, f.line2, text + 8, ink(second));
+  homeCentered(d, f.line1, text, ink(tone(T_WHITE)));
+  homeCentered(d, f.line2, text + 8, ink(second));
 }
 
 }  // namespace
 
-void draw(MatrixPanel_I2S_DMA &d, const Frame &f) {
-  d.fillScreen(0);
+// The divider under the header doubles as the page indicator: a bright stretch of it marks the page, sliding along with the pages.
+// position is in 1/1000 of a page; the stretch wraps round from the last page to the first
+void pageBar(MatrixPanel_I2S_DMA &d, int count, int position, int y) {
+  if (count < 2) return;
+  const int left = position * 64 / (count * 1000), width = (position + 1000) * 64 / (count * 1000) - left, on = dim(tone(T_BLUE), 170);
+  for (int i = 0; i < width; i++) put(d, (left + i) % 64, y, on);
+}
+
+bool slides(const Frame &f) { return f.alert == ALERT_NONE && f.page != SCREEN_STATUS && f.pageCount > 1; }
+
+void drawPage(MatrixPanel_I2S_DMA &d, const Frame &f) {
   if (f.alert != ALERT_NONE) alertScreen(d, f);
   else if (f.page == SCREEN_ENERGY) energyScreen(d, f);
   else if (f.page == SCREEN_STATUS) statusScreen(d, f);
+  else if (f.page == SCREEN_MEDIA) mediaScreen(d, f);
+  else if (f.page == SCREEN_DEVICES) devicesScreen(d, f);
   else homeScreen(d, f);
+}
+
+// The cover of what plays, at a quarter of its brightness, behind a page
+void backdrop(MatrixPanel_I2S_DMA &d, const Frame &f) {
+  if (!f.backdrop || !f.art) return;
+  for (int y = 0; y < kArt; y++)
+    for (int x = 0; x < kArt; x++) put(d, x, y, (f.art[y * kArt + x] >> 2) & 0x39E7);
+}
+
+void draw(MatrixPanel_I2S_DMA &d, const Frame &f) {
+  d.fillScreen(0);
+  if (f.page != SCREEN_MEDIA) backdrop(d, f);
+  drawPage(d, f);
+  if (slides(f)) pageBar(d, f.pageCount, f.pageIndex * 1000, 9);
+}
+
+bool canSlide(const Frame &from, const Frame &to) { return slides(from) && slides(to) && from.page != to.page; }
+
+void drawSlide(MatrixPanel_I2S_DMA &d, const Frame &from, const Frame &to, int progress) {
+  const int shift = progress * 64 / 1000;
+  d.fillScreen(0);
+  backdrop(d, to.backdrop ? to : from);
+  sliding = true;
+  view.dx = -shift;
+  drawPage(d, from);
+  view.dx = 64 - shift;
+  drawPage(d, to);
+  sliding = false;
+  view = View();
+  const int count = to.pageCount, steps = (to.pageIndex + count - from.pageIndex % count) % count;
+  pageBar(d, count, (from.pageIndex * 1000 + steps * progress) % (count * 1000), 9);
 }
 
 }  // namespace home

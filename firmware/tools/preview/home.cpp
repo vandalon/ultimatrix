@@ -12,6 +12,7 @@
 #undef private
 #include "Clockface.h"
 #include "HaConfig.h"
+#include "HaMedia.h"
 
 static unsigned long virtualMs = 100000;
 unsigned long millis() { return virtualMs; }
@@ -27,9 +28,24 @@ static bool gConfigured = true;
 static ha::Config gConfig;
 namespace ha {
 Config &config() { return gConfig; }
+char (&weatherEntity())[kEntity] { static char entity[kEntity] = {}; return entity; }
+Slot &extraTile(int index) { static Slot slots[kHomeTiles - kTiles] = {{TILE_WEATHER, 1, 0, 0, 0, "", ""}, {TILE_NONE, 0, 0, 0, 0, "", ""}, {TILE_NONE, 0, 0, 0, 0, "", ""}}; return slots[index - kTiles]; }
+const Slot &tileSlot(const Config &c, int index) { return index < kTiles ? c.tiles[index] : extraTile(index); }
+Slot &washerAlert() { static Slot slot = {ICON_WASHER, 0, 0, 0, 0, "", "binary_sensor.washer_running"}; return slot; }
 bool configured() { return gConfigured; }
+char (*mediaPlayers())[kEntity] { static char rooms[kRooms][kEntity] = {}; return rooms; }
 uint32_t version() { return 1; }
 }  // namespace ha
+// Now playing: what the player task and the art fetch would give
+static ha::media::Snapshot gMedia;
+static uint16_t gArt[ha::media::kArt * ha::media::kArt];
+static bool gArtReady = true;
+static uint32_t gMediaVersion = 1;
+namespace ha { namespace media {
+uint32_t version() { return gMediaVersion; }
+bool snapshot(Snapshot &out) { out = gMedia; return true; }
+ArtState art(const char *, const uint16_t **pixels, uint16_t *id) { if (!gArtReady) return ART_LOADING; *pixels = gArt; *id = 1; return ART_READY; }
+} }
 HaClient &HaClient::instance() { static HaClient client; return client; }
 void HaClient::begin() {}
 bool HaClient::snapshot(ha::Snapshot &out) { out = gSnapshot; return _state == LIVE; }
@@ -73,10 +89,13 @@ static ha::Snapshot base() {
   ha::Snapshot s;
   memset(&s, 0, sizeof(s));
   // Home page: 22 degrees, 52 % humidity, 2 people home; the garage is open, the washer runs, lights on, house secured
-  s.tile[0] = 22.4f; s.tile[1] = 52; s.tile[2] = 2; s.tileOk = 7;
+  s.tile[3] = 14; strlcpy(s.weather[3], "partlycloudy", sizeof(s.weather[3]));
+  s.tile[0] = 22.4f; s.tile[1] = 52; s.tile[2] = 78; s.tileOk = 15;
   for (int i = 0; i < 6; i++) { s.iconCount[i] = 0; s.iconAge[i] = 0; }
   s.iconOk = 63;
-  s.iconCount[3] = 1; s.iconCount[4] = 3; s.iconCount[5] = 1;
+  s.washerCount = 1; s.washerOk = 1;
+  const uint8_t counts[ha::kIcons] = {2, 1, 0, 3, 1, 2};
+  memcpy(s.iconCount, counts, sizeof(counts));
   return s;
 }
 
@@ -95,14 +114,13 @@ int main(int argc, char **argv) {
   outDir = argv[1];
   scenes.open(outDir + "/scenes.tsv");
   ha::defaults(gConfig);
+  const uint8_t previousIcons[ha::kIcons] = {ha::ICON_DOOR, ha::ICON_WINDOW, ha::ICON_GARAGE, ha::ICON_PRESENCE, ha::ICON_LIGHTS, ha::ICON_LOCK};
+  strlcpy(gConfig.tiles[2].entity, "sensor.ev_charge", ha::kEntity);
   strlcpy(gConfig.energy[ha::E_USAGE], "sensor.house_power", ha::kEntity);
   strlcpy(gConfig.energy[ha::E_SOLAR], "sensor.solar_power", ha::kEntity);
   strlcpy(gConfig.energy[ha::E_BATTERY], "sensor.battery_power", ha::kEntity);
   strlcpy(gConfig.energy[ha::E_SOC], "sensor.battery_soc", ha::kEntity);
   strlcpy(gConfig.energy[ha::E_GRID], "sensor.grid_power", ha::kEntity);
-  gConfig.icons[3].autoMode = 0;
-  strlcpy(gConfig.icons[3].entity, "binary_sensor.washer_running", ha::kEntity);
-  gConfig.icons[3].type = ha::ICON_WASHER;
   gConfig.pageSecs = 10;
 
   static Clockface face(&display);
@@ -117,14 +135,15 @@ int main(int argc, char **argv) {
   ha::Snapshot s = base();
   energyValues(s, 0.84f, 2.1f, 0.0f, 80, -1.3f, 4.2f, 6.8f, 1.1f, -2.6f);
   feed(s);
-  const float use[] = {1.2f, 1.5f, 0.9f, 0.4f, 0.25f, 0.2f, 0.2f, 0.2f, 0.2f, 0.22f, 0.3f, 0.6f, 1.1f, 0.9f, 0.5f, 0.4f, 0.45f, 0.84f};
-  const float sun[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1f, 0.5f, 1.0f, 1.6f, 2.0f, 2.3f, 2.1f};
-  for (int i = 0; i < 18; i++) {
+  const float use[] = {0.8f, 1.0f, 1.2f, 1.5f, 0.9f, 0.4f, 0.25f, 0.2f, 0.2f, 0.2f, 0.2f, 0.22f, 0.3f, 0.6f, 1.1f, 0.9f, 0.5f, 0.4f, 0.45f, 0.84f};
+  const float sun[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1f, 0.5f, 1.0f, 1.6f, 2.0f, 2.3f, 2.1f};
+  const int firstHour = 24 + 14 - home::kBars;
+  for (int i = 0; i < home::kBars; i++) {
     ha::Snapshot hour = s;
     hour.energy[ha::E_USAGE] = use[i]; hour.energy[ha::E_SOLAR] = sun[i];
     feed(hour);
-    clockTime.day = 14 + (i + 20 >= 24 ? 1 : 0);
-    clockTime.hour = (20 + i) % 24;
+    clockTime.day = 14 + (i + firstHour >= 24 ? 1 : 0);
+    clockTime.hour = (firstHour + i) % 24;
     step(50);
   }
   clockTime.day = 15; clockTime.hour = 13;
@@ -154,7 +173,7 @@ int main(int argc, char **argv) {
     feed(ringing); step(50);
     run(3500);
     feed(s); virtualMs += 12000; step(50);  // the popup runs out unseen
-    ha::Snapshot finished = s; finished.iconCount[3] = 0;
+    ha::Snapshot finished = s; finished.washerCount = 0;
     feed(finished); step(50);
     run(3000);
     feed(s); virtualMs += 12000; step(50);
@@ -164,12 +183,53 @@ int main(int argc, char **argv) {
   }
   gConfig.pages = ha::PAGE_HOME; step(50);
   capture("Home page");
+  const ha::Config original = gConfig;
+  const uint8_t statusIcons[ha::kIcons] = {ha::ICON_LOW_BATTERY, ha::ICON_OFFLINE, ha::ICON_LEAK, ha::ICON_BLINDS, ha::ICON_MEDIA, ha::ICON_HEATING};
+  for (int i = 0; i < ha::kIcons; i++) gConfig.icons[i] = {statusIcons[i], 1, 0, 0, 0, "", ""};
+  ha::Snapshot status = s;
+  const uint8_t counts[ha::kIcons] = {2, 1, 0, 3, 1, 2};
+  memcpy(status.iconCount, counts, sizeof(counts));
+  feed(status); step(50); capture("Low batteries, offline devices, leaks, blinds, media, heating");
+  status.iconCount[2] = 1; feed(status); step(50); capture("Water leak active");
+  gConfig = original;
+  for (int i = 0; i < ha::kIcons; i++) gConfig.icons[i] = {previousIcons[i], 1, uint8_t(i == 2 ? 10 : 0), 0, 0, "", ""};
+  feed(s); step(50);
+  const char *conditions[] = {"sunny", "clear-night", "cloudy", "rainy", "pouring", "snowy", "snowy-rainy", "hail", "fog", "windy", "windy-variant", "lightning", "lightning-rainy", "exceptional", "unavailable"};
+  for (const char *condition : conditions) {
+    ha::Snapshot weather = s;
+    strlcpy(weather.weather[3], condition, sizeof(weather.weather[3]));
+    if (!strcmp(condition, "unavailable")) weather.tileOk &= ~(1 << 3);
+    feed(weather); step(50); capture(condition);
+  }
+  feed(s); step(50);
+  const ha::Config savedConfig = gConfig;
+  const ha::Slot savedFourth = ha::extraTile(3);
+  gConfig.tiles[0].type = ha::TILE_CO2; gConfig.tiles[1].type = ha::TILE_RAIN;
+  ha::Snapshot options = s; options.tile[0] = 850; options.tile[1] = 1.2f;
+  feed(options); step(50); capture("CO2, rain, EV charge, weather");
+  gConfig.tiles[0].type = ha::TILE_WEATHER; gConfig.tiles[1].type = ha::TILE_PRICE;
+  gConfig.tiles[2].type = ha::TILE_PEOPLE; ha::extraTile(3).type = ha::TILE_OUTDOOR_HUMIDITY;
+  options.tile[0] = 14; options.tile[1] = 0.25f; options.tile[2] = 2; options.tile[3] = 81;
+  strlcpy(options.weather[0], "sunny", sizeof(options.weather[0]));
+  feed(options); step(50); capture("Weather moved, energy price, people, outdoor humidity");
+  ha::extraTile(3).type = ha::TILE_NONE; step(50); capture("Fourth tile off");
+  // Six tiles, then fewer: the ones that are on spread evenly
+  gConfig = savedConfig; ha::extraTile(3) = savedFourth;
+  ha::extraTile(4).type = ha::TILE_CO2; ha::extraTile(5).type = ha::TILE_PEOPLE;
+  ha::Snapshot six = s; six.tile[4] = 850; six.tile[5] = 2; six.tileOk = 63;
+  feed(six); step(50); capture("Six tiles");
+  ha::extraTile(5).type = ha::TILE_NONE; feed(six); step(50); capture("Five tiles");
+  ha::extraTile(4).type = ha::TILE_NONE; ha::extraTile(3).type = ha::TILE_NONE; step(50); capture("Three tiles");
+  gConfig.tiles[2].type = ha::TILE_NONE; step(50); capture("Two tiles");
+  gConfig.tiles[1].type = ha::TILE_NONE; step(50); capture("One tile");
+  gConfig = savedConfig; ha::extraTile(3) = savedFourth; ha::extraTile(4).type = ha::TILE_NONE; ha::extraTile(5).type = ha::TILE_NONE; feed(s); step(50);
   gConfig.pages = ha::PAGE_ENERGY; step(50);
   capture("Energy, solar producing and exporting");
 
   // Evening, no solar, battery discharging, importing a little
   setClock(21, 47);
   ha::Snapshot e = base();
+  strlcpy(e.weather[3], "clear-night", sizeof(e.weather[3])); e.tile[3] = 9;
   energyValues(e, 1.7f, 0.0f, 1.2f, 62, 0.5f, 11.2f, 8.9f, 3.4f, 2.3f);
   feed(e);
   gConfig.pages = ha::PAGE_HOME; step(50);
@@ -195,7 +255,7 @@ int main(int argc, char **argv) {
   virtualMs += 500; step(50);
   capture("Alert: doorbell, other frame");
   virtualMs += 20000; step(50);
-  ha::Snapshot washer = e; washer.iconCount[3] = 0;
+  ha::Snapshot washer = e; washer.washerCount = 0;
   feed(e); step(50);
   feed(washer); step(50);
   capture("Alert: washer done");
@@ -231,6 +291,37 @@ int main(int argc, char **argv) {
   capture("Alarm flashing, dark phase");
   phase(1);
   capture("Alarm flashing, lit phase");
+
+  firmwareUpdating = true; step(50);
+  capture("Updating the panel");
+  firmwareUpdating = false;
+
+  // Now playing: an album cover made of a gradient and a disc, in two rooms
+  for (int y = 0; y < ha::media::kArt; y++)
+    for (int x = 0; x < ha::media::kArt; x++) {
+      const int dx = x - 32, dy = y - 26, d2 = dx * dx + dy * dy;
+      const int r = 200 - y * 2, g = 60 + x, b = 80 + y * 2;
+      gArt[y * ha::media::kArt + x] = d2 < 300 ? 0xFFE0 : d2 < 360 ? 0x0000 : ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+    }
+  strlcpy(gMedia.player[0].room, "Living room", ha::media::kRoom);
+  strlcpy(gMedia.player[0].title, "Blue in Green", ha::media::kText);
+  strlcpy(gMedia.player[0].artist, "Miles Davis", ha::media::kText);
+  strlcpy(gMedia.player[0].picture, "/api/media_player_proxy/media_player.living_room?token=x", ha::media::kPicture);
+  strlcpy(gMedia.player[1].room, "Kitchen", ha::media::kRoom);
+  strlcpy(gMedia.player[1].title, "Everything In Its Right Place", ha::media::kText);
+  strlcpy(gMedia.player[1].artist, "Radiohead and a very long list of guests", ha::media::kText);
+  strlcpy(gMedia.player[1].picture, "/api/media_player_proxy/media_player.kitchen?token=y", ha::media::kPicture);
+  gMedia.player[0].position = 95; gMedia.player[0].duration = 340; gMedia.player[1].position = 40; gMedia.player[1].duration = 0;
+  gMedia.count = 2; gMediaVersion++;
+  gConfig.pages = ha::PAGE_MEDIA; gConfig.pageSecs = 10;
+  face.setup(&clockTime); feed(s); step(50);
+  capture("Now playing: short title");
+  gMedia.player[0] = gMedia.player[1]; gMediaVersion++; virtualMs += 1000; step(50); step(50);
+  capture("Now playing: long text, scrolling");
+  virtualMs += 3000; step(50);
+  capture("Now playing: Kitchen, later in the scroll");
+  gArtReady = false; gMedia.count = 1; gMediaVersion++; step(50); step(50);
+  capture("Now playing: album art loading");
 
   // Not connected
   HaClient::instance()._state = HaClient::FAILED;

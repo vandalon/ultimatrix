@@ -8,10 +8,12 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include "HaTemplate.h"
 #include "HaClient.h"
+#include "HaMedia.h"
+#include "HaDevices.h"
 #include "HomeRenderer.h"
 #define CLOCKFACE_NAME "home"
 
-// The clock with Home Assistant on the side: a Home page (three tiles, six state icons) and an Energy page (usage,
+// The clock with Home Assistant on the side: a Home page (four configurable tiles, six state icons) and an Energy page (usage,
 // solar or battery, grid, and the hours so far), rotating as chosen in the settings, with alerts (doorbell, a finished
 // washer, a door left open, the alarm) over whichever page is up. The values come from HaClient; HomeRenderer draws.
 class Clockface: public IClockface {
@@ -20,6 +22,9 @@ class Clockface: public IClockface {
     MatrixPanel_I2S_DMA* _display;
     home::Frame _drawn{};
     bool _haveDrawn = false;
+    home::Frame _slideFrom{};  // the page sliding out
+    uint32_t _slideStart = 0;  // millis() when the slide began
+    bool _sliding = false;
 
     uint8_t _pageIndex = 0;
     uint32_t _pageSince = 0;
@@ -33,6 +38,14 @@ class Clockface: public IClockface {
     uint8_t _alertFlags = 0;  // ha::AlertFlag bits of the popup on show
     uint32_t _openAlertAt[ha::kIcons] = {};
     char _line1[12] = "", _line2[12] = "";
+
+    // Now playing: the players that are playing, the one on show and its album art (kept here so the display never waits for the fetch)
+    ha::media::Snapshot _media{};
+    uint32_t _mediaSeen = 0, _scrollSince = 0;
+    char _scrollKey[ha::media::kText + 4] = "";
+
+    ha::devices::Snapshot _devices{};
+    uint32_t _devicesSeen = 0, _devicesSince = 0;
 
     float _use[home::kBars] = {}, _solar[home::kBars] = {};  // kW per hour, the newest last
     float _useSum = 0, _solarSum = 0;
@@ -49,6 +62,8 @@ class Clockface: public IClockface {
     void fillHome(home::Frame &frame) const;
     void fillEnergy(home::Frame &frame) const;
     void fillStatus(home::Frame &frame) const;
+    void fillMedia(home::Frame &frame, uint32_t now);
+    void fillDevices(home::Frame &frame, uint32_t now) const;
 
   public:
     Clockface(MatrixPanel_I2S_DMA* display);
