@@ -65,3 +65,6 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 # TLS without certificate verification (updates and feeds are public data; updates are signed).
 CONFIG_ESP_TLS_INSECURE=y
 CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
+# Per-core CPU load in the 60 s [Cpu] log line (idle task run time).
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y

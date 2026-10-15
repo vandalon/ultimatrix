@@ -45,6 +45,7 @@ Modified heavily for the ESP32 HUB75 DMA library by:
 #endif
 
 #include <esp_err.h>
+#include <esp_intr_alloc.h>
 #include <esp_log.h>
 
 // Get CPU freq function.
@@ -499,7 +500,7 @@ Modified heavily for the ESP32 HUB75 DMA library by:
 
   }
 
-  void Bus_Parallel16::create_dma_desc_link(void *data, size_t size, bool dmadesc_b)
+  void Bus_Parallel16::create_dma_desc_link(void *data, size_t size, bool dmadesc_b, bool row_eof)
   {
     static constexpr size_t MAX_DMA_LEN = (4096-4);
 
@@ -544,7 +545,7 @@ Modified heavily for the ESP32 HUB75 DMA library by:
     dmadesc->size     = size;
     dmadesc->length   = size;
     dmadesc->buf      = (uint8_t*) data; 
-    dmadesc->eof      = eof;         
+    dmadesc->eof      = eof || row_eof;
     dmadesc->sosf     = 0;         
     dmadesc->owner    = 1;         
     dmadesc->qe.stqe_next = (lldesc_t*) next;         
@@ -557,6 +558,53 @@ Modified heavily for the ESP32 HUB75 DMA library by:
     }
   
   } // end create_dma_desc_link
+
+
+  void Bus_Parallel16::mark_last_desc_row_end()
+  {
+    if (_dmadesc_a && _dmadesc_a_idx > 0)
+      _dmadesc_a[_dmadesc_a_idx - 1].eof = 1;
+  }
+
+#if defined (CONFIG_IDF_TARGET_ESP32)
+  static hub75_row_isr_t s_rowCb = nullptr;
+  static void *s_rowArg = nullptr;
+  static const lldesc_t *s_rowBase = nullptr;
+
+  // Level 2 so that Wi-Fi and the scheduler (level 1) cannot delay it; it only touches IRAM code and internal RAM.
+  static void IRAM_ATTR i2s_row_isr(void *)
+  {
+    // getDev() lives in flash, which is unreachable while a flash write has the cache off: address the peripheral directly
+    volatile i2s_dev_t *dev = (ESP32_I2S_DEVICE == 0) ? &I2S0 : &I2S1;
+    if (dev->int_st.out_eof)
+    {
+      uint32_t desc = dev->out_eof_des_addr;
+      dev->int_clr.out_eof = 1;
+      s_rowCb(s_rowArg, (uint32_t)(((const lldesc_t *)desc) - s_rowBase));
+    }
+    else
+    {
+      dev->int_clr.val = dev->int_st.val;
+    }
+  }
+
+  bool Bus_Parallel16::start_row_interrupt(hub75_row_isr_t cb, void *arg)
+  {
+    auto dev = getDev();
+    s_rowCb = cb;
+    s_rowArg = arg;
+    s_rowBase = _dmadesc_a;
+    dev->int_clr.val = 0xFFFFFFFF;
+    dev->int_ena.val = 0;
+    int src = (ESP32_I2S_DEVICE == 0) ? ETS_I2S0_INTR_SOURCE : ETS_I2S1_INTR_SOURCE;
+    if (esp_intr_alloc(src, ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_LEVEL2, i2s_row_isr, nullptr, nullptr) != ESP_OK)
+      return false;
+    dev->int_ena.out_eof = 1;
+    return true;
+  }
+#else
+  bool Bus_Parallel16::start_row_interrupt(hub75_row_isr_t, void *) { return false; }
+#endif
 
   void Bus_Parallel16::dma_transfer_start()
   {

@@ -30,6 +30,116 @@
 
 
 
+#ifdef HUB75_RING_STREAM
+#include "esp_cpu.h"
+
+/* Streaming mode. The panel's bit planes are not kept for the whole frame: a small ring of rows is refilled from a
+ * compact framebuffer by the row-end interrupt. Each row's DMA descriptors point at ring slot (row % n), so the chain is
+ * fixed and the only work per row is regenerating the slot that was just sent, n rows ahead.
+ *
+ * The compact framebuffer is already spread for the interrupt: per pixel column and row pair (top pixel y, bottom pixel
+ * y + rows) two words, lo for colour bits 0-3 and hi for bits 4-7. Each holds one lane of 8 bits per colour bit:
+ * lane p has the six channels R1 G1 B1 R2 G2 B2 of that bit at bits 0-5, which is exactly the RGB part of plane p.
+ * Drawing does the spreading (a 16 entry table), so the interrupt only shifts and ORs.
+ */
+namespace {
+constexpr uint32_t kRingMaxRows = 32;
+constexpr uint32_t kRingMaxHeight = 64;
+
+struct RingState
+{
+  uint16_t *slot[kRingMaxRows];         // the ring: width * depth words each, the layout of a rowBitStruct
+  uint32_t *crow[2][kRingMaxRows];      // compact framebuffers, one entry per pixel column and row pair: two words, see ringPut()
+  const uint16_t *tmpl;                 // LAT and OE words per plane, in wire order (no row address, no pixel bits)
+  uint32_t width, depth, rows, n, descPerRow;
+  volatile uint32_t front, frontNext;   // framebuffer being sent, framebuffer to send from the next frame on
+  uint32_t nextFill;                    // next row to generate
+  volatile uint32_t filled, missed, maxCycles, calls;
+  volatile uint64_t sumCycles;
+};
+RingState g_ring;
+
+// A 4 bit value with bit p moved to bit 8p
+uint32_t DRAM_ATTR kSpread[16] = {
+    0x00000000, 0x00000001, 0x00000100, 0x00000101, 0x00010000, 0x00010001, 0x00010100, 0x00010101,
+    0x01000000, 0x01000001, 0x01000100, 0x01000101, 0x01010000, 0x01010001, 0x01010100, 0x01010101};
+
+// Set the pixel of one half (bottom: the lower half of the panel) of a column entry, levels at the colour depth
+inline void ringPut(uint32_t *q, bool bottom, uint8_t r, uint8_t g, uint8_t b)
+{
+  const uint32_t sh = bottom ? 3 : 0;
+  const uint32_t keep = ~(0x07070707u << sh);
+  q[0] = (q[0] & keep) | ((kSpread[r & 15] | (kSpread[g & 15] << 1) | (kSpread[b & 15] << 2)) << sh);
+  q[1] = (q[1] & keep) | ((kSpread[r >> 4] | (kSpread[g >> 4] << 1) | (kSpread[b >> 4] << 2)) << sh);
+}
+
+typedef uint32_t __attribute__((may_alias)) u32a;
+
+void IRAM_ATTR __attribute__((optimize("O3"))) ringFillRow(RingState &R, uint32_t row)
+{
+  if (row == 0)
+    R.front = R.frontNext; // a new frame is taken over at its first row only, so a frame is never shown half and half
+
+  uint16_t *const slot = R.slot[row % R.n];
+  const uint16_t *const tm = R.tmpl;
+  const uint32_t *const px = R.crow[R.front][row];
+  const uint32_t W = R.width, D = R.depth;
+
+  // While a row is clocked in, the previous row is still shown: plane 0 carries the previous row's address
+  const uint32_t addrPrev = (row ? row - 1 : R.rows - 1) << BITS_ADDR_OFFSET;
+  const uint32_t addrRow = row << BITS_ADDR_OFFSET;
+
+  // Plane by plane, two pixels per 32 bit store. The words of a pair are swapped on the wire (ESP32_TX_FIFO_POSITION_ADJUST)
+  for (uint32_t p = 0; p < D; p++)
+  {
+    const uint32_t *src = px + (p >> 2); // lo lanes (bits 0-3) then hi lanes (bits 4-7), interleaved per column
+    const uint32_t sh = (p & 3) * 8;
+    const uint32_t a = (p ? addrRow : addrPrev) * 0x10001u;
+    u32a *w = (u32a *)(slot + p * W);
+    const u32a *t = (const u32a *)(tm + p * W);
+    for (uint32_t x = 0; x < W; x += 2, src += 4)
+    {
+      const uint32_t v0 = (src[0] >> sh) & 0x3F; // pixel x goes to the odd word
+      const uint32_t v1 = (src[2] >> sh) & 0x3F; // pixel x + 1 goes to the even word
+      *w++ = *t++ | a | v1 | (v0 << 16);
+    }
+  }
+}
+
+// A row has just been sent: refill its slot with the row n ahead. If this ran late, catch up. Lateness up to n-2 rows
+// is invisible (the rows caught up on are still ahead of the DMA); only rows the DMA had already reached count as missed.
+void IRAM_ATTR ringEof(void *, uint32_t descIndex)
+{
+  RingState &R = g_ring;
+  const uint32_t t0 = esp_cpu_get_cycle_count();
+  const uint32_t cur = descIndex / R.descPerRow;
+  if (cur >= R.rows)
+    return;
+  uint32_t target = cur + R.n;
+  if (target >= R.rows)
+    target -= R.rows;
+  int32_t d = (int32_t)target - (int32_t)R.nextFill;
+  if (d < 0)
+    d += R.rows;
+  const uint32_t count = d + 1;
+  if (count >= R.n)
+    R.missed += count - R.n + 1; // rows nextFill..cur+1: sent or being sent while still holding the row n before them
+  for (uint32_t i = 0; i < count; i++)
+  {
+    ringFillRow(R, R.nextFill);
+    if (++R.nextFill >= R.rows)
+      R.nextFill = 0;
+  }
+  R.filled += count;
+  const uint32_t used = esp_cpu_get_cycle_count() - t0;
+  if (used > R.maxCycles)
+    R.maxCycles = used;
+  R.sumCycles += used;
+  R.calls++;
+}
+} // namespace
+#endif // HUB75_RING_STREAM
+
   /* LED Brightness Compensation */                                                               
 #ifndef NO_CIE1931                                                                                
   /* CIE 1931 correction with bit-depth-optimized LUTs*/                                            
@@ -108,13 +218,28 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
 
   size_t allocated_fb_memory = 0;
 
+#ifdef HUB75_RING_STREAM
+  ring_on = ringEligible();
+  if (ring_on)
+    ESP_LOGI("I2S-DMA", "Streaming mode: ring of %d rows, compact framebuffer", m_cfg.ring_rows);
+  else if (m_cfg.ring_rows)
+    ESP_LOGW("I2S-DMA", "Streaming mode requested but this configuration cannot use it");
+  const int slotRows = ring_on ? m_cfg.ring_rows : ROWS_PER_FRAME; // rows of bit planes kept in memory
+#else
+  const int slotRows = ROWS_PER_FRAME;
+#endif
+
+#ifdef HUB75_RING_STREAM
+  int fbs_required = ring_on ? 1 : ((m_cfg.double_buff) ? 2 : 1); // the ring is one set of bit planes, double buffering is in the compact framebuffer
+#else
   int fbs_required = (m_cfg.double_buff) ? 2 : 1;
+#endif
 
   for (int fb = 0; fb < (fbs_required); fb++)
   {
-    frame_buffer[fb].rowBits.reserve(ROWS_PER_FRAME);
+    frame_buffer[fb].rowBits.reserve(slotRows);
 
-    for (int malloc_num = 0; malloc_num < ROWS_PER_FRAME; malloc_num++)
+    for (int malloc_num = 0; malloc_num < slotRows; malloc_num++)
     {
       auto ptr = std::make_shared<rowBitStruct>(PIXELS_PER_ROW, m_cfg.getPixelColorDepthBits());
 
@@ -132,6 +257,14 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
     }
   }
   ESP_LOGI("I2S-DMA", "Allocating %d bytes memory for DMA BCM framebuffer(s).", allocated_fb_memory);
+
+#ifdef HUB75_RING_STREAM
+  if (ring_on && !ringAllocate())
+  {
+    ESP_LOGE("I2S-DMA", "CRITICAL ERROR: Not enough memory for the compact framebuffer.");
+    return false;
+  }
+#endif
 
 
   /***
@@ -225,7 +358,11 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
    * Step 3:  Allocate the DMA descriptor memory via. the relevant platform DMA implementation class.
    */
 
-  if (m_cfg.double_buff) {
+  if (m_cfg.double_buff
+#ifdef HUB75_RING_STREAM
+      && !ring_on
+#endif
+  ) {
     dma_bus.enable_double_dma_desc();
   }
 
@@ -248,6 +385,7 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
     for (int row = 0; row < ROWS_PER_FRAME; row++)
     {
 	  //ESP_LOGV("I2S-DMA", ">>> Linking DMA descriptors for output row %d", row);    	
+	  const int slotIdx = row % slotRows; // the ring reuses its slots, every row of a frame links to the slot it is generated into
 		
 	  // Link and send all colour data, all passes of everything in one hit. 1 bit colour at least...
 	  for (int dma_desc_all = 0; dma_desc_all < dma_descs_per_row_all_cdepths; dma_desc_all++) 
@@ -255,9 +393,9 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
 			size_t payload_bytes = (dma_desc_all == (dma_descs_per_row_all_cdepths-1)) ? last_dma_desc_bytes_all_cdepths:DMA_MAX;
 			
 			// Log the current descriptor number and the payload size being used.
-			//ESP_LOGV("I2S-DMA", "Processing dma_desc_all: %d, payload_bytes: %zu, memory location: %p", dma_desc_all, payload_bytes, (frame_buffer[fb].rowBits[row]->getDataPtr(0)+(dma_desc_all*(DMA_MAX/sizeof(ESP32_I2S_DMA_STORAGE_TYPE)))));
+			//ESP_LOGV("I2S-DMA", "Processing dma_desc_all: %d, payload_bytes: %zu, memory location: %p", dma_desc_all, payload_bytes, (frame_buffer[fb].rowBits[slotIdx]->getDataPtr(0)+(dma_desc_all*(DMA_MAX/sizeof(ESP32_I2S_DMA_STORAGE_TYPE)))));
 				
-		    dma_bus.create_dma_desc_link(frame_buffer[fb].rowBits[row]->getDataPtr(0)+(dma_desc_all*(DMA_MAX/sizeof(ESP32_I2S_DMA_STORAGE_TYPE))), payload_bytes, (fb==1));
+		    dma_bus.create_dma_desc_link(frame_buffer[fb].rowBits[slotIdx]->getDataPtr(0)+(dma_desc_all*(DMA_MAX/sizeof(ESP32_I2S_DMA_STORAGE_TYPE))), payload_bytes, (fb==1));
 			_dmadescriptor_count++;
 			
 			// Log the updated descriptor count after each operation.
@@ -279,9 +417,9 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
 				size_t payload_bytes = (dma_desc_1cdepth == (dma_descs_per_row_1cdepth-1)) ? last_dma_desc_bytes_1cdepth:DMA_MAX;
 				
 				// Log the current bit and the corresponding payload size.
-				//ESP_LOGV("I2S-DMA", "Processing dma_desc_1cdepth: %d, payload_bytes: %zu, memory location: %p", dma_desc_1cdepth, payload_bytes, (frame_buffer[fb].rowBits[row]->getDataPtr(i)+(dma_desc_1cdepth*(DMA_MAX/sizeof(ESP32_I2S_DMA_STORAGE_TYPE)))));
+				//ESP_LOGV("I2S-DMA", "Processing dma_desc_1cdepth: %d, payload_bytes: %zu, memory location: %p", dma_desc_1cdepth, payload_bytes, (frame_buffer[fb].rowBits[slotIdx]->getDataPtr(i)+(dma_desc_1cdepth*(DMA_MAX/sizeof(ESP32_I2S_DMA_STORAGE_TYPE)))));
 		
-				dma_bus.create_dma_desc_link(frame_buffer[fb].rowBits[row]->getDataPtr(i)+(dma_desc_1cdepth*(DMA_MAX/sizeof(ESP32_I2S_DMA_STORAGE_TYPE))), payload_bytes, (fb==1));
+				dma_bus.create_dma_desc_link(frame_buffer[fb].rowBits[slotIdx]->getDataPtr(i)+(dma_desc_1cdepth*(DMA_MAX/sizeof(ESP32_I2S_DMA_STORAGE_TYPE))), payload_bytes, (fb==1));
 				_dmadescriptor_count++;
 				
 				// Log the updated descriptor count after each operation.
@@ -290,6 +428,11 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
 		  } // end K
 		
       } // end all other colour depth bits
+
+#ifdef HUB75_RING_STREAM
+      if (ring_on)
+        dma_bus.mark_last_desc_row_end(); // the interrupt that refills the slot just sent
+#endif
 	  
 
     } // end all rows
@@ -331,6 +474,15 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
    */  
 
   fb = &frame_buffer[0];
+
+#ifdef HUB75_RING_STREAM
+  if (ring_on)
+  {
+    g_ring.descPerRow = dma_descriptors_per_row;
+    for (int i = 0; i < slotRows; i++)
+      g_ring.slot[i] = frame_buffer[0].rowBits[i]->data;
+  }
+#endif
   
 
   //
@@ -408,6 +560,16 @@ void IRAM_ATTR MatrixPanel_I2S_DMA::updateMatrixDMABuffer(uint16_t x_coord, uint
    */
   DO_BRIGHTNESS_COMPENSATION() 
 
+#ifdef HUB75_RING_STREAM
+  if (ring_on)
+  {
+    const bool bottom = y_coord >= ROWS_PER_FRAME;
+    ringPut(g_ring.crow[m_cfg.double_buff ? back_buffer_id : 0][bottom ? y_coord - ROWS_PER_FRAME : y_coord] + x_coord * 2, bottom,
+            red_val, green_val, blue_val);
+    return;
+  }
+#endif
+
   /* When using the drawPixel, we are obviously only changing the value of one x,y position,
    * however, the two-scan panels paint TWO lines at the same time
    * and this reflects the parallel in-DMA-memory data structure of uint16_t's that are getting
@@ -474,6 +636,26 @@ void MatrixPanel_I2S_DMA::updateMatrixDMABuffer(uint8_t red, uint8_t green, uint
   /* https://ledshield.wordpress.com/2012/11/13/led-brightness-to-your-eye-gamma-correction-no/ */
   DO_BRIGHTNESS_COMPENSATION()  
 
+#ifdef HUB75_RING_STREAM
+  if (ring_on)
+  {
+    uint32_t *seed = g_ring.crow[m_cfg.double_buff ? back_buffer_id : 0][0];
+    ringPut(seed, false, red_val, green_val, blue_val);
+    ringPut(seed, true, red_val, green_val, blue_val);
+    const uint32_t lo = seed[0], hi = seed[1];
+    for (int y = 0; y < ROWS_PER_FRAME; y++)
+    {
+      uint32_t *q = g_ring.crow[m_cfg.double_buff ? back_buffer_id : 0][y];
+      for (int x = 0; x < PIXELS_PER_ROW; x++, q += 2)
+      {
+        q[0] = lo;
+        q[1] = hi;
+      }
+    }
+    return;
+  }
+#endif
+
   for (uint8_t colour_depth_idx = 0; colour_depth_idx < m_cfg.getPixelColorDepthBits(); colour_depth_idx++) // colour depth - 8 iterations
   {
     // let's precalculate RGB1 and RGB2 bits than flood it over the entire DMA buffer
@@ -534,6 +716,15 @@ void MatrixPanel_I2S_DMA::clearFrameBuffer(bool _buff_id)
 {
   if (!initialized)
     return;
+
+#ifdef HUB75_RING_STREAM
+  if (ring_on)
+  {
+    for (int y = 0; y < ROWS_PER_FRAME; y++)
+      memset(g_ring.crow[_buff_id][y], 0, PIXELS_PER_ROW * 8);
+    return;
+  }
+#endif
 
   frameStruct *fb = &frame_buffer[_buff_id];
 
@@ -675,6 +866,15 @@ void MatrixPanel_I2S_DMA::setBrightnessOE(uint8_t brt, const int _buff_id)
   if (!initialized)
     return;
 
+#ifdef HUB75_RING_STREAM
+  if (ring_on)
+  {
+    if (_buff_id == 0)
+      ringBuildTemplate(brt); // one template serves both framebuffers
+    return;
+  }
+#endif
+
   frameStruct *fb = &frame_buffer[_buff_id];
 
   uint8_t _blank = m_cfg.latch_blanking; // don't want to inadvertantly blast over this
@@ -751,6 +951,126 @@ void MatrixPanel_I2S_DMA::setBrightnessOE(uint8_t brt, const int _buff_id)
   } while (row_idx);
 }
 
+
+#ifdef HUB75_RING_STREAM
+bool MatrixPanel_I2S_DMA::ringEligible() const
+{
+  const uint8_t n = m_cfg.ring_rows;
+  return n >= 3 && n < ROWS_PER_FRAME && (ROWS_PER_FRAME % n) == 0 && ROWS_PER_FRAME <= kRingMaxRows &&
+         m_cfg.mx_height <= kRingMaxHeight && m_cfg.getPixelColorDepthBits() <= 8 && (PIXELS_PER_ROW & 1) == 0 &&
+         m_cfg.driver != HUB75_I2S_CFG::DP3246 &&
+         (m_cfg.line_decoder == HUB75_I2S_CFG::TYPE138 || m_cfg.line_decoder == HUB75_I2S_CFG::TYPE_DIRECT);
+}
+
+bool MatrixPanel_I2S_DMA::ringAllocate()
+{
+  RingState &R = g_ring;
+  memset(&R, 0, sizeof(R));
+  R.width = PIXELS_PER_ROW;
+  R.depth = m_cfg.getPixelColorDepthBits();
+  R.rows = ROWS_PER_FRAME;
+  R.n = m_cfg.ring_rows;
+
+  const int bufs = m_cfg.double_buff ? 2 : 1;
+  bool ok = true;
+  for (int b = 0; b < bufs && ok; b++)
+    for (int y = 0; y < ROWS_PER_FRAME && ok; y++)
+    {
+      R.crow[b][y] = (uint32_t *)heap_caps_calloc(1, PIXELS_PER_ROW * 8, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+      ok = R.crow[b][y] != nullptr;
+    }
+  if (ok)
+  {
+    ring_tmpl = (uint16_t *)heap_caps_malloc(R.depth * R.width * sizeof(uint16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    ok = ring_tmpl != nullptr;
+  }
+  if (!ok)
+  {
+    for (int b = 0; b < 2; b++)
+      for (int y = 0; y < (int)kRingMaxRows; y++)
+      {
+        heap_caps_free(R.crow[b][y]);
+        R.crow[b][y] = nullptr;
+      }
+    heap_caps_free(ring_tmpl);
+    ring_tmpl = nullptr;
+    ring_on = false;
+    return false;
+  }
+  R.tmpl = ring_tmpl;
+  return true;
+}
+
+/* The LAT pulse and the OE window of each plane, as clearFrameBuffer() and setBrightnessOE() lay them down in a
+ * classic row. They are the same for every row: only the address bits (added when a row is generated) differ. */
+void MatrixPanel_I2S_DMA::ringBuildTemplate(uint8_t brt)
+{
+  const uint32_t _depth = m_cfg.getPixelColorDepthBits();
+  const uint32_t _width = PIXELS_PER_ROW;
+  const uint8_t _blank = m_cfg.latch_blanking;
+
+  for (uint32_t colouridx = 0; colouridx < _depth; colouridx++)
+  {
+    char bitplane = (2 * _depth - colouridx) % _depth;
+    char bitshift = (_depth - lsbMsbTransitionBit - 1) >> 1;
+    char rightshift = std::max(bitplane - bitshift - 2, 0);
+
+    int max_pixels_for_bitplane = (_width - _blank) >> rightshift;
+    int brightness_in_x_pixels = (max_pixels_for_bitplane * brt) >> 8;
+    if (brt > 0 && brightness_in_x_pixels == 0)
+      brightness_in_x_pixels = 1;
+    if (brightness_in_x_pixels > max_pixels_for_bitplane - 1)
+      brightness_in_x_pixels = max_pixels_for_bitplane - 1;
+
+    int x_coord_max = (_width + brightness_in_x_pixels + 1) >> 1;
+    int x_coord_min = (_width - brightness_in_x_pixels + 0) >> 1;
+
+    uint16_t *row = ring_tmpl + colouridx * _width;
+    for (uint32_t x = 0; x < _width; x++)
+    {
+      uint16_t v = (x >= (uint32_t)x_coord_min && x < (uint32_t)x_coord_max) ? 0 : BIT_OE;
+      if (x == _width - 1)
+        v |= BIT_LAT;
+      row[ESP32_TX_FIFO_POSITION_ADJUST(x)] = v;
+    }
+  }
+}
+
+void MatrixPanel_I2S_DMA::ringPrefill()
+{
+  RingState &R = g_ring;
+  R.nextFill = 0;
+  for (uint32_t r = 0; r < R.n; r++)
+    ringFillRow(R, r);
+  R.nextFill = R.n;
+}
+
+bool MatrixPanel_I2S_DMA::ringStart()
+{
+  return dma_bus.start_row_interrupt(ringEof, nullptr);
+}
+
+void MatrixPanel_I2S_DMA::ringFlip()
+{
+  g_ring.frontNext = back_buffer_id;
+  back_buffer_id = back_buffer_id ^ 1;
+}
+
+MatrixPanel_I2S_DMA::RingStats MatrixPanel_I2S_DMA::getRingStats() const
+{
+  RingStats s = {};
+  s.active = ring_on;
+  if (ring_on)
+  {
+    s.rows = g_ring.filled;
+    s.missed = g_ring.missed;
+    s.maxCycles = g_ring.maxCycles;
+    s.meanCycles = g_ring.calls ? (uint32_t)(g_ring.sumCycles / g_ring.calls) : 0;
+    s.rowPeriodUs = calculated_refresh_rate > 0 ? 1000000u / ((uint32_t)calculated_refresh_rate * g_ring.rows) : 0;
+  }
+  return s;
+}
+#endif // HUB75_RING_STREAM
 
 /*
  *  overload for compatibility
@@ -843,6 +1163,17 @@ void MatrixPanel_I2S_DMA::hlineDMA(int16_t x_coord, int16_t y_coord, int16_t l, 
   /* LED Brightness Compensation */
 DO_BRIGHTNESS_COMPENSATION() 
 
+#ifdef HUB75_RING_STREAM
+  if (ring_on)
+  {
+    const bool bottom = y_coord >= ROWS_PER_FRAME;
+    uint32_t *q = g_ring.crow[m_cfg.double_buff ? back_buffer_id : 0][bottom ? y_coord - ROWS_PER_FRAME : y_coord] + x_coord * 2;
+    for (int16_t i = 0; i < l; i++, q += 2)
+      ringPut(q, bottom, red_val, green_val, blue_val);
+    return;
+  }
+#endif
+
   uint16_t _colourbitclear = BITMASK_RGB1_CLEAR, _colourbitoffset = 0;
 
   if (y_coord >= ROWS_PER_FRAME)
@@ -925,6 +1256,20 @@ void MatrixPanel_I2S_DMA::vlineDMA(int16_t x_coord, int16_t y_coord, int16_t l, 
   ///    l = m_cfg.mx_height - y_coord + 1;     // reset width to end of col
 
   DO_BRIGHTNESS_COMPENSATION() 
+
+#ifdef HUB75_RING_STREAM
+  if (ring_on)
+  {
+    uint32_t **rows = g_ring.crow[m_cfg.double_buff ? back_buffer_id : 0];
+    for (int16_t i = 0; i < l; i++)
+    {
+      const int y = y_coord + i;
+      const bool bottom = y >= ROWS_PER_FRAME;
+      ringPut(rows[bottom ? y - ROWS_PER_FRAME : y] + x_coord * 2, bottom, red_val, green_val, blue_val);
+    }
+    return;
+  }
+#endif
 
   /*
   #if defined(ESP32_THE_ORIG)

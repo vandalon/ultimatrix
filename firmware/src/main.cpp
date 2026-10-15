@@ -2,6 +2,9 @@
 #include <atomic>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
+#include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -52,7 +55,7 @@ static MatrixPanel_I2S_DMA *display = nullptr;
 static Clockface *face = nullptr;
 static ClockTime clockTime;
 static WebServer server(80);
-static WiFiManager wifi;
+static WiFiManager wifi(SerialConsole);  // its debug output also goes to the telnet log
 static uint32_t nextFrame = 0;
 static uint32_t restartAt = 0;
 static bool updateOnly = false;  // a restart made to install an update: no face, no feeds, just the update screen, so the whole heap is free for the download
@@ -798,6 +801,38 @@ static void rebootForFirmwareUpdate() {
   restartAt = millis() + 1000;
 }
 
+// Load of each core from the idle tasks' run time over the interval since the last call. Interrupt time (the ring refill)
+// runs inside whichever task it interrupted, mostly idle, so it is subtracted separately and shown on its own.
+static void reportCpu() {
+  static int64_t lastUs = 0;
+  static uint32_t lastIdle[2] = {0, 0}, lastRows = 0;
+  UBaseType_t n = uxTaskGetNumberOfTasks();
+  TaskStatus_t *st = (TaskStatus_t *)malloc(n * sizeof(TaskStatus_t));
+  if (!st) return;
+  uint32_t total = 0;
+  n = uxTaskGetSystemState(st, n, &total);
+  uint32_t idle[2] = {0, 0};
+  for (UBaseType_t i = 0; i < n; i++) {
+    if (!strcmp(st[i].pcTaskName, "IDLE0")) idle[0] = st[i].ulRunTimeCounter;
+    else if (!strcmp(st[i].pcTaskName, "IDLE1")) idle[1] = st[i].ulRunTimeCounter;
+  }
+  free(st);
+  int64_t now = esp_timer_get_time();
+  if (lastUs) {
+    uint32_t wall = (uint32_t)(now - lastUs);
+    unsigned busy0 = 100 - (unsigned)(100ull * (uint32_t)(idle[0] - lastIdle[0]) / wall);
+    unsigned busy1 = 100 - (unsigned)(100ull * (uint32_t)(idle[1] - lastIdle[1]) / wall);
+    unsigned ring = 0;
+    MatrixPanel_I2S_DMA::RingStats rs = display->getRingStats();
+    if (rs.active) ring = (unsigned)(100ull * (uint32_t)(rs.rows - lastRows) * rs.meanCycles / ((uint64_t)getCpuFrequencyMhz() * wall));
+    if (rs.active) lastRows = rs.rows;
+    consoleLog("[Cpu] core0 busy %u%%, core1 busy %u%% (ring refill %u%% of one core is counted as idle: add it to its core)\n", busy0, busy1, ring);
+  }
+  lastUs = now;
+  lastIdle[0] = idle[0];
+  lastIdle[1] = idle[1];
+}
+
 static void reportMemory() {
   static uint32_t reportedAt = 0;
   static uint32_t lastFailures = 0;
@@ -812,6 +847,13 @@ static void reportMemory() {
       (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
       (unsigned)uxTaskGetStackHighWaterMark(nullptr), (unsigned)failures);
+  if (displayReady) reportCpu();
+  if (displayReady) {
+    MatrixPanel_I2S_DMA::RingStats rs = display->getRingStats();
+    if (rs.active)
+      consoleLog("[Ring] rows=%u missed=%u mean=%u longest=%u us of %u us per row\n", (unsigned)rs.rows, (unsigned)rs.missed,
+          (unsigned)(rs.meanCycles / getCpuFrequencyMhz()), (unsigned)(rs.maxCycles / getCpuFrequencyMhz()), (unsigned)rs.rowPeriodUs);
+  }
 }
 
 // Lowers the panel's colour quality one level and restarts into it. The reason decides whether it is tried again
@@ -833,7 +875,7 @@ static void lowerPanelQuality(const char *why) {
   noteLiveData();
   bool busy = recentlyLive();
   paneltier::lower(panelState, busy);
-  Serial.printf("[Panel] %s: lowering the colour quality to level %d (%s), reason %s\n", why, paneltier::active(panelState) + 1,
+  consoleLog("[Panel] %s: lowering the colour quality to level %d (%s), reason %s\n", why, paneltier::active(panelState) + 1,
       paneltier::kTiers[paneltier::active(panelState)].name, busy ? "busy" : "quiet");
   restartAt = millis() + 1500;
 }
@@ -853,7 +895,7 @@ static void shedOnLowMemory() {
   memoryShed = true;
   telnet.stop();
   if (mdnsStarted) { MDNS.end(); mdnsStarted = false; }
-  Serial.printf("[Memory] allocation failures: telnet and mDNS stopped until restart (free=%u largest=%u)\n",
+  consoleLog("[Memory] allocation failures: telnet and mDNS stopped until restart (free=%u largest=%u)\n",
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 }
 
@@ -864,7 +906,7 @@ static void retryPanelQuality(uint32_t now) {
   nextAt = now + 60000;
   if (liveDataActive() || liveFavouriteOn.load() || !paneltier::retryDue(panelState)) return;
   paneltier::reset(panelState);
-  Serial.println("[Panel] trying the best colour quality again");
+  consoleLog("[Panel] trying the best colour quality again\n");
   restartAt = now + 1500;
 }
 
@@ -909,10 +951,10 @@ static void background() {
   if (portalNow && millis() - portalLogAt >= 5000) {
     portalLogAt = millis();
     wifi_mode_t mode; esp_wifi_get_mode(&mode);
-    Serial.printf("[Portal] mode %d, stations %u, sta status %d, channel %u, heap %u, largest %u\n", (int)mode, (unsigned)WiFi.softAPgetStationNum(),
+    consoleLog("[Portal] mode %d, stations %u, sta status %d, channel %u, heap %u, largest %u\n", (int)mode, (unsigned)WiFi.softAPgetStationNum(),
         (int)WiFi.status(), (unsigned)WiFi.channel(), (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
   }
-  if (setupRefresh && !welcomeMode && !portalNow && !restartAt) { restartAt = millis() + 1000; provisioningRestart = true; Serial.println("[Portal] setup over: restarting out of the fast display"); }  // setup is over: restart out of the fast display (the face needs the memory and colour depth)
+  if (setupRefresh && !welcomeMode && !portalNow && !restartAt) { restartAt = millis() + 1000; provisioningRestart = true; consoleLog("[Portal] setup over: restarting out of the fast display\n"); }  // setup is over: restart out of the fast display (the face needs the memory and colour depth)
   if (portalActive && !portalNow && WiFi.status() != WL_CONNECTED) WiFi.begin();
   portalActive = portalNow;
   if (!settingsServerStarted && WiFi.status() == WL_CONNECTED && !wifi.getConfigPortalActive()) {
@@ -995,7 +1037,7 @@ void setup() {
       refreshPrefs.end();
     }
     setupRefresh = asked || setupRefreshRestart || welcomeMode;  // no saved network: the portal comes up late and restarts into it (the saved SSID can't be read before Wi-Fi is initialised)
-    Serial.printf("[Boot] reset reason %d, setupWifi=%d setupRefreshRestart=%d welcomeMode=%d -> %s display\n", (int)esp_reset_reason(), (int)asked, (int)setupRefreshRestart, (int)welcomeMode, setupRefresh ? "fast setup" : "normal");
+    consoleLog("[Boot] reset reason %d, setupWifi=%d setupRefreshRestart=%d welcomeMode=%d -> %s display\n", (int)esp_reset_reason(), (int)asked, (int)setupRefreshRestart, (int)welcomeMode, setupRefresh ? "fast setup" : "normal");
   }
   HUB75_I2S_CFG panel(layout::width, layout::height, 1);
   panel.gpio.e = 18;
@@ -1010,8 +1052,12 @@ void setup() {
     panel.i2sspeed = tier.mhz >= 20 ? HUB75_I2S_CFG::HZ_20M : tier.mhz >= 16 ? HUB75_I2S_CFG::HZ_16M : HUB75_I2S_CFG::HZ_8M;
     panel.min_refresh_rate = tier.minRefresh;  // the driver merges the lowest bit planes until this is reached, and each plane it keeps doubles the DMA descriptors
     boot::setQuality(tier.iconPercent, tier.uFloor, tier.gradient);
-    Serial.printf("[Panel] level %d of %d: %s, state level %u reason %u lock %u\n", panelLevel + 1, paneltier::kCount, tier.name, panelState.level, panelState.reason, panelState.lock);
+    consoleLog("[Panel] level %d of %d: %s, state level %u reason %u lock %u\n", panelLevel + 1, paneltier::kCount, tier.name, panelState.level, panelState.reason, panelState.lock);
   }
+#ifndef UM_RING_ROWS
+#define UM_RING_ROWS 8
+#endif
+  if (!setupRefresh) panel.ring_rows = UM_RING_ROWS;  // streaming mode: 8 rows of bit planes are kept, the rest is generated from a compact framebuffer (0 = keep every row)
   if (setupRefresh) {
     panel.i2sspeed = HUB75_I2S_CFG::HZ_20M;
     panel.min_refresh_rate = 255;
@@ -1041,7 +1087,7 @@ void setup() {
     consoleLog("Display allocation failed\n");
     if (!setupRefresh && !updateOnly && paneltier::canLower(panelState)) {  // too heavy for this level: one lighter and restart
       paneltier::lower(panelState, false);
-      Serial.printf("[Panel] the display did not start: level %d next\n", paneltier::active(panelState) + 1);
+      consoleLog("[Panel] the display did not start: level %d next\n", paneltier::active(panelState) + 1);
       delay(200);
       ESP.restart();
     }
@@ -1060,12 +1106,12 @@ void setup() {
   wifi.setDebugOutput(true, WM_DEBUG_NOTIFY);  // portal requests and connection state on serial, never credentials
   WiFi.onEvent([](arduino_event_id_t id, arduino_event_info_t info) {
     switch (id) {
-      case ARDUINO_EVENT_WIFI_AP_START: Serial.printf("[AP] started, ip %s\n", WiFi.softAPIP().toString().c_str()); break;
-      case ARDUINO_EVENT_WIFI_AP_STACONNECTED: Serial.printf("[AP] phone joined, %u station(s)\n", (unsigned)WiFi.softAPgetStationNum()); break;
-      case ARDUINO_EVENT_WIFI_AP_STADISCONNECTED: Serial.printf("[AP] phone left, %u station(s)\n", (unsigned)WiFi.softAPgetStationNum()); break;
-      case ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED: Serial.printf("[AP] DHCP gave %s\n", IPAddress(info.wifi_ap_staipassigned.ip.addr).toString().c_str()); break;
-      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: Serial.printf("[STA] disconnected, reason %u\n", (unsigned)info.wifi_sta_disconnected.reason); break;
-      case ARDUINO_EVENT_WIFI_STA_CONNECTED: Serial.printf("[STA] connected on channel %u\n", (unsigned)info.wifi_sta_connected.channel); break;
+      case ARDUINO_EVENT_WIFI_AP_START: consoleLog("[AP] started, ip %s\n", WiFi.softAPIP().toString().c_str()); break;
+      case ARDUINO_EVENT_WIFI_AP_STACONNECTED: consoleLog("[AP] phone joined, %u station(s)\n", (unsigned)WiFi.softAPgetStationNum()); break;
+      case ARDUINO_EVENT_WIFI_AP_STADISCONNECTED: consoleLog("[AP] phone left, %u station(s)\n", (unsigned)WiFi.softAPgetStationNum()); break;
+      case ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED: consoleLog("[AP] DHCP gave %s\n", IPAddress(info.wifi_ap_staipassigned.ip.addr).toString().c_str()); break;
+      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: consoleLog("[STA] disconnected, reason %u\n", (unsigned)info.wifi_sta_disconnected.reason); break;
+      case ARDUINO_EVENT_WIFI_STA_CONNECTED: consoleLog("[STA] connected on channel %u\n", (unsigned)info.wifi_sta_connected.channel); break;
       default: break;
     }
   });
@@ -1178,7 +1224,7 @@ void loop() {
   uint32_t loopStart = millis();
   background();
   uint32_t backgroundMs = millis() - loopStart;
-  if (portalActive && backgroundMs > 40) Serial.printf("[Portal] background() took %u ms\n", (unsigned)backgroundMs);
+  if (portalActive && backgroundMs > 40) consoleLog("[Portal] background() took %u ms\n", (unsigned)backgroundMs);
   if (!displayReady) { delay(50); return; }
   uint32_t now = millis();
   if (WiFi.status() == WL_CONNECTED && !portalActive && !welcomeMode && !updateOnly) {
@@ -1226,7 +1272,7 @@ void loop() {
     bootTick();  // before the check below: it stamps connectedAt on the connect
     if (face && !portalActive && !bootDone && syncedAt) {
       uint32_t holdAt = millis();  // not the loop's `now`: bootTick() just stamped connectedAt/syncedAt/noticeAt with a later time, and an unsigned difference to it would wrap and end the notice at once
-      if (bootHoldOver(holdAt)) { bootDone = true; Serial.printf("[Boot] done at %u ms\n", (unsigned)holdAt); }
+      if (bootHoldOver(holdAt)) { bootDone = true; consoleLog("[Boot] done at %u ms\n", (unsigned)holdAt); }
     }
     if (bootDone) {  // keeps drawing during an update: the feeds are parked, the face shows its last snapshot
       // A face that paints its own night (Mario, Luigi) follows the sun for its sky and only gives way to the red clock in a dark room
@@ -1255,7 +1301,7 @@ void loop() {
     nextFrame = millis() + layout::frameMs;
 #endif
     if (birthdayShown) nextFrame = millis() + kBirthdayFrameMs;
-    if (portalActive && millis() - loopStart - backgroundMs > 40) Serial.printf("[Portal] frame took %u ms\n", (unsigned)(millis() - loopStart - backgroundMs));
+    if (portalActive && millis() - loopStart - backgroundMs > 40) consoleLog("[Portal] frame took %u ms\n", (unsigned)(millis() - loopStart - backgroundMs));
   }
   delay(portalActive ? 1 : 2);  // the setup page and DNS answers wait on this loop
 }

@@ -2,6 +2,7 @@
 // Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #include "F1Screens.h"
+#include <Console.h>
 #include <ScreenTimer.h>
 #include <Settings.h>
 #include <TimeService.h>
@@ -38,8 +39,8 @@ bool F1Screens::advance(const ScreenInputs &in, F1Screen &viewOut, int &pageOut)
       if (timeUpId != snap.live.id || !timeUpAt) {
         timeUpId = snap.live.id;
         timeUpAt = millis();
-        if (race) Serial.printf("[face] %s: leader finished %ld s ago, results 5 minutes after the finish\n", snap.live.name, (long)(ultime::now() - snap.live.finishedAt));
-        else Serial.printf("[face] %s: clock at 0:00, results in 3 minutes unless the feed says it is over\n", snap.live.name);
+        if (race) consoleLog("[face] %s: leader finished %ld s ago, results 5 minutes after the finish\n", snap.live.name, (long)(ultime::now() - snap.live.finishedAt));
+        else consoleLog("[face] %s: clock at 0:00, results in 3 minutes unless the feed says it is over\n", snap.live.name);
       }
       if (race ? ultime::now() >= snap.live.finishedAt + 5 * 60 : millis() - timeUpAt >= timeout) { closedId = snap.live.id; close = true; }
     } else if (!timeUp) {
@@ -49,7 +50,7 @@ bool F1Screens::advance(const ScreenInputs &in, F1Screen &viewOut, int &pageOut)
       static uint32_t loggedId = 0;
       if (loggedId != snap.live.id) {
         loggedId = snap.live.id;
-        Serial.printf("[face] %s is over (%s), showing the results\n", snap.live.name, race ? "5 minutes after the leader finished" : snap.live.finished ? "the feed says so" : "3 minutes after 0:00");
+        consoleLog("[face] %s is over (%s), showing the results\n", snap.live.name, race ? "5 minutes after the leader finished" : snap.live.finished ? "the feed says so" : "3 minutes after 0:00");
       }
       closedId = snap.live.id;
       snap.last = snap.live;

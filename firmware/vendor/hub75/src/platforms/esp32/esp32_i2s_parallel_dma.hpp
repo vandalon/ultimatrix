@@ -62,6 +62,10 @@ Contributors:
 //----------------------------------------------------------------------------
 
 void IRAM_ATTR irq_hndlr(void* arg);
+
+// Called from the I2S interrupt each time a descriptor flagged as a row end has been handed to the FIFO.
+// index is the position of that descriptor in the chain. Runs in interrupt context (IRAM only, no logging, no heap).
+typedef void (*hub75_row_isr_t)(void *arg, uint32_t index);
 i2s_dev_t* getDev();
 
 //----------------------------------------------------------------------------
@@ -117,7 +121,11 @@ i2s_dev_t* getDev();
     void enable_double_dma_desc();
     bool allocate_dma_desc_memory(size_t len);
 
-    void create_dma_desc_link(void *memory, size_t size, bool dmadesc_b = false);
+    void create_dma_desc_link(void *memory, size_t size, bool dmadesc_b = false, bool row_eof = false);
+
+    // Streaming mode: flag the descriptor created last as a row end and take an interrupt when it has been sent
+    void mark_last_desc_row_end();
+    bool start_row_interrupt(hub75_row_isr_t cb, void *arg);
 
     void dma_transfer_start();
     void dma_transfer_stop();

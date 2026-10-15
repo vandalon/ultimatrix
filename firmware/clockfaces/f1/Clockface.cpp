@@ -227,7 +227,7 @@ void Clockface::update() {
   static bool syncingTime = false;
   if (ultime::timeStatus() != timeSet) {
     if (!syncingTime) {
-      Serial.println("[face] syncing time");
+      consoleLog("[face] syncing time\n");
       Console.println("[face] syncing time");
       syncingTime = true;
     }
@@ -235,7 +235,7 @@ void Clockface::update() {
     return;
   }
   if (syncingTime) {
-    Serial.println("[face] time synced");
+    consoleLog("[face] time synced\n");
     Console.println("[face] time synced");
     syncingTime = false;
   }

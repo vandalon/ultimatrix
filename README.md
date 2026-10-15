@@ -148,7 +148,7 @@ The [release workflow](.github/workflows/release.yml) builds all eight faces whe
 
 ## Display quality
 
-The panel runs at one of three colour quality levels (8 bit/20 MHz, 8 bit/8 MHz, 7 bit/8 MHz): the better the level, the more memory its display buffers use. The clock starts at the best level. If memory runs short and shedding telnet and mDNS does not help, it restarts one level lower, and the settings page shows a warning. A drop caused by live data (a busy match day) is tried again at 11:00 the next quiet moment; a drop at a quiet time stays until you press **Try the best quality again** under **Advanced > Display quality**. The same selector can lock one level.
+The panel runs at one of four colour quality levels (8 bit/20 MHz at 72 Hz, 8 bit/20 MHz, 8 bit/8 MHz, 7 bit/8 MHz): the better the level, the more memory its display buffers use. The clock starts at the best level. If memory runs short and shedding telnet and mDNS does not help, it restarts one level lower, and the settings page shows a warning. A drop caused by live data (a busy match day) is tried again at 11:00 the next quiet moment; a drop at a quiet time stays until you press **Try the best quality again** under **Advanced > Display quality**. The same selector can lock one level.
 
 ## Remote console
 

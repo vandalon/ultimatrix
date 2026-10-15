@@ -12,6 +12,12 @@
 // #include <Arduino.h>
 #include "platforms/platform_detect.hpp"
 
+// Streaming mode (HUB75_I2S_CFG::ring_rows): the bit planes of a few rows at a time are generated from a compact
+// framebuffer by the row-end interrupt, instead of keeping every bit plane of every row in memory. Original ESP32 only.
+#if defined(ESP32_THE_ORIG) && !defined(SPIRAM_DMA_BUFFER) && !defined(NO_RING_STREAM)
+#define HUB75_RING_STREAM 1
+#endif
+
 #ifdef USE_GFX_LITE
   // Slimmed version of Adafruit GFX + FastLED: https://github.com/mrcodetastic/GFX_Lite
   #include "GFX_Lite.h" 
@@ -315,6 +321,11 @@ struct HUB75_I2S_CFG
   // Set this to '1' to get all colour depths displayed with correct BCM time weighting.
   uint8_t min_refresh_rate;
 
+  // Streaming mode: number of rows kept as ready-to-send bit planes (0 = off, every row is kept). Must divide the
+  // rows per frame (32 for a 64 pixel high panel), at least 3, a slack of ring_rows-1 row times is the refill deadline.
+  // Only for the plain 138 decoder with a plain shift register driver and a colour depth up to 8 bits.
+  uint8_t ring_rows = 0;
+
   // struct constructor
   HUB75_I2S_CFG(
       uint16_t _w = MATRIX_WIDTH,
@@ -478,9 +489,23 @@ public:
 	flipDMABuffer(); // display back buffer 0, draw to 1, ignored if double buffering isn't enabled.		
     ESP_LOGV("being()", "Completed flipDMABuffer()");		
 
+#ifdef HUB75_RING_STREAM
+    if (ring_on)
+      ringPrefill(); // the first rows must be in the ring before the DMA starts
+#endif
+
 	// Start output output
 	dma_bus.init();
     ESP_LOGV("being()", "Completed dma_bus.init()");	
+
+#ifdef HUB75_RING_STREAM
+    if (ring_on && !ringStart())
+    {
+      ESP_LOGE("begin()", "Could not start the row interrupt for streaming mode");
+      initialized = false;
+      return false;
+    }
+#endif
 	
 	dma_bus.dma_transfer_start();
     ESP_LOGV("being()", "Completed dma_bus.dma_transfer_start()");		
@@ -622,6 +647,14 @@ public:
     {
       return;
     }
+
+#ifdef HUB75_RING_STREAM
+    if (ring_on)
+    {
+      ringFlip();
+      return;
+    }
+#endif
 	
     dma_bus.flip_dma_output_buffer(back_buffer_id);
 	
@@ -700,6 +733,20 @@ public:
     config_set = true;
     return true;
   }
+
+#ifdef HUB75_RING_STREAM
+  struct RingStats
+  {
+    bool active;           // streaming mode is in use
+    uint32_t rows;         // rows refilled
+    uint32_t missed;       // rows that were sent before they were refilled (a visible glitch each)
+    uint32_t maxCycles;    // longest refill of one row, CPU cycles
+    uint32_t meanCycles;   // average refill of one row
+    uint32_t rowPeriodUs;  // time one row is on the wire
+  };
+  RingStats getRingStats() const;
+  bool ringActive() const { return ring_on; }
+#endif
 
   /**
    * Stop the ESP32 DMA Engine. Screen will forever be black until next ESP reboot.
@@ -887,6 +934,17 @@ private:
   uint16_t PIXELS_PER_ROW = m_cfg.mx_width * m_cfg.chain_length;      // number of pixels in a single row of all chained matrix modules (WIDTH of a combined matrix chain)
   uint8_t ROWS_PER_FRAME = m_cfg.mx_height / MATRIX_ROWS_IN_PARALLEL; // RPF - rows per frame, either 16 or 32 depending on matrix module
   uint8_t MASK_OFFSET = 16 - m_cfg.getPixelColorDepthBits();
+
+#ifdef HUB75_RING_STREAM
+  bool ring_on = false;
+  uint16_t *ring_tmpl = nullptr;  // control bits (LAT, OE with the brightness window) of one row, per plane, in wire order
+  bool ringEligible() const;
+  bool ringAllocate();
+  bool ringStart();
+  void ringBuildTemplate(uint8_t brt);
+  void ringPrefill();
+  void ringFlip();
+#endif
 
   // Other private variables
   bool initialized = false;
