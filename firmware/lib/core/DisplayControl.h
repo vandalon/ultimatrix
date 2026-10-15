@@ -11,6 +11,7 @@ public:
   bool nightActive() const { return _night || _dark; }
   // Only the dark room (the light sensor): for a face that paints its own night, this is what brings the red night clock
   bool roomDark() const { return _dark; }
+  bool nightScheduled() const { return _night; }  // the night hours or sunset to sunrise, whatever the light sensor says
   // The sun is down at the clock's location, whatever the night settings say: a face that paints its own night follows this
   bool sunDown() const { return _sunDown; }
 private:

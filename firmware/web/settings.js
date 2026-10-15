@@ -40,7 +40,7 @@ function brightness(event) {
   document.querySelector('#night-value').textContent = pct(night);
   document.querySelector('#range-low').textContent = auto ? 'Dimmest' : 'Minimum';
 }
-let lightNow = -1;
+let lightNow = -1, nightWhy = '';
 function sensor(event) {
   const dark = field('ldrDark'), light = field('ldrLight');
   if (event && event.target === light) dark.value = Math.min(Number(dark.value), Math.max(Number(light.value) - 1, 0));
@@ -51,7 +51,7 @@ function sensor(event) {
   box.style.setProperty('--hi', Number(light.value) / 4095);
   document.querySelector('#sensor-range').textContent = dark.value + ' – ' + light.value;
   mark.hidden = lightNow < 0; box.style.setProperty('--mark', Math.min(lightNow, 4095) / 4095);
-  document.querySelector('#sensor-reading').textContent = lightNow >= 0 ? 'Current sensor reading: ' + lightNow : 'Sensor is off.';
+  document.querySelector('#sensor-reading').textContent = lightNow >= 0 ? 'Current sensor reading: ' + lightNow + (nightWhy ? ' · Night clock on: ' + (nightWhy === 'dark' ? 'the reading is below the dark value' : 'the night schedule says so') : '') : 'Sensor is off.';
 }
 function timezoneMode() {
   const auto = field('autoTimezone').checked;
@@ -222,7 +222,7 @@ async function load() {
     document.body.classList.toggle('welcome-only', !!data.welcomeMode);
     { const start = document.querySelector('#welcome-start'); if (start) start.hidden = !data.welcomeMode; const dismiss = document.querySelector('#welcome-dismiss'); if (dismiss) dismiss.parentElement.hidden = !!data.welcomeMode; }
     { const link = document.querySelector('#welcome-ip'); const url = data.network.ip ? 'http://' + data.network.ip + '/' : ''; if (link) { link.textContent = url || '—'; link.href = url || '#'; } }
-    lightNow = data.lightReading;
+    lightNow = data.lightReading; nightWhy = data.nightWhy || '';
     document.querySelector('#time-status').textContent = data.timeSynced ? 'Time is synced automatically' : 'Waiting for the first time sync';
     if (sporty || data.mode === 'Words') {
       const catalogResponse = await fetch('/api/catalog');
@@ -250,7 +250,7 @@ for (const [id, name] of [['#set-dark', 'ldrDark'], ['#set-light', 'ldrLight']])
 }
 setInterval(async () => {
   if (document.hidden || !field('autoBrightness').checked || controls.disabled) return;
-  try { const data = await (await fetch('/api/settings', { cache: 'no-store' })).json(); lightNow = data.lightReading; sensor(); } catch (error) { /* next poll retries */ }
+  try { const data = await (await fetch('/api/settings', { cache: 'no-store' })).json(); lightNow = data.lightReading; nightWhy = data.nightWhy || ''; sensor(); } catch (error) { /* next poll retries */ }
 }, 2000);
 form.addEventListener('change', event => {
   if (event.target.name === 'fbLeagues') {

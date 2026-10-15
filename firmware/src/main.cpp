@@ -410,6 +410,7 @@ static void settingsState() {
   json += ultime::timeStatus() == timeSet ? "true" : "false";
   json += ",\"lightReading\":" + String(displayControl.lightReading());
   json += ",\"nightActive\":" + String(displayControl.nightActive() ? "true" : "false");
+  json += ",\"nightWhy\":\"" + String(displayControl.roomDark() ? "dark" : displayControl.nightScheduled() ? "schedule" : "") + "\"";
   {
     int rise = 0, set = 0;
     if (s.hasLocation && ultime::timeStatus() == timeSet && sun::times(s.latitude, s.longitude, time(nullptr), rise, set) == sun::Result::Normal)
