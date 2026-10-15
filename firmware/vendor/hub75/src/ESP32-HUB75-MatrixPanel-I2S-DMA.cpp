@@ -135,7 +135,7 @@ void IRAM_ATTR ringEof(void *, uint32_t descIndex)
   if (used > R.maxCycles)
     R.maxCycles = used;
   R.sumCycles += used;
-  R.calls++;
+  R.calls = R.calls + 1;
 }
 } // namespace
 #endif // HUB75_RING_STREAM

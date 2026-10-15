@@ -7,6 +7,7 @@
 #include <esp_log.h>
 #include <esp_heap_caps.h>
 #include <esp_partition.h>
+#include <lwip/sockets.h>
 #include <nvs_flash.h>
 #include <ctype.h>
 #include <string.h>
@@ -14,7 +15,8 @@
 
 static constexpr uint32_t kIdleMs = 300000;  // a forgotten session gives the only slot back
 
-// Log lines end in a bare \n: telnet wants CR LF
+// Log lines end in a bare \n: telnet wants CR LF. Sends never wait: WiFiClient::write retries for up to 10 s on a stalled
+// client while every logger (any task, ESP_LOG included) waits on the console lock, so what the socket can't take is dropped.
 class LogTee : public Print {
  public:
   using Print::write;
@@ -24,14 +26,18 @@ class LogTee : public Print {
     size_t start = 0;
     for (size_t i = 0; i < count; ++i) {
       if (data[i] != '\n') continue;
-      client_.write(data + start, i - start);
-      client_.write((const uint8_t *)"\r\n", 2);
+      send(data + start, i - start);
+      send((const uint8_t *)"\r\n", 2);
       start = i + 1;
     }
-    if (start < count) client_.write(data + start, count - start);
+    if (start < count) send(data + start, count - start);
     return count;
   }
  private:
+  void send(const uint8_t *data, size_t len) {
+    int fd = client_.fd();
+    if (len && fd >= 0) ::send(fd, data, len, MSG_DONTWAIT);
+  }
   WiFiClient &client_;
 };
 

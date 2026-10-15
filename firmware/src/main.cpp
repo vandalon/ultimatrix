@@ -820,8 +820,9 @@ static void reportCpu() {
   int64_t now = esp_timer_get_time();
   if (lastUs) {
     uint32_t wall = (uint32_t)(now - lastUs);
-    unsigned busy0 = 100 - (unsigned)(100ull * (uint32_t)(idle[0] - lastIdle[0]) / wall);
-    unsigned busy1 = 100 - (unsigned)(100ull * (uint32_t)(idle[1] - lastIdle[1]) / wall);
+    // The idle counters and the wall clock are read a moment apart, so idle can come out a little above 100%
+    unsigned busy0 = 100 - std::min(100u, (unsigned)(100ull * (uint32_t)(idle[0] - lastIdle[0]) / wall));
+    unsigned busy1 = 100 - std::min(100u, (unsigned)(100ull * (uint32_t)(idle[1] - lastIdle[1]) / wall));
     unsigned ring = 0;
     MatrixPanel_I2S_DMA::RingStats rs = display->getRingStats();
     if (rs.active) ring = (unsigned)(100ull * (uint32_t)(rs.rows - lastRows) * rs.meanCycles / ((uint64_t)getCpuFrequencyMhz() * wall));

@@ -47,24 +47,37 @@ struct State {
   uint32_t at = 0;     // epoch seconds when the level was lowered (0 = the time was not known)
 };
 
+// Version of kTiers the saved level and lock refer to. 1 (no key): the three levels before the 72 Hz one was put first.
+constexpr uint8_t kTableVersion = 2;
+
+inline void save(const State &state);
+
 inline State load() {
   State state;
   Preferences prefs;
+  bool migrate = false;
   if (prefs.begin("ultimatrix", true)) {
     state.level = prefs.getUChar("ptier", 0);
     state.reason = prefs.getUChar("preason", None);
     state.lock = prefs.getUChar("plock", 0);
     state.at = prefs.getUInt("pat", 0);
+    migrate = prefs.getUChar("ptierv", 1) < kTableVersion && (state.level || state.lock);
     prefs.end();
+  }
+  if (migrate) {  // the same level is now one further down the table
+    if (state.level) state.level++;
+    if (state.lock) state.lock++;
   }
   if (state.level >= kCount) state.level = kCount - 1;
   if (state.lock > kCount) state.lock = 0;
+  if (migrate) save(state);
   return state;
 }
 
 inline void save(const State &state) {
   Preferences prefs;
   if (!prefs.begin("ultimatrix", false)) return;
+  prefs.putUChar("ptierv", kTableVersion);
   prefs.putUChar("ptier", state.level);
   prefs.putUChar("preason", state.reason);
   prefs.putUChar("plock", state.lock);
