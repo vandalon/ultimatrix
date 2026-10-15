@@ -816,11 +816,22 @@ static void reportMemory() {
 
 // Lowers the panel's colour quality one level and restarts into it. The reason decides whether it is tried again
 // later: a busy time (a live match or session) passes, a quiet one does not.
+// Live data that ran in the last few minutes still counts as a busy time: allocation failures often land between two live reads
+static uint32_t lastLiveAt = 0;
+static void noteLiveData() {
+  if (liveDataActive() || liveFavouriteOn.load()) lastLiveAt = millis() | 1;
+}
+static bool recentlyLive() {
+  constexpr uint32_t kGraceMs = 10 * 60 * 1000;
+  return lastLiveAt && millis() - lastLiveAt < kGraceMs;
+}
+
 static void lowerPanelQuality(const char *why) {
   static bool done = false;
   if (done || restartAt || setupRefresh || updateOnly || !paneltier::canLower(panelState)) return;
   done = true;
-  bool busy = liveDataActive() || liveFavouriteOn.load();
+  noteLiveData();
+  bool busy = recentlyLive();
   paneltier::lower(panelState, busy);
   Serial.printf("[Panel] %s: lowering the colour quality to level %d (%s), reason %s\n", why, paneltier::active(panelState) + 1,
       paneltier::kTiers[paneltier::active(panelState)].name, busy ? "busy" : "quiet");
@@ -952,6 +963,7 @@ static void background() {
   firmwareUpdate.poll(now, bootDone && !portalActive && WiFi.status() == WL_CONNECTED);
   autoUpdate(now);
   reportMemory();
+  noteLiveData();
   shedOnLowMemory();
   retryPanelQuality(now);
   telnet.poll();
