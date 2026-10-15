@@ -44,6 +44,7 @@ static uint32_t gMediaVersion = 1;
 namespace ha { namespace media {
 uint32_t version() { return gMediaVersion; }
 bool snapshot(Snapshot &out) { out = gMedia; return true; }
+void release() {}
 ArtState art(const char *, const uint16_t **pixels, uint16_t *id) { if (!gArtReady) return ART_LOADING; *pixels = gArt; *id = 1; return ART_READY; }
 } }
 HaClient &HaClient::instance() { static HaClient client; return client; }
@@ -223,6 +224,9 @@ int main(int argc, char **argv) {
   gConfig.tiles[2].type = ha::TILE_NONE; step(50); capture("Two tiles");
   gConfig.tiles[1].type = ha::TILE_NONE; step(50); capture("One tile");
   gConfig = savedConfig; ha::extraTile(3) = savedFourth; ha::extraTile(4).type = ha::TILE_NONE; ha::extraTile(5).type = ha::TILE_NONE; feed(s); step(50);
+  ha::Snapshot car = s; car.tile[2] = 1078; feed(car); step(50); capture("EV plugged in");  // charge + 1000 plugged in, + 2000 charging
+  car.tile[2] = 2078; feed(car); step(50); capture("EV charging");
+  feed(s); step(50);
   gConfig.pages = ha::PAGE_ENERGY; step(50);
   capture("Energy, solar producing and exporting");
 
@@ -320,6 +324,12 @@ int main(int argc, char **argv) {
   capture("Now playing: long text, scrolling");
   virtualMs += 3000; step(50);
   capture("Now playing: Kitchen, later in the scroll");
+  gArtReady = true; gMedia.count = 1; gMediaVersion++;
+  gConfig.pages = ha::PAGE_HOME | ha::PAGE_ART_BACKDROP; step(50); step(50);
+  capture("Album art, dimmed, behind the home page");
+  gConfig.pages = ha::PAGE_ENERGY | ha::PAGE_ART_BACKDROP; step(50); step(50);
+  capture("Album art, dimmed, behind the energy page");
+  gConfig.pages = ha::PAGE_MEDIA; step(50);
   gArtReady = false; gMedia.count = 1; gMediaVersion++; step(50); step(50);
   capture("Now playing: album art loading");
 

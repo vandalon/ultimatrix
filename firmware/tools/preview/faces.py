@@ -28,7 +28,7 @@ def render(face, work, extra):
         command += ["-I", str(include)]
     if face == "home":  # its own runner: made-up Home Assistant values instead of the clock scenarios
         command += ["-I", str(FIRMWARE / "lib/ha-feed")]
-        command += [str(HERE / "home.cpp"), str(gfx / "Adafruit_GFX.cpp"), str(FIRMWARE / "lib/ha-feed/HaDefaults.cpp")]
+        command += [str(HERE / "home.cpp"), str(gfx / "Adafruit_GFX.cpp"), str(FIRMWARE / "lib/ha-feed/HaDefaults.cpp"), str(FIRMWARE / "lib/ha-feed/HaDevices.cpp")]
     else:
         command += [str(HERE / "faces.cpp"), str(gfx / "Adafruit_GFX.cpp")]
     command += [str(path) for path in sorted(folder.glob("*.cpp"))]

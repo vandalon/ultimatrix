@@ -32,7 +32,12 @@ are ready. A successful build does not establish hardware or live-feed reliabili
   configured entities and parses Home Assistant's responses (including `energy/get_prefs` for Auto mode and
   `recorder/statistics_during_period` for the hourly history). `clockfaces/home/Clockface.cpp` fills a fixed-size
   `Frame` from the latest snapshot, deriving house usage from grid/solar/battery when no direct sensor is set;
-  `HomeRenderer` paints it, same change-detection pattern as Football and F1.
+  `HomeRenderer` paints it, same change-detection pattern as Football and F1. A tile or icon with an empty entity
+  field is an Auto slot: Home Assistant's own device classes pick its entities (the settings page shows what they
+  are as grey tags, from `/api/ha/suggest`). The EV tile stores three entities (`charge,charging,plugged`, `-` for
+  one left to detection, `off` for one not used) and returns one number, the charge plus 1000 when plugged in and
+  2000 when charging, so the settings layout did not change. The album-art backdrop is bit 16 of the saved page
+  flags; it is not a page.
 - Time, feed reading, JSON parsing, layout, digit assets, and cache mount policy
   live in shared core modules.
 - Download readers stop at 512 KiB. Football scoreboards retain at most 32 games

@@ -28,7 +28,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - pacman/: self-playing maze clock; Maze.h generates/stores the maze; palette in lib/core/PacmanColors.h
 - word/: word clock; WordFont draws glyphs, WordLanguages defines language layouts
 - tetris/: falling-digit clock; TetrisRenderer draws, TetrisScreens controls timing/frame state
-- home/: Home Assistant face; Clockface.cpp fills a Frame (pages, alerts, hourly bars) from HaClient, HomeRenderer.cpp draws the configurable tiles (including weather) and the Now playing page, configurable status counts, plain background and breathing colon (shared with the native preview)
+- home/: Home Assistant face; Clockface.cpp fills a Frame (pages, alerts, hourly bars) from HaClient, HomeRenderer.cpp draws the configurable tiles (including weather and the EV car with its bolt/plug badge), the dimmed album-art backdrop and the Now playing page, configurable status counts, plain background and breathing colon (shared with the native preview)
 - f1/: shared F1/MotoGP face; F1Renderer draws, F1Screens controls pages/timing, LoadingTyre.h holds the loading tyre bitmap
 - football/: sports face; FootballRenderer draws, FootballScreens controls pages/timing (feed: lib/football-feed)
 - MotoGP has no separate clockface directory: reuses f1/ with UM_MOTOGP and lib/motogp-feed
