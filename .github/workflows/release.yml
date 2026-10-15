@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [football, f1, motogp, tetris, word, mario, luigi, pacman]
+        mode: [football, f1, motogp, tetris, word, mario, luigi, pacman, home]
     steps:
       - uses: actions/checkout@v7
       - name: Build ${{ matrix.mode }}

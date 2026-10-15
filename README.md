@@ -10,6 +10,7 @@ There are eight clock faces. Each has its own firmware image, so the clock runs 
 
 | Preview | Face | Build name | What it shows |
 | --- | --- | --- | --- |
+| <img src="docs/previews/home.gif" alt="Home Assistant clock" width="128" height="128"> | Home | `home` | The clock with Home Assistant beside it: an Energy page, the one it starts on (house, solar or battery, and grid, now and today, with the last 18 hours), and a Home page (temperature, humidity, who is home, and icons for doors, windows, garage, washer, lights and the alarm). Alerts for the doorbell, a finished washer, a door left open and the alarm. It connects to Home Assistant over its WebSocket API with a long-lived access token, set up on the settings page. |
 | <img src="docs/previews/football.gif" alt="Football clock" width="128" height="128"> | Football | `football` | Live scores, fixtures, results, league tables and goal celebrations. Choose up to 10 competitions and 8 favourite teams. |
 | <img src="docs/previews/f1.gif" alt="Formula 1 clock" width="128" height="128"> | Formula 1 | `f1` | Race weekends, session results, standings and live timing. Favourite drivers get priority on race screens. |
 | <img src="docs/previews/motogp.gif" alt="MotoGP clock" width="128" height="128"> | MotoGP | `motogp` | Race weekends, results, standings and live timing, using the same display layout as F1. |
@@ -26,6 +27,18 @@ Mario and Luigi can rotate to a different world each hour, stay in one world, or
 Both characters walk automatically, with occasional running bursts at twice the walking speed. The ground and nearby objects scroll faster than distant scenery. They jump over pipes, Piranha Plants and ledges, and collect items along a repeating course. Coins add to the counter, mushrooms show a 1-UP, and stars flash the character's colours. High jumps use tucked, forward-facing legs and pass in front of the fixed clock blocks. Scene animations run 20% faster at about 30 frames per second.
 
 Before a minute change, the character walks under the minute block and pauses briefly before jumping. At an hour change, the minute block is hit first, then the hour block. After landing, the character walks off to the right. A quick swipe brings in the next world, and the character enters from the left. A pinned world uses the same walk-out sequence and keeps the selected world. Each minute hit releases either a green 1-UP or a red Super Mushroom. It slides off the block, falls to the ground and travels toward the character for pickup. After landing, the character keeps walking forward at the usual pace while the camera catches up smoothly and brings them back to the middle of the screen.
+
+## Home Assistant
+
+The `home` face needs Home Assistant on the same network (or reachable from it).
+
+1. In Home Assistant open your profile, Security, and create a long-lived access token.
+2. Switch the clock to the Home face (settings page, Clock face), open its settings page and fill in the Home Assistant card: address (for example `homeassistant.local:8123`) and the token. The clock keeps the token and never shows it again.
+3. Choose the pages (the Energy page comes first; it is left out until you enter its entities) and what each tile and icon shows. Every slot is either Auto (all door sensors, all lights, the average temperature and so on) or one entity or group that you enter. The energy rows use the entity IDs of your power and energy sensors.
+
+Entity fields suggest matching entities from Home Assistant as you type. "Fill from Home Assistant" on the Energy page reads the sensors of Home Assistant's own Energy dashboard (grid, solar and battery meters, and power sensors where they exist) into the empty fields; anything you typed stays. Meters that count for ever are fine for the kWh columns: the clock shows their change since midnight, taken from Home Assistant's statistics. For the grid and solar meters it takes the first sensor listed (the import side, and the first tariff).
+
+The clock opens one WebSocket to `/api/websocket`, signs in with the token and subscribes to a single template that Home Assistant renders itself, so it only receives a short line of values whenever they change. Each popup (alarm, doorbell, a finished washer, a door left open) has its own options: also at night (it shows through the night clock and the birthday screen), full brightness while it is up, and flashing the whole panel in its colour. Over `https` the certificate is not verified, like the other feeds. Preview the screens with `python3 firmware/tools/preview/home.py` (needs ffmpeg).
 
 ## Hardware
 
@@ -180,7 +193,7 @@ This refreshes all eight face images, their animated previews, the overview and 
 
 For one animated preview, use `--face football` with `showcase.py`, or `--face pacman` with `faces.py`. The sports previews replay data from `firmware/tools/preview/showcase-data.json`; they show recorded results rather than current feeds. Tetris uses a fixed clock, and the other animated faces use scripted clock scenarios.
 
-Browse the saved previews: [Football](docs/previews/football.gif), [F1](docs/previews/f1.gif), [MotoGP](docs/previews/motogp.gif), [Tetris](docs/previews/tetris.gif), [Words](docs/previews/word.gif), [Mario](docs/previews/mario.gif), [Luigi](docs/previews/luigi.gif), [Pac-Man](docs/previews/pacman.gif) and [boot screens](docs/previews/boot.gif). More recent examples cover [Words transitions](docs/previews/word-transitions.gif) and [Pac-Man clock colours](docs/previews/pacman-clock-colours.png).
+Browse the saved previews: [Home](docs/previews/home.gif), [Football](docs/previews/football.gif), [F1](docs/previews/f1.gif), [MotoGP](docs/previews/motogp.gif), [Tetris](docs/previews/tetris.gif), [Words](docs/previews/word.gif), [Mario](docs/previews/mario.gif), [Luigi](docs/previews/luigi.gif), [Pac-Man](docs/previews/pacman.gif) and [boot screens](docs/previews/boot.gif). More recent examples cover [Words transitions](docs/previews/word-transitions.gif) and [Pac-Man clock colours](docs/previews/pacman-clock-colours.png).
 
 The complete hour-change sequences have separate previews: [Mario](docs/previews/mario-hour.gif) and [Luigi](docs/previews/luigi-hour.gif).
 

@@ -26,6 +26,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - pacman/: self-playing maze clock; Maze.h generates/stores the maze; palette in lib/core/PacmanColors.h
 - word/: word clock; WordFont draws glyphs, WordLanguages defines language layouts
 - tetris/: falling-digit clock; TetrisRenderer draws, TetrisScreens controls timing/frame state
+- home/: Home Assistant face; Clockface.cpp fills a Frame (pages, alerts, hourly bars) from HaClient, HomeRenderer.cpp draws it (shared with the native preview)
 - f1/: shared F1/MotoGP face; F1Renderer draws, F1Screens controls pages/timing, LoadingTyre.h holds the loading tyre bitmap
 - football/: sports face; FootballRenderer draws, FootballScreens controls pages/timing (feed: lib/football-feed)
 - MotoGP has no separate clockface directory: reuses f1/ with UM_MOTOGP and lib/motogp-feed
@@ -52,6 +53,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - football-feed/: FootballTicker collects ESPN data; EspnParse parses it; FootballSnapshot.h defines display snapshots; GoalAnimation, TeamColors, TeamKit.h handle goal visuals and kits
 - motogp-feed/: MotoGpTicker.cpp collects results/live timing into F1Ticker snapshots; MotoGpScan.h parses streams; MotoGpRiders.h maps riders/bikes
 - tetris/: TetrisDigits, TetrisLayout, TetrisShapes (digit animation, layout and block shapes)
+- ha-feed/: HaConfig (slot settings in one NVS blob, token write-only), HaDefaults (defaults and entity rules), HaTemplate (builds the Jinja template, parses the result line), HaClient (WebSocket task: auth, render_template subscription, reconnect)
 - faces/: FaceKit.h, MiniFont.h, PlumberSprites.h (drawing helpers, small font and walking poses); PlumberWorld.h defines courses, mushroom drops, items and Piranha pipes
 
 ### web/ (settings UI served by device)
@@ -68,6 +70,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - preview/faces.cpp, preview/faces.py, preview/faces-scenarios.h: native pixel-art face runner, GIF generation and scenarios
 - preview/boot.cpp, preview/showcase.cpp, preview/showcase.py, preview/showcase-data.json: native boot/sports/Tetris previews and sample snapshots
 - preview/birthday.cpp, preview/birthday.py: native birthday-screen render to GIF
+- preview/home.cpp, preview/home.py: native Home Assistant face scenes (home, energy, alerts, status) with made-up values, contact sheet via ffmpeg
 - preview/refresh.py: exports README GIFs, stills/contact sheets and web face thumbnails from native renders
 - preview/motogp-snapshot.py: fetches real MotoGP API data for preview snapshots; preview/motogp-scan-test.cpp checks scanners against saved downloads
 - preview/shim/: Arduino/ESP/display/service stubs for native previews

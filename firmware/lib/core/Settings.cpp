@@ -65,6 +65,7 @@ void Settings::load() {
   Preferences p;
   if (!p.begin("ultimatrix", false)) return;
   autoUpdate = p.getBool("autoUpdate", true);
+  nightClock = p.getBool("nightClock", true);
   birthdays = p.getString("birthdays", "");
   if (birthdays.length() > 260) birthdays = "";
   Record record{};
@@ -74,6 +75,7 @@ void Settings::load() {
       terminated(record.timezone, sizeof(record.timezone)) && terminated(record.ntpServer, sizeof(record.ntpServer)) &&
       terminated(record.leagues, sizeof(record.leagues)) && terminated(record.teams, sizeof(record.teams)) &&
       terminated(record.drivers, sizeof(record.drivers));
+  if (valid && p.isKey("settingsV1")) p.remove("settingsV1");  // migrated already: its flash is needed for the face settings that keep their own record
   RecordV1 old{};
   bool migrate = !valid && p.isKey("settingsV1") && p.getBytesLength("settingsV1") == sizeof(old) &&
       p.getBytes("settingsV1", &old, sizeof(old)) == sizeof(old) &&
@@ -178,6 +180,7 @@ bool Settings::save() {
   Preferences p;
   if (!p.begin("ultimatrix", false)) return false;
   bool saved = p.putBytes("settingsV2", &record, sizeof(record)) == sizeof(record);  // one write commits everything
+  if (saved) p.putBool("nightClock", nightClock);  // own key too: the record stays as it is
   if (saved) p.putBool("autoUpdate", autoUpdate);  // own key, so records saved before this setting keep it on
   if (saved) p.putString("birthdays", birthdays);  // own key as well: the record stays as it is
   p.end();

@@ -26,6 +26,13 @@ are ready. A successful build does not establish hardware or live-feed reliabili
   and previews. It is built the way Football and F1 were reshaped: `lib/tetris` holds const data and layout functions,
   `TetrisScreens` decides what falls when and fills a fixed-size `Frame`, `TetrisRenderer` paints a `Frame`, and the
   face redraws only when the frame changes. No heap use after boot. See [the migration plan](TETRIS_MIGRATION_PLAN.md).
+- Home is the clock with Home Assistant on the side (`lib/ha-feed`): `HaClient` keeps one WebSocket open to
+  `/api/websocket`, authenticates with a long-lived token and subscribes to a single server-rendered template, so
+  it only receives a short line of values whenever they change. `HaTemplate` builds that Jinja template from the
+  configured entities and parses Home Assistant's responses (including `energy/get_prefs` for Auto mode and
+  `recorder/statistics_during_period` for the hourly history). `clockfaces/home/Clockface.cpp` fills a fixed-size
+  `Frame` from the latest snapshot, deriving house usage from grid/solar/battery when no direct sensor is set;
+  `HomeRenderer` paints it, same change-detection pattern as Football and F1.
 - Time, feed reading, JSON parsing, layout, digit assets, and cache mount policy
   live in shared core modules.
 - Download readers stop at 512 KiB. Football scoreboards retain at most 32 games

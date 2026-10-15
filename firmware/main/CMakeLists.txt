@@ -43,6 +43,17 @@ elseif(ULTIMATRIX_MODE MATCHES "^(word|mario|luigi|pacman)$")
     else()
         set(mode_definitions UM_SIMPLE_FACE UM_PACMAN UM_MODE_NAME="Pac-Man")
     endif()
+elseif(ULTIMATRIX_MODE STREQUAL "home")
+    # The Home Assistant face: its own client (WebSocket, one template subscription) and renderer
+    set(sport "ha-feed")
+    list(APPEND sources
+        "${root}/lib/${sport}/HaConfig.cpp"
+        "${root}/lib/${sport}/HaDefaults.cpp"
+        "${root}/lib/${sport}/HaTemplate.cpp"
+        "${root}/lib/${sport}/HaClient.cpp"
+        "${root}/lib/${sport}/HaQuery.cpp"
+        "${root}/clockfaces/home/HomeRenderer.cpp")
+    set(mode_definitions UM_SIMPLE_FACE UM_HOME UM_MODE_NAME="Home")
 elseif(ULTIMATRIX_MODE STREQUAL "bridge")
     # The stop-over image for old clocks: no feed and no face of its own
     set(sport "faces")
@@ -102,7 +113,7 @@ endforeach()
 # Installable-app manifest and its LED-matrix U icons.
 target_add_binary_data(${COMPONENT_LIB} "${root}/web/manifest.webmanifest" TEXT)
 # Clock face thumbnails for the face picker (64x64, one frame of each face).
-foreach(thumb football f1 motogp tetris word mario luigi pacman)
+foreach(thumb football f1 motogp tetris word mario luigi pacman home)
     target_add_binary_data(${COMPONENT_LIB} "${root}/web/faces/${thumb}.png" BINARY)
 endforeach()
 foreach(icon icon-192 icon-512 icon-maskable-192 apple-touch-icon favicon-32)
