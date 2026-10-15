@@ -13,7 +13,7 @@ import showcase  # noqa: E402  (animate() turns frames into the GIF)
 
 FIRMWARE = HERE.parent.parent
 REPO = FIRMWARE.parent
-FACES = ("pacman", "mario", "luigi", "word")
+FACES = ("home", "pacman", "mario", "luigi", "word")
 
 
 def render(face, work, extra):
@@ -26,11 +26,15 @@ def render(face, work, extra):
         command.append("-DFACE_NIGHT_AWARE")
     for include in (HERE / "shim", HERE, gfx, folder, FIRMWARE / "lib/faces", FIRMWARE / "lib/core"):
         command += ["-I", str(include)]
-    command += [str(HERE / "faces.cpp"), str(gfx / "Adafruit_GFX.cpp")]
+    if face == "home":  # its own runner: made-up Home Assistant values instead of the clock scenarios
+        command += ["-I", str(FIRMWARE / "lib/ha-feed")]
+        command += [str(HERE / "home.cpp"), str(gfx / "Adafruit_GFX.cpp"), str(FIRMWARE / "lib/ha-feed/HaDefaults.cpp")]
+    else:
+        command += [str(HERE / "faces.cpp"), str(gfx / "Adafruit_GFX.cpp")]
     command += [str(path) for path in sorted(folder.glob("*.cpp"))]
     command += extra + ["-o", str(work / f"faces-{face}")]
     subprocess.run(command, check=True)
-    subprocess.run([str(work / f"faces-{face}"), str(output)], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run([str(work / f"faces-{face}"), str(output)] + (["story"] if face == "home" else []), check=True, stdout=subprocess.DEVNULL)
     return output
 
 

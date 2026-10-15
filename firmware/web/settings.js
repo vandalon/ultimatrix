@@ -28,11 +28,11 @@ function brightness(event) {
   const dual = document.querySelector('#brightness-dual');
   dual.style.setProperty('--lo', auto ? (Number(low.value) - 1) / 254 : 0);
   dual.style.setProperty('--hi', (Number(high.value) - 1) / 254);
-  const nightOn = field('nightEnabled').checked;
-  document.querySelector('#night-fields').hidden = !nightOn && !ownNight;
-  document.querySelector('#night-schedule').hidden = ownNight;
-  document.querySelector('#night-sun').hidden = ownNight;
-  document.querySelector('#own-night').hidden = !ownNight;
+  const nightOn = field('nightEnabled').checked, clockOn = field('nightClock').checked;
+  document.querySelector('#night-fields').hidden = !clockOn || (!nightOn && !ownNight);
+  document.querySelector('#night-schedule').hidden = ownNight || !clockOn;
+  document.querySelector('#night-sun').hidden = ownNight || !clockOn;
+  document.querySelector('#own-night').hidden = !ownNight || !clockOn;
   document.querySelector('#night-times').hidden = field('nightSun').checked || ownNight;
   const sunHint = document.querySelector('#sun-hint'); sunHint.hidden = ownNight || !field('nightSun').checked || !sunHint.textContent;
   const night = field('nightBrightness');
@@ -199,6 +199,8 @@ async function load() {
     const data = await response.json();
     const racing = data.mode === 'F1' || data.mode === 'MotoGP', sporty = racing || data.mode === 'Football';
     const pacman = data.mode === 'Pac-Man';
+    const homeFace = data.mode === 'Home'; document.querySelector('#homeassistant').hidden = !homeFace; document.querySelector('#nav-ha').hidden = !homeFace;
+    if (homeFace) { initHomeAssistant(); document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('#nav-ha').classList.add('active'); }
     section('[data-sports]', sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || pacman); section('[data-sportfields]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', pacman);
     section('[data-football]', data.mode === 'Football'); section('[data-f1]', racing);
     if (sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || pacman) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
@@ -449,3 +451,237 @@ document.querySelector('#welcome-start-button')?.addEventListener('click', async
     if (response.ok) setTimeout(() => location.reload(), 8000); else button.disabled = false;
   } catch (_) { note.textContent = 'That did not work. Try again.'; button.disabled = false; }
 });
+
+// Home Assistant (Home face): its own card and save button, outside the autosaving form so the token is only sent when typed
+const HA_TILES = ['Temperature', 'Humidity', 'People home', 'Power', 'Custom number'], HA_TILE_AUTO = [true, true, true, false, false];
+const HA_ICONS = ['Door', 'Window', 'Garage door', 'Washer', 'Dryer', 'Lights', 'Lock or alarm', 'Charger', 'Off'], HA_ICON_AUTO = [true, true, true, false, false, true, true, false, false];
+const HA_TILE_KIND = ['temperature', 'humidity', 'person', 'power', 'sensor'], HA_ICON_KIND = ['door', 'window', 'garage', 'any', 'any', 'light', 'lock', 'any', 'any'];
+const HA_ENERGY_KIND = ['power', 'power', 'power', 'battery', 'power', 'energy', 'energy', 'energy', 'energy'];
+const HA_ENERGY = ['House power now', 'Solar power now', 'Battery power now', 'Battery charge (%)', 'Grid power now', 'House energy today', 'Solar energy today', 'Battery energy today', 'Grid energy today'];
+let haStarted = false, haTimer = 0;
+const haEl = (tag, attrs = {}, ...kids) => { const node = Object.assign(document.createElement(tag), attrs); node.append(...kids); return node; };
+function haInput(value, placeholder, extra = {}) { return haEl('input', Object.assign({type: 'text', value: value || '', placeholder, autocomplete: 'off', spellcheck: false}, extra)); }
+function haSelect(names, value) { const select = haEl('select'); names.forEach((name, index) => select.add(new Option(name, index))); select.value = value; return select; }
+function haGroup(title, hint) { return haEl('div', {className: 'ha-group'}, haEl('h3', {textContent: title}), haEl('p', {className: 'hint', textContent: hint})); }
+function haCheck(label, checked) { const box = haEl('input', {type: 'checkbox', checked}); return [box, haEl('label', {className: 'ha-auto'}, box, label)]; }
+// Autocomplete from Home Assistant: the clock asks it for matching entities of the right kind while you type
+let haList = null, haSuggestTimer = 0, haSuggestSeq = 0;
+// The entities of each kind are fetched once and kept in this browser (localStorage), then filtered here while typing
+const haCache = {};
+async function haEntities(kind) {
+  if (haCache[kind]) return haCache[kind];
+  try { const kept = JSON.parse(localStorage.getItem('ha-' + kind)); if (kept && Date.now() - kept.at < 36e5 && kept.list.length) return (haCache[kind] = kept.list); } catch (_) {}
+  const answer = await (await fetch('/api/ha/suggest?kind=' + encodeURIComponent(kind) + '&q=', {cache: 'no-store'})).json();
+  if (answer.entities.length) { haCache[kind] = answer.entities; try { localStorage.setItem('ha-' + kind, JSON.stringify({at: Date.now(), list: answer.entities})); } catch (_) {} }
+  return answer.entities;
+}
+function haBindSuggest(input, kind) {
+  input.setAttribute('list', 'ha-suggest');
+  const ask = () => {
+    clearTimeout(haSuggestTimer);
+    haSuggestTimer = setTimeout(async () => {
+      const seq = ++haSuggestSeq;
+      try {
+        const typed = input.value.trim().toLowerCase();
+        let list = (await haEntities(kind())).filter(item => !typed || item.id.includes(typed) || item.name.toLowerCase().includes(typed));
+        if (seq !== haSuggestSeq) return;
+        haList.replaceChildren(...list.slice(0, 40).map(item => { const option = document.createElement('option'); option.value = item.id; option.label = item.name + (item.unit ? ' (' + item.unit + ')' : ''); return option; }));
+      } catch (_) {}
+    }, 150);
+  };
+  input.addEventListener('focus', ask);
+  input.addEventListener('input', ask);
+}
+async function initHomeAssistant() {
+  if (haStarted) return;
+  haStarted = true;
+  // The card sits among the settings, but saves by itself: keep its fields out of the form's autosave and its Enter key from submitting
+  const card = document.querySelector('#homeassistant');
+  for (const type of ['input', 'change']) card.addEventListener(type, event => event.stopPropagation());
+  card.addEventListener('keydown', event => { if (event.key === 'Enter' && event.target.tagName === 'INPUT') event.preventDefault(); });
+  const state = await (await fetch('/api/ha', {cache: 'no-store'})).json();
+  const body = document.querySelector('#ha-body');
+  haList = haEl('datalist', {id: 'ha-suggest'}); body.append(haList);
+  const host = haInput(state.host, 'homeassistant.local'), port = haEl('input', {type: 'number', min: 1, max: 65535, value: state.port});
+  const token = haEl('input', {type: 'password', placeholder: state.tokenSet ? 'Saved. Type to replace it.' : 'Long-lived access token', autocomplete: 'off'});
+  const [tlsBox, tlsLabel] = haCheck('Use a secure connection (https)', state.tls);
+  body.append(haEl('div', {className: 'ha-two'}, haEl('div', {}, haEl('label', {textContent: 'Address'}), host), haEl('div', {}, haEl('label', {textContent: 'Port'}), port)),
+    haEl('p', {className: 'hint', textContent: 'Name or IP address of Home Assistant. The port is 8123 on its own, or 443 behind a reverse proxy with https.'}),
+    haEl('div', {className: 'field'}, haEl('label', {textContent: 'Access token'}), token, haEl('p', {className: 'hint', textContent: 'Create one in Home Assistant under your profile, Security, Long-lived access tokens. The clock keeps it and never shows it again.'})), tlsLabel);
+  // A pasted address (https://name:port) fills the other fields; switching https moves the port between its two usual values
+  const readAddress = () => {
+    let text = host.value.trim();
+    if (/^https:\/\//i.test(text)) { tlsBox.checked = true; if (!/:\d+(\/|$)/.test(text.replace(/^https:\/\//i, ''))) port.value = 443; }
+    else if (/^http:\/\//i.test(text)) { tlsBox.checked = false; if (!/:\d+(\/|$)/.test(text.replace(/^http:\/\//i, ''))) port.value = 8123; }
+    text = text.replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+    const colon = text.lastIndexOf(':');
+    if (colon > 0 && /^\d+$/.test(text.slice(colon + 1))) { port.value = text.slice(colon + 1); text = text.slice(0, colon); }
+    host.value = text;
+  };
+  host.addEventListener('change', readAddress);
+  tlsBox.addEventListener('change', () => { if (tlsBox.checked && ['8123', '80'].includes(port.value)) port.value = 443; else if (!tlsBox.checked && port.value === '443') port.value = 8123; });
+
+  const [energyBox, energyLabel] = haCheck('Energy page', state.pages & 2), [homeBox, homeLabel] = haCheck('Home page', state.pages & 1);
+  const secs = haEl('input', {type: 'number', min: 3, max: 120, value: state.pageSecs});
+  const pages = haGroup('Pages', 'The clock starts on the Energy page and rotates between the pages you tick. A page without data (the Energy page needs its entities below) is skipped.');
+  pages.append(haEl('div', {className: 'ha-two'}, energyLabel, homeLabel), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Seconds per page'}), secs));
+  body.append(pages);
+
+  const rows = {tiles: [], icons: []};
+  const tiles = haGroup('Tiles', 'Auto averages or counts everything of that kind. To use one sensor or a group instead, untick Auto and enter its entity ID.');
+  state.tiles.forEach(slot => {
+    const type = haSelect(HA_TILES, slot.type), [autoBox, autoLabel] = haCheck('Auto', slot.auto), entity = haInput(slot.entity, 'sensor.living_room_temperature'), unit = haInput(slot.unit, 'unit', {maxLength: 3});
+    const sync = () => { const can = HA_TILE_AUTO[type.value]; autoBox.disabled = !can; if (!can) autoBox.checked = false; entity.disabled = autoBox.checked; unit.hidden = type.value !== '4'; };
+    type.addEventListener('change', sync); autoBox.addEventListener('change', sync); sync();
+    haBindSuggest(entity, () => HA_TILE_KIND[type.value] || 'sensor');
+    tiles.append(haEl('div', {className: 'ha-row'}, type, autoLabel, entity, unit));
+    rows.tiles.push({type, autoBox, entity, unit});
+  });
+  body.append(tiles);
+
+  const icons = haGroup('State icons', 'Lit when something of that kind is open, running or on. Alert after: flash a message once it has been lit that many minutes (doors, windows, garage), 0 for never.');
+  state.icons.forEach(slot => {
+    const type = haSelect(HA_ICONS, slot.type), [autoBox, autoLabel] = haCheck('Auto', slot.auto), entity = haInput(slot.entity, 'binary_sensor.front_door'), alert = haEl('input', {type: 'number', min: 0, max: 240, value: slot.alertMins, title: 'Alert after (minutes)'});
+    const sync = () => { const can = HA_ICON_AUTO[type.value]; autoBox.disabled = !can; if (!can) autoBox.checked = false; entity.disabled = autoBox.checked || type.value === '8'; alert.hidden = !['0', '1', '2'].includes(type.value); };
+    type.addEventListener('change', sync); autoBox.addEventListener('change', sync); sync();
+    haBindSuggest(entity, () => HA_ICON_KIND[type.value] || 'any');
+    icons.append(haEl('div', {className: 'ha-row'}, type, autoLabel, entity, alert));
+    rows.icons.push({type, autoBox, entity, alert});
+  });
+  body.append(icons);
+
+  const energy = haGroup('Energy page', 'Entity IDs of your power and energy sensors (watts or kilowatts are both fine; energy meters that count for ever are fine too: the clock shows their change since midnight). Start typing to get suggestions from Home Assistant. Leave a row empty to hide it. The middle row shows solar, or the battery while the battery powers the house and there is no solar.');
+  const energyFields = [];
+  const energyInputs = state.energy.map((id, index) => { const input = haInput(id, 'sensor.' + HA_ENERGY[index].toLowerCase().replace(/[^a-z]+/g, '_')); const field = haEl('div', {className: 'field'}, haEl('label', {textContent: HA_ENERGY[index]}), input); energyFields.push(field); energy.append(field); return input; });
+  energyInputs.forEach((input, index) => haBindSuggest(input, () => HA_ENERGY_KIND[index]));
+  const detectNote = haEl('p', {className: 'hint', textContent: ''});
+  const detectButton = haEl('button', {type: 'button', className: 'secondary', textContent: 'Fill from Home Assistant'});
+  // The sensors of Home Assistant's own Energy dashboard: empty fields are filled, anything already typed stays
+  const detect = async quiet => {
+    detectButton.disabled = true; detectNote.textContent = 'Asking Home Assistant…';
+    try {
+      const ask = await fetch('/api/ha/detect', {method: 'POST'});
+      if (!ask.ok) { detectNote.textContent = (await ask.json()).message; detectButton.disabled = false; return; }
+      for (let tries = 0; tries < 14; tries++) {
+        await new Promise(resolve => setTimeout(resolve, 700));
+        const answer = await (await fetch('/api/ha/detect', {cache: 'no-store'})).json();
+        if (answer.state === 'pending') continue;
+        if (answer.state === 'ready') {
+          let filled = 0;
+          answer.entities.forEach((id, index) => { const had = energyInputs[index].value.trim(); if (id && (!had || (id !== had && id.split(',').length > had.split(',').length && had.split(',').every(one => id.split(',').includes(one))))) { energyInputs[index].value = id; filled++; } });  // empty fields, or a field that holds only some of the detected meters
+          if (filled) card.dispatchEvent(new Event('change'));
+          detectNote.textContent = filled ? 'Filled ' + filled + ' from the Energy dashboard. Check them, add the rest, then save. Clear a field and press the button to refill it.' : 'Nothing new to fill: the Energy dashboard sensors are already entered.';
+        } else detectNote.textContent = answer.note || 'Home Assistant did not answer.';
+        detectButton.disabled = false; return;
+      }
+      detectNote.textContent = 'Home Assistant took too long.';
+    } catch (_) { detectNote.textContent = 'The clock did not answer.'; }
+    detectButton.disabled = false;
+  };
+  detectButton.addEventListener('click', () => detect(false));
+  const fillField = haEl('div', {className: 'field'}, detectButton, detectNote);
+  energy.insertBefore(fillField, energy.children[2]);
+  // Auto: the clock takes the sensors from the Energy dashboard of Home Assistant itself, every time it connects
+  const [autoBox, autoLabel] = haCheck('Auto: use the Energy dashboard of Home Assistant', state.energy.includes('auto'));
+  const autoNote = haEl('p', {className: 'hint', textContent: ''});
+  const manual = state.energy.map(id => id === 'auto' ? '' : id);
+  const showUsed = async () => {
+    autoNote.textContent = 'Asking Home Assistant…';
+    try {
+      const ask = await fetch('/api/ha/detect', {method: 'POST'});
+      if (!ask.ok) { autoNote.textContent = (await ask.json()).message; return; }
+      for (let tries = 0; tries < 14 && autoBox.checked; tries++) {
+        await new Promise(resolve => setTimeout(resolve, 700));
+        const answer = await (await fetch('/api/ha/detect', {cache: 'no-store'})).json();
+        if (answer.state === 'pending') continue;
+        const used = answer.state === 'ready' ? answer.entities.map((id, index) => id ? HA_ENERGY[index] + ': ' + id.split(',').join(', ') : '').filter(Boolean) : [];
+        autoNote.textContent = used.length ? 'Using ' + used.join(' · ') : (answer.note || 'Home Assistant did not answer.');
+        return;
+      }
+      autoNote.textContent = 'Home Assistant took too long.';
+    } catch (_) { autoNote.textContent = 'The clock did not answer.'; }
+  };
+  const applyAuto = fromUser => {
+    const on = autoBox.checked;
+    energyFields.forEach(field => { field.hidden = on; });
+    fillField.hidden = on;
+    if (on) {
+      energyInputs.forEach((input, index) => { if (input.value !== 'auto') manual[index] = input.value; input.value = index === 3 ? '' : 'auto'; });
+      showUsed();
+    } else {
+      energyInputs.forEach((input, index) => { if (input.value === 'auto') input.value = manual[index]; });
+      autoNote.textContent = '';
+    }
+  };
+  autoBox.addEventListener('change', () => applyAuto(true));
+  energy.insertBefore(haEl('div', {className: 'field'}, autoLabel, autoNote), energy.children[2]);
+  applyAuto(false);
+  // Fill the autocomplete cache in the background, one kind at a time (the clock answers one request at a time)
+  if (state.state === 4) (async () => {
+    const kinds = new Set(['any', 'sensor', ...Object.values(HA_TILE_KIND), ...Object.values(HA_ICON_KIND), ...HA_ENERGY_KIND]);
+    for (const kind of kinds) { try { await haEntities(kind); } catch (_) {} }
+  })();
+  if (state.state === 4 && !autoBox.checked && energyInputs.every(input => !input.value.trim())) detect(true);  // a first visit: fill it in by itself
+  const [gridBox, gridLabel] = haCheck('Grid power is positive when importing', state.gridImportPositive), [batteryBox, batteryLabel] = haCheck('Battery power is positive when discharging', state.batteryDischargePositive);
+  energy.append(haEl('div', {className: 'ha-two'}, gridLabel, batteryLabel));
+  body.append(energy);
+
+  const alerts = haGroup('Alerts', 'Alarm alerts need no setup: any alarm panel that triggers shows ALARM. A finished washer, dryer or charger is noticed from its state icon.');
+  const doorbell = haInput(state.doorbell, 'binary_sensor.doorbell');
+  haBindSuggest(doorbell, () => 'binary');
+  alerts.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Doorbell (turns on when pressed)'}), doorbell));
+  body.append(alerts);
+
+  const popups = haGroup('Popups', 'What each popup does. Also at night: show it through the night clock. Full brightness: light the panel fully while it is up. Flash: flash the whole panel in the popup\'s colour.');
+  const addPopup = (label, flags) => {
+    const [night, nightLabel] = haCheck('Also at night', flags & 1), [bright, brightLabel] = haCheck('Full brightness', flags & 2), [flash, flashLabel] = haCheck('Flash', flags & 4);
+    const name = haEl('span', {textContent: label, className: 'ha-popup-name'});
+    const row = haEl('div', {className: 'ha-row ha-popup'}, name, nightLabel, brightLabel, flashLabel);
+    popups.append(row);
+    return {row, name, value: () => (night.checked ? 1 : 0) | (bright.checked ? 2 : 0) | (flash.checked ? 4 : 0)};
+  };
+  const alarmPopup = addPopup('Alarm triggered', state.alarmFlags), bellPopup = addPopup('Doorbell', state.doorbellFlags);
+  rows.icons.forEach((row, i) => {
+    row.popup = addPopup('', state.icons[i].flags);
+    const refresh = () => {
+      const type = Number(row.type.value), open = type <= 2, done = type === 3 || type === 4 || type === 7;
+      row.popup.row.hidden = !open && !done;
+      row.popup.name.textContent = HA_ICONS[type] + (open ? ' left open' : ' finished');
+    };
+    row.type.addEventListener('change', refresh); refresh();
+  });
+  body.append(popups);
+  body.insertBefore(energy, tiles);  // the Energy page is the main one: its entities come first
+
+  const status = document.querySelector('#ha-status'), result = document.querySelector('#ha-result'), button = document.querySelector('#ha-save');
+  const showStatus = async () => { try { const s = await (await fetch('/api/ha', {cache: 'no-store'})).json(); status.textContent = 'Connection: ' + s.status + '.'; } catch (_) {} haTimer = setTimeout(showStatus, 4000); };
+  showStatus();
+  let lastSent = '', haSaving = false, haSaveTimer;
+  const build = () => {
+    const body = new URLSearchParams({host: host.value, port: port.value || '8123', tls: tlsBox.checked ? '1' : '0', pages: String((homeBox.checked ? 1 : 0) | (energyBox.checked ? 2 : 0)), pageSecs: secs.value,
+      gridImportPositive: gridBox.checked ? '1' : '0', batteryDischargePositive: batteryBox.checked ? '1' : '0', doorbell: doorbell.value,
+      alarmFlags: String(alarmPopup.value()), doorbellFlags: String(bellPopup.value())});
+    if (token.value.trim()) body.set('token', token.value.trim());
+    rows.tiles.forEach((row, i) => { body.set('tile' + i + 'Type', row.type.value); body.set('tile' + i + 'Auto', row.autoBox.checked ? '1' : '0'); body.set('tile' + i + 'Entity', row.entity.value); body.set('tile' + i + 'Unit', row.unit.value); });
+    rows.icons.forEach((row, i) => { body.set('icon' + i + 'Type', row.type.value); body.set('icon' + i + 'Auto', row.autoBox.checked ? '1' : '0'); body.set('icon' + i + 'Entity', row.entity.value); body.set('icon' + i + 'Alert', row.alert.value || '0'); body.set('icon' + i + 'Flags', String(row.popup.value())); });
+    energyInputs.forEach((input, i) => body.set('energy' + i, input.value));
+    return body;
+  };
+  const saveHa = async () => {
+    if (haSaving) { haSaveTimer = setTimeout(saveHa, 500); return; }
+    readAddress();
+    const body = build(), sent = body.toString();
+    if (sent === lastSent) return;
+    haSaving = true; result.textContent = 'Saving…';
+    try {
+      const response = await fetch('/api/ha', {method: 'POST', body}); const answer = await response.json();
+      result.textContent = answer.message || (response.ok ? 'Saved.' : 'Not saved.');
+      if (response.ok) { lastSent = sent; if (token.value) { token.value = ''; token.placeholder = 'Saved. Type to replace it.'; lastSent = build().toString(); } clearTimeout(haTimer); setTimeout(showStatus, 1500); }
+    } catch (_) { result.textContent = 'The clock did not answer.'; }
+    haSaving = false;
+  };
+  // Saves by itself a moment after the last change (a fix to an invalid entry is saved again the same way)
+  lastSent = (readAddress(), build().toString());
+  for (const type of ['input', 'change']) card.addEventListener(type, () => { clearTimeout(haSaveTimer); haSaveTimer = setTimeout(saveHa, 1500); });
+  button.hidden = true;
+}

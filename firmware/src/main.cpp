@@ -31,11 +31,17 @@
 #include <F1Drivers.h>
 #elif defined(UM_WORD)
 #include <WordLanguages.h>
+#elif defined(UM_HOME)
+#include <HaClient.h>
+#include <HaConfig.h>
+#include <HaQuery.h>
 #endif
 #include <BackgroundWait.h>
 #include <BootScreen.h>
 #include <Console.h>
 #include <TelnetConsole.h>
+#include <memory>
+#include <new>
 #include <strings.h>
 
 // Temporary service flags used by the existing sport data modules during migration.
@@ -349,6 +355,7 @@ UM_FACE(word);
 UM_FACE(mario);
 UM_FACE(luigi);
 UM_FACE(pacman);
+UM_FACE(home);
 static void sendIcon(const uint8_t *start, const uint8_t *end) {
   server.sendHeader("Cache-Control", "public, max-age=86400");
   server.send_P(200, "image/png", (const char *)start, end - start);
@@ -414,7 +421,7 @@ static void settingsState() {
   json += ",\"minimumBrightness\":" + String(s.minimumBrightness) + ",\"ldrDark\":" + String(s.ldrDark) + ",\"ldrLight\":" + String(s.ldrLight);
   json += ",\"nightEnabled\":" + String(s.nightEnabled ? "true" : "false") + ",\"nightStart\":" + jsonText(minuteText(s.nightStart));
   json += ",\"nightEnd\":" + jsonText(minuteText(s.nightEnd)) + ",\"nightBrightness\":" + String(s.nightBrightness);
-  json += ",\"nightSun\":" + String(s.nightSun ? "true" : "false");
+  json += ",\"nightSun\":" + String(s.nightSun ? "true" : "false") + ",\"nightClock\":" + String(s.nightClock ? "true" : "false");
   json += ",\"timezone\":" + jsonText(s.timezone) + ",\"autoTimezone\":" + String(s.manualTimezone ? "false" : "true") + ",\"matchSecs\":" + String(s.matchSecs);
   json += ",\"resultMins\":" + String(s.resultMins) + ",\"timeStyle\":" + String(s.timeStyle);
   json += ",\"swapBlueGreen\":" + String(s.swapBlueGreen ? "true" : "false") + ",\"telnet\":" + String(s.telnet ? "true" : "false") + ",\"autoUpdate\":" + String(s.autoUpdate ? "true" : "false");
@@ -631,6 +638,7 @@ static void saveSettings() {
     s.autoBrightness = server.hasArg("autoBrightness"); s.ldrPin = pin; s.ldrDark = dark; s.ldrLight = light;
     s.minimumBrightness = minimum; s.nightBrightness = night; s.nightEnabled = server.hasArg("nightEnabled");
     s.nightSun = server.hasArg("nightSun");
+    s.nightClock = server.hasArg("nightClock");
     if (s.nightSun && !s.hasLocation) { geoWanted = true; geoFails = 0; }  // sunrise and sunset need the network's location: looked up in the background
     if (s.nightEnabled && !s.nightSun && s.nightStart == s.nightEnd) { settingsResponse(400, "Choose different start and end times for night mode."); return; }
   }
@@ -910,6 +918,187 @@ static void retryPanelQuality(uint32_t now) {
   restartAt = now + 1500;
 }
 
+#ifdef UM_HOME
+// ---- Home Assistant settings (Home face): GET the saved values, POST a form. The token is write-only. ----
+static String haSlotJson(const ha::Slot &slot) {
+  return "{\"type\":" + String(slot.type) + ",\"auto\":" + String(slot.autoMode ? "true" : "false") + ",\"entity\":" + jsonText(slot.entity) +
+         ",\"unit\":" + jsonText(slot.unit) + ",\"decimals\":" + String(slot.decimals) + ",\"alertMins\":" + String(slot.alertMins) + ",\"flags\":" + String(slot.flags) + "}";
+}
+
+static void haState() {
+  const ha::Config &c = ha::config();
+  char status[64];
+  HaClient::instance().status(status, sizeof(status));
+  String json;
+  json.reserve(2600);
+  json = "{\"host\":" + jsonText(c.host) + ",\"port\":" + String(c.port) + ",\"tls\":" + String(c.tls ? "true" : "false");
+  json += ",\"tokenSet\":" + String(c.token[0] ? "true" : "false") + ",\"pages\":" + String(c.pages) + ",\"pageSecs\":" + String(c.pageSecs);
+  json += ",\"gridImportPositive\":" + String(c.gridImportPositive ? "true" : "false") + ",\"batteryDischargePositive\":" + String(c.batteryDischargePositive ? "true" : "false");
+  json += ",\"state\":" + String((int)HaClient::instance().state()) + ",\"status\":" + jsonText(status) + ",\"tiles\":[";
+  for (int i = 0; i < ha::kTiles; i++) json += (i ? "," : "") + haSlotJson(c.tiles[i]);
+  json += "],\"icons\":[";
+  for (int i = 0; i < ha::kIcons; i++) json += (i ? "," : "") + haSlotJson(c.icons[i]);
+  json += "],\"energy\":[";
+  for (int i = 0; i < ha::E_COUNT; i++) json += (i ? "," : "") + jsonText(c.energy[i]);
+  json += "],\"doorbell\":" + jsonText(c.doorbell) + ",\"doorbellFlags\":" + String(c.doorbellFlags) + ",\"alarmFlags\":" + String(c.alarmFlags) + "}";
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", json);
+}
+
+// "http://homeassistant.local:8123/" or "192.168.1.5" into host, port and tls
+static bool haParseAddress(String text, ha::Config &c) {
+  text.trim();
+  if (text.startsWith("https://")) { c.tls = 1; c.port = 443; text.remove(0, 8); }  // a pasted address without a port means the scheme's own port
+  else if (text.startsWith("http://")) { c.tls = 0; c.port = 80; text.remove(0, 7); }
+  int slash = text.indexOf('/');
+  if (slash >= 0) text.remove(slash);
+  int colon = text.lastIndexOf(':');
+  if (colon >= 0) {
+    long port = text.substring(colon + 1).toInt();
+    if (port < 1 || port > 65535) return false;
+    c.port = port;
+    text.remove(colon);
+  }
+  if (text.isEmpty() || text.length() > ha::kHostMax) return false;
+  for (size_t i = 0; i < text.length(); ++i) if (!(isalnum((unsigned char)text[i]) || text[i] == '.' || text[i] == '-')) return false;
+  strlcpy(c.host, text.c_str(), sizeof(c.host));
+  return true;
+}
+
+static bool haEnergyList(const String &name, char *out) {
+  String value = server.arg(name);
+  value.trim();
+  value.toLowerCase();
+  value.replace(" ", "");
+  if (value.length() >= ha::kEntity || !ha::validEnergyList(value.c_str())) return false;
+  strlcpy(out, value.c_str(), ha::kEntity);
+  return true;
+}
+
+static bool haEntity(const String &name, char *out) {
+  String value = server.arg(name);
+  value.trim();
+  value.toLowerCase();
+  if (value.length() >= ha::kEntity || !ha::validEntity(value.c_str())) return false;
+  strlcpy(out, value.c_str(), ha::kEntity);
+  return true;
+}
+
+// GET /api/ha/suggest?kind=power&q=sol : up to 25 matching entities from Home Assistant, for the settings page's autocomplete
+static void haSuggest() {
+  constexpr size_t kText = 9000;
+  std::unique_ptr<char[]> buffer(new (std::nothrow) char[kText]);  // the clock's stack is small: sizeable things go on the heap
+  char error[64] = "";
+  server.sendHeader("Cache-Control", "no-store");
+  if (!buffer) { server.send(200, "application/json", "{\"error\":\"Out of memory\",\"entities\":[]}"); return; }
+  char *text = buffer.get();
+  if (!ha::suggest(server.arg("kind").c_str(), server.arg("q").c_str(), text, kText, error, sizeof(error))) {
+    server.send(200, "application/json", "{\"error\":" + jsonText(error) + ",\"entities\":[]}");
+    return;
+  }
+  String json = "{\"entities\":[";
+  bool first = true;
+  for (char *entry = strtok(text, ";"); entry; entry = strtok(nullptr, ";")) {  // id|name|unit
+    char *name = strchr(entry, '|');
+    if (!name) continue;
+    *name++ = 0;
+    char *unit = strchr(name, '|');
+    if (unit) *unit++ = 0;
+    json += String(first ? "" : ",") + "{\"id\":" + jsonText(entry) + ",\"name\":" + jsonText(name) + ",\"unit\":" + jsonText(unit ? unit : "") + "}";
+    first = false;
+  }
+  json += "]}";
+  server.send(200, "application/json", json);
+}
+
+// POST asks Home Assistant for the sensors of its Energy dashboard; GET returns the answer once it is there
+static void haDetectAsk() {
+  if (HaClient::instance().state() != HaClient::LIVE) { settingsResponse(409, "The clock is not connected to Home Assistant yet."); return; }
+  HaClient::instance().requestPrefs();
+  settingsResponse(202, "Asking Home Assistant.");
+}
+
+static void haDetectAnswer() {
+  std::unique_ptr<HaClient::EnergyPrefs> prefs(new (std::nothrow) HaClient::EnergyPrefs);
+  if (!prefs) { settingsResponse(500, "Out of memory."); return; }
+  HaClient::instance().prefs(*prefs);
+  const char *state = prefs->state == HaClient::EnergyPrefs::READY ? "ready" : prefs->state == HaClient::EnergyPrefs::PENDING ? "pending"
+                      : prefs->state == HaClient::EnergyPrefs::FAILED_ASKING ? "failed" : "none";
+  String json = String("{\"state\":\"") + state + "\",\"note\":" + jsonText(prefs->note) + ",\"entities\":[";
+  for (int i = 0; i < ha::E_COUNT; i++) json += (i ? "," : "") + jsonText(prefs->id[i]);
+  json += "]}";
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", json);
+}
+
+static void haSave() {
+  auto c = std::unique_ptr<ha::Config>(new (std::nothrow) ha::Config);
+  if (!c) { settingsResponse(500, "Out of memory."); return; }
+  *c = ha::config();
+  if (server.hasArg("host") && !haParseAddress(server.arg("host"), *c)) { settingsResponse(400, "Enter the address of Home Assistant, for example homeassistant.local:8123."); return; }
+  long value;
+  if (server.hasArg("port") && !server.arg("port").isEmpty()) {
+    if (!number("port", 1, 65535, value)) { settingsResponse(400, "Choose a port between 1 and 65535."); return; }
+    c->port = value;
+  }
+  if (server.hasArg("tls")) c->tls = server.arg("tls") == "1";
+  String token = server.arg("token");
+  token.trim();
+  if (!token.isEmpty()) {
+    if (token.length() > ha::kTokenMax) { settingsResponse(400, "That token is too long."); return; }
+    for (size_t i = 0; i < token.length(); ++i)
+      if (!(isalnum((unsigned char)token[i]) || token[i] == '.' || token[i] == '_' || token[i] == '-')) { settingsResponse(400, "The token contains characters a Home Assistant token never has. Copy it again."); return; }
+    strlcpy(c->token, token.c_str(), sizeof(c->token));
+  }
+  if (server.hasArg("clearToken")) c->token[0] = 0;
+  if (server.hasArg("pages")) {
+    if (!number("pages", 1, 3, value)) { settingsResponse(400, "Choose at least one page."); return; }
+    c->pages = value;
+  }
+  if (server.hasArg("pageSecs")) {
+    if (!number("pageSecs", 3, 120, value)) { settingsResponse(400, "Page time must be between 3 and 120 seconds."); return; }
+    c->pageSecs = value;
+  }
+  if (server.hasArg("gridImportPositive")) c->gridImportPositive = server.arg("gridImportPositive") == "1";
+  if (server.hasArg("batteryDischargePositive")) c->batteryDischargePositive = server.arg("batteryDischargePositive") == "1";
+  for (int i = 0; i < ha::kTiles; i++) {
+    String key = "tile" + String(i);
+    if (!server.hasArg(key + "Type")) continue;
+    ha::Slot &slot = c->tiles[i];
+    if (!number((key + "Type").c_str(), 0, ha::TILE_TYPES - 1, value)) { settingsResponse(400, "Choose a tile type from the list."); return; }
+    slot.type = value;
+    slot.autoMode = server.hasArg(key + "Auto") && server.arg(key + "Auto") == "1" && ha::autoAvailable(true, slot.type);
+    if (!haEntity(key + "Entity", slot.entity)) { settingsResponse(400, "Entity IDs look like sensor.living_room_temperature."); return; }
+    String unit = server.arg(key + "Unit");
+    unit.trim();
+    strlcpy(slot.unit, unit.c_str(), sizeof(slot.unit));
+    slot.decimals = server.arg(key + "Decimals") == "1";
+  }
+  for (int i = 0; i < ha::kIcons; i++) {
+    String key = "icon" + String(i);
+    if (!server.hasArg(key + "Type")) continue;
+    ha::Slot &slot = c->icons[i];
+    if (!number((key + "Type").c_str(), 0, ha::ICON_TYPES - 1, value)) { settingsResponse(400, "Choose an icon type from the list."); return; }
+    slot.type = value;
+    slot.autoMode = server.arg(key + "Auto") == "1" && ha::autoAvailable(false, slot.type);
+    if (!haEntity(key + "Entity", slot.entity)) { settingsResponse(400, "Entity IDs look like binary_sensor.front_door."); return; }
+    if (!number((key + "Alert").c_str(), 0, 240, value)) value = 0;
+    slot.alertMins = value;
+    slot.flags = number((key + "Flags").c_str(), 0, 7, value) ? value : 0;
+  }
+  for (int i = 0; i < ha::E_COUNT; i++) {
+    String key = "energy" + String(i);
+    if (server.hasArg(key) && !haEnergyList(key, c->energy[i])) { settingsResponse(400, "Entity IDs look like sensor.house_power; several are separated by commas, or write auto."); return; }
+  }
+  if (number("doorbellFlags", 0, 7, value)) c->doorbellFlags = value;
+  if (number("alarmFlags", 0, 7, value)) c->alarmFlags = value;
+  if (server.hasArg("doorbell") && !haEntity("doorbell", c->doorbell)) { settingsResponse(400, "Entity IDs look like binary_sensor.doorbell."); return; }
+  ha::config() = *c;
+  if (!ha::save()) { settingsResponse(500, "The settings could not be saved."); return; }
+  settingsResponse(200, "Saved.");
+}
+#endif
+
 // POST route with a body limit. The WebServer buffers a whole body before dispatch, so an oversized request is
 // answered through its raw-body path instead: the bytes are read in small chunks and dropped.
 class BoundedPost : public RequestHandler {
@@ -1025,6 +1214,9 @@ void setup() {
   if (FirmwareUpdate::takeScheduled(scheduledMode, sizeof(scheduledMode))) { firmwareUpdating = true; scheduledSince = millis(); bootWasScheduled = true; updateOnly = true; }  // keeps the feeds off until the update has run
   auto &s = *Settings::getInstance();
   s.load();
+#ifdef UM_HOME
+  ha::load();
+#endif
   firmwareUpdate.begin();  // the cached "update available" result, so the boot screen can mention it
   {  // The fast display is only for the Wi-Fi setup QR: when setup was asked for. A start that needs the setup late restarts into it (setupRefresh flag)
     Preferences refreshPrefs;
@@ -1200,6 +1392,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/faces/mario.png", HTTP_GET, []() { sendIcon(marioStart, marioEnd); });
   server.on("/faces/luigi.png", HTTP_GET, []() { sendIcon(luigiStart, luigiEnd); });
   server.on("/faces/pacman.png", HTTP_GET, []() { sendIcon(pacmanStart, pacmanEnd); });
+  server.on("/faces/home.png", HTTP_GET, []() { sendIcon(homeStart, homeEnd); });
   server.on("/api/settings", HTTP_GET, settingsState);
   postRoute("/api/settings", saveSettings);
   server.on("/api/catalog", HTTP_GET, selectionCatalog);
@@ -1217,6 +1410,13 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/firmware/server", saveUpdateServer);
   server.on("/api/display", HTTP_GET, displayStatus);
   postRoute("/api/display", displaySave);
+#ifdef UM_HOME
+  server.on("/api/ha", HTTP_GET, haState);
+  postRoute("/api/ha", haSave);
+  server.on("/api/ha/suggest", HTTP_GET, haSuggest);
+  server.on("/api/ha/detect", HTTP_GET, haDetectAnswer);
+  postRoute("/api/ha/detect", haDetectAsk);
+#endif
   backgroundWork() = background;
 }
 
@@ -1267,6 +1467,7 @@ void loop() {
   if ((int32_t)(now - nextFrame) >= 0) {
     uint8_t brightness = displayControl.update(*Settings::getInstance(), now, ultime::timeStatus() == timeSet,
         clockTime.getHour24() * 60 + clockTime.getMinute(), !bootDone || portalActive, face && face->handlesNight());
+    if (face && face->alertFullBrightness()) brightness = 255;  // a popup that asked for full brightness
     uint8_t panel = panelBrightness(brightness);
     if (panel != appliedBrightness) { display->setBrightness8(panel); appliedBrightness = panel; }
     bootTick();  // before the check below: it stamps connectedAt on the connect
@@ -1276,10 +1477,12 @@ void loop() {
     }
     if (bootDone) {  // keeps drawing during an update: the feeds are parked, the face shows its last snapshot
       // A face that paints its own night (Mario, Luigi) follows the sun for its sky and only gives way to the red clock in a dark room
-      if (face->handlesNight() ? displayControl.roomDark() : displayControl.nightActive()) {
+      face->poll();  // the face follows its data while the night clock is up too
+      const bool popup = face->alertOverridesNight();  // an alert that must show through the night clock and the birthday screen
+      if ((face->handlesNight() ? displayControl.roomDark() : displayControl.nightActive()) && !popup) {
         nightClock.draw(*display, clockTime.getHour(), clockTime.getMinute(), clockTime.is24hFormat());
         nightShown = true;
-      } else if (const Birthdays::Entry *birthday = birthdayToday()) {
+      } else if (const Birthdays::Entry *birthday = popup ? nullptr : birthdayToday()) {
         char time[16];
         snprintf(time, sizeof(time), clockTime.is24hFormat() ? "%02d:%02d" : "%d:%02d", clockTime.getHour(), clockTime.getMinute());
         int age = birthday->year ? clockTime.getYear() - birthday->year : 0;

@@ -14,6 +14,7 @@ import showcase
 REPO = showcase.REPO
 # Capture a settled frame that identifies each face, rather than a boot or transition frame.
 CLOCKS = (
+    ('home', 'Home', 1500),
     ('football', 'Football', 41000),
     ('f1', 'Formula 1', 24000),
     ('motogp', 'MotoGP', 24000),
