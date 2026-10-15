@@ -630,15 +630,15 @@ static void saveSettings() {
     s.ntpServer = host;
   }
   if (server.hasArg("ldrPin")) {
-    long pin, dark, light, minimum, night;
+    long pin, dark, light, minimum;
     if (!number("ldrPin", 32, 39, pin) || (pin != 32 && pin != 33 && pin != 34 && pin != 35 && pin != 36 && pin != 39) ||
         !number("ldrDark", 0, 4094, dark) || !number("ldrLight", 1, 4095, light) || light <= dark ||
-        !number("minimumBrightness", 1, 255, minimum) || !number("nightBrightness", 1, 255, night) ||
+        !number("minimumBrightness", 1, 255, minimum) ||
         !clockMinute("nightStart", s.nightStart) || !clockMinute("nightEnd", s.nightEnd)) {
       settingsResponse(400, "Check the light sensor values, brightness limits, and night times."); return;
     }
     s.autoBrightness = server.hasArg("autoBrightness"); s.ldrPin = pin; s.ldrDark = dark; s.ldrLight = light;
-    s.minimumBrightness = minimum; s.nightBrightness = night; s.nightEnabled = server.hasArg("nightEnabled");
+    s.minimumBrightness = minimum; s.nightEnabled = server.hasArg("nightEnabled");
     s.nightSun = server.hasArg("nightSun");
     s.nightClock = server.hasArg("nightClock");
     if (s.nightSun && !s.hasLocation) { geoWanted = true; geoFails = 0; }  // sunrise and sunset need the network's location: looked up in the background
@@ -1514,7 +1514,12 @@ void loop() {
         clockTime.getHour24() * 60 + clockTime.getMinute(), !bootDone || portalActive, face && face->handlesNight());
     if (face && face->alertFullBrightness()) brightness = 255;  // a popup that asked for full brightness
     uint8_t panel = panelBrightness(brightness);
-    if (panel != appliedBrightness) { display->setBrightness8(panel); appliedBrightness = panel; }
+    if (panel != appliedBrightness) {
+      const uint8_t dimFloor = display->brightnessFloor();
+      display->setBrightness8(panel);
+      if (panel < dimFloor || appliedBrightness < dimFloor) { nightClock.reset(); if (face) face->invalidate(); }  // dimming below the floor changes the pixel values; the night clock draws once a minute
+      appliedBrightness = panel;
+    }
     bootTick();  // before the check below: it stamps connectedAt on the connect
     if (face && !portalActive && !bootDone && syncedAt) {
       uint32_t holdAt = millis();  // not the loop's `now`: bootTick() just stamped connectedAt/syncedAt/noticeAt with a later time, and an unsigned difference to it would wrap and end the notice at once

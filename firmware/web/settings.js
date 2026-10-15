@@ -35,9 +35,6 @@ function brightness(event) {
   document.querySelector('#own-night').hidden = !ownNight || !clockOn;
   document.querySelector('#night-times').hidden = field('nightSun').checked || ownNight;
   const sunHint = document.querySelector('#sun-hint'); sunHint.hidden = ownNight || !field('nightSun').checked || !sunHint.textContent;
-  const night = field('nightBrightness');
-  document.querySelector('#night-dual').style.setProperty('--hi', (Number(night.value) - 1) / 254);
-  document.querySelector('#night-value').textContent = pct(night);
   document.querySelector('#range-low').textContent = auto ? 'Dimmest' : 'Minimum';
 }
 let lightNow = -1, nightWhy = '';

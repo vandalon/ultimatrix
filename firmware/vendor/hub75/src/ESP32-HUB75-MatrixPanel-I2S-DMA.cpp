@@ -140,6 +140,11 @@ void IRAM_ATTR ringEof(void *, uint32_t descIndex)
 } // namespace
 #endif // HUB75_RING_STREAM
 
+  /* Below the window floor (see setBrightnessOE) the dimming is done here, in linear light, so the plane weights stay binary.
+   * Null while the output enable window alone sets the brightness. */
+  static uint8_t g_gainTable[256];
+  static const uint8_t *g_gainLut = nullptr;
+
   /* LED Brightness Compensation */                                                               
 #ifndef NO_CIE1931                                                                                
   /* CIE 1931 correction with bit-depth-optimized LUTs*/                                            
@@ -148,7 +153,7 @@ void IRAM_ATTR ringEof(void *, uint32_t descIndex)
 
     // Optimized path: LUT maps 8-bit input (0-255) directly to target bit depth output
     #define DO_BRIGHTNESS_COMPENSATION()                                                              \
-      const uint8_t *lut_ = cie_lut_for_depth(m_cfg.getPixelColorDepthBits());                        \
+      const uint8_t *lut_ = g_gainLut ? g_gainLut : cie_lut_for_depth(m_cfg.getPixelColorDepthBits()); \
       auto red_val   = lut_[red];                                                                     \
       auto green_val = lut_[green];                                                                   \
       auto blue_val  = lut_[blue];                                                                    
@@ -860,11 +865,45 @@ void MatrixPanel_I2S_DMA::clearFrameBuffer(bool _buff_id)
   } while (row_idx);
 }
 
+/* The output enable window of a plane is a whole number of clocks wide. At low brightness the narrowest planes get 1 or 2 clocks,
+ * their weights drift from binary and colours tint and band. So the window stays at oeFloor() (the narrowest plane keeps kMinWindow
+ * clocks) and the rest of the dimming is applied to the pixel values (g_gainLut), down to 1/8; only below that does it narrow. */
+uint8_t MatrixPanel_I2S_DMA::oeFloor() const
+{
+  const int depth = m_cfg.getPixelColorDepthBits();
+  const int bitshift = (depth - lsbMsbTransitionBit - 1) >> 1;
+  const int narrowest = std::max(1, (int)((PIXELS_PER_ROW - m_cfg.latch_blanking) >> std::max(depth - 1 - bitshift - 2, 0)));
+  constexpr int kMinWindow = 8;
+  return (uint8_t)std::min(255, (kMinWindow * 256 + narrowest - 1) / narrowest);
+}
+
+uint8_t MatrixPanel_I2S_DMA::applyGain(uint8_t brt)
+{
+  const uint8_t floor_ = oeFloor();
+  if (brt == 0 || brt >= floor_) { g_gainLut = nullptr; return brt; }
+  unsigned gain = brt * 256u / floor_;  // 8.8
+  // The gain stops at 1/8: below that the dimmest content (the night clock) would round to nothing, so the window narrows again
+  constexpr unsigned kMinGain = 32;
+  uint8_t window = floor_;
+  if (gain < kMinGain) { gain = kMinGain; window = (uint8_t)(brt * 256u / kMinGain); }
+  const int depth = m_cfg.getPixelColorDepthBits();
+  const int shift = 12 - depth + 8;
+  const unsigned max_val = (1u << depth) - 1;
+  for (int v = 0; v < 256; v++) {
+    unsigned out = (lumConvTab_12bit[v] * gain + (1u << (shift - 1))) >> shift;
+    g_gainTable[v] = out > max_val ? max_val : out;
+  }
+  g_gainLut = g_gainTable;
+  return window;
+}
+
 void MatrixPanel_I2S_DMA::setBrightnessOE(uint8_t brt, const int _buff_id)
 {
 
   if (!initialized)
     return;
+
+  brt = applyGain(brt);
 
 #ifdef HUB75_RING_STREAM
   if (ring_on)
@@ -903,7 +942,7 @@ void MatrixPanel_I2S_DMA::setBrightnessOE(uint8_t brt, const int _buff_id)
       // Then scale that maximum by brightness (0-255).
       // This ensures all bitplanes scale proportionally and reach their maximums simultaneously.
       int max_pixels_for_bitplane = (_width - _blank) >> rightshift;
-      int brightness_in_x_pixels = (max_pixels_for_bitplane * brt) >> 8;
+      int brightness_in_x_pixels = (max_pixels_for_bitplane * brt + 128) >> 8;
 
       // Ensure at least 1 pixel is enabled for any brightness > 0
       if (brt > 0 && brightness_in_x_pixels == 0) {
@@ -1016,7 +1055,7 @@ void MatrixPanel_I2S_DMA::ringBuildTemplate(uint8_t brt)
     char rightshift = std::max(bitplane - bitshift - 2, 0);
 
     int max_pixels_for_bitplane = (_width - _blank) >> rightshift;
-    int brightness_in_x_pixels = (max_pixels_for_bitplane * brt) >> 8;
+    int brightness_in_x_pixels = (max_pixels_for_bitplane * brt + 128) >> 8;
     if (brt > 0 && brightness_in_x_pixels == 0)
       brightness_in_x_pixels = 1;
     if (brightness_in_x_pixels > max_pixels_for_bitplane - 1)

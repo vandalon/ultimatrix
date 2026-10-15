@@ -699,6 +699,9 @@ public:
    * with an 8-bit value (0-255), very popular in FastLED-based sketches :)
    * @param uint8_t b - 8-bit brightness value
    */
+  /** brightness values below this are dimmed in the pixel values too, so a change below it needs a repaint */
+  uint8_t brightnessFloor() const { return oeFloor(); }
+
   void setBrightness8(const uint8_t b)
   {
     setBrightness(b);
@@ -859,6 +862,8 @@ private:
    * @param _buff_id - buffer id to control
    */
   void setBrightnessOE(uint8_t brt, const int _buff_id = 0);
+  uint8_t applyGain(uint8_t brt);  // sets or clears the pixel gain table, returns the brightness for the OE windows
+  uint8_t oeFloor() const;
 
   /**
    * @brief - transforms coordinates according to orientation
