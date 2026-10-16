@@ -413,7 +413,7 @@ static void settingsState() {
   json += ultime::timeStatus() == timeSet ? "true" : "false";
   json += ",\"lightReading\":" + String(displayControl.lightReading());
   json += ",\"nightActive\":" + String(displayControl.nightActive() ? "true" : "false");
-  json += ",\"nightWhy\":\"" + String(displayControl.roomDark() ? "dark" : displayControl.nightScheduled() ? "schedule" : "") + "\"";
+  json += ",\"nightWhy\":\"" + String(!Settings::getInstance()->nightClock ? "" : displayControl.roomDark() ? "dark" : displayControl.nightScheduled() ? "schedule" : "") + "\"";
   {
     int rise = 0, set = 0;
     if (s.hasLocation && ultime::timeStatus() == timeSet && sun::times(s.latitude, s.longitude, time(nullptr), rise, set) == sun::Result::Normal)
@@ -769,6 +769,35 @@ static void displaySave() {
   }
   settingsResponse(200, "Saved. The clock restarts with the new colour quality.");
   restartAt = millis() + 1000;
+}
+
+// What Home Assistant (over MQTT) can ask of the clock: the follow-ups of a changed setting that saveSettings() runs for the settings
+// page, and the restart and update actions
+static void mqttSettingsChanged(const Settings &previous) {
+  auto &s = *Settings::getInstance();
+  if (displayReady && previous.rotation != s.rotation) display->setRotation(s.rotation);
+  if ((previous.timezone != s.timezone || previous.use24h != s.use24h || previous.ntpServer != s.ntpServer) && face)
+    clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
+  if (previous.telnet != s.telnet) {
+    if (s.telnet && !memoryShed) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
+    else { telnet.stop(); telnetStarted = false; }
+    if (WiFi.status() == WL_CONNECTED) startMdns();
+  }
+  if ((s.nightSun && !s.hasLocation) || (previous.manualTimezone && !s.manualTimezone)) { geoWanted = true; geoFails = 0; }
+  if (previous.swapBlueGreen != s.swapBlueGreen && s.save()) restartAt = millis() + 1000;  // the panel colours are set up at start
+}
+
+static void mqttRestart() { restartAt = millis() + 500; }
+static void mqttCheckUpdate() { firmwareUpdate.checkNow(false); }
+static void mqttInstallUpdate() { firmwareUpdate.request(); }
+
+static void mqttUpdateInfo(Mqtt::UpdateInfo &out) {
+  FirmwareUpdate::Status status; firmwareUpdate.status(status);
+  FirmwareUpdate::Latest latest; firmwareUpdate.latest(latest);
+  strlcpy(out.installed, firmwareUpdate.version(), sizeof(out.installed));
+  strlcpy(out.latest, latest.available && latest.version[0] ? latest.version : out.installed, sizeof(out.latest));  // equal: Home Assistant shows it up to date
+  out.busy = status.busy;
+  out.percent = status.busy && status.total ? (int)((uint64_t)status.received * 100 / status.total) : -1;
 }
 
 static void mqttState() {
@@ -1302,7 +1331,7 @@ void setup() {
   ha::load();
 #endif
   firmwareUpdate.begin();  // the cached "update available" result, so the boot screen can mention it
-  Mqtt::instance().begin(firmwareUpdate.version());
+  Mqtt::instance().begin(firmwareUpdate.version(), {mqttSettingsChanged, mqttRestart, mqttCheckUpdate, mqttInstallUpdate, mqttUpdateInfo});
   {  // The fast display is only for the Wi-Fi setup QR: when setup was asked for. A start that needs the setup late restarts into it (setupRefresh flag)
     Preferences refreshPrefs;
     bool asked = false;
@@ -1572,8 +1601,8 @@ void loop() {
       // A face that paints its own night (Mario, Luigi) follows the sun for its sky and only gives way to the red clock in a dark room
       face->poll();  // the face follows its data while the night clock is up too
       const bool popup = face->alertOverridesNight();  // an alert that must show through the night clock and the birthday screen
-      const bool night = (face->handlesNight() ? displayControl.roomDark() : displayControl.nightActive()) && !popup;
-      if (notice::active(now, night)) {  // a message sent from Home Assistant takes the panel, whatever the face; a normal one waits out the night
+      const bool night = displayControl.nightClockShown(face->handlesNight()) && !popup;
+      if (notice::active(now, displayControl.nightDimmed(face->handlesNight()) && !popup)) {  // a message sent from Home Assistant takes the panel, whatever the face; a normal one waits out the night
         notice::draw(*display, now);
         noticeShown = true;
       } else if (night) {

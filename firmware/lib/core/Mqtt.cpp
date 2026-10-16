@@ -6,17 +6,16 @@
 #include <WiFi.h>
 #include <cJSON.h>
 #include <esp_mac.h>
+#include <stdarg.h>
 #include <memory>
 #include <new>
-#include "Notice.h"
-#include "Settings.h"
+#include "TimeService.h"
 
 namespace {
 constexpr const char *kDiscovery = "homeassistant";
-constexpr uint8_t kEntities = 6;
 constexpr uint32_t kSaveDelayMs = 30000;   // commands from automations change settings often: store them once they settle
 constexpr uint32_t kStateEveryMs = 60000;  // the diagnostics move all the time, so state goes out at most this often
-constexpr size_t kPayload = 720;
+constexpr size_t kPayload = 800;
 
 struct Color { const char *name; uint16_t rgb; };
 constexpr Color kColors[] = {{"white", 0xFFFF}, {"red", 0xF800}, {"green", 0x07E0}, {"blue", 0x041F}, {"yellow", 0xFFE0},
@@ -38,6 +37,81 @@ int8_t onOff(const char *text) {
   if (strcasecmp(text, "OFF") == 0) return 0;
   return -1;
 }
+
+// The entities Home Assistant gets. A key is the topic part (<base>/<key>/set) and the name of its value in the state message.
+enum EntityId : uint8_t {
+  E_BRIGHTNESS, E_AUTO_BRIGHTNESS, E_NIGHT_CLOCK, E_NOTIFY, E_MIN_BRIGHTNESS, E_NIGHT_MODE, E_NIGHT_SUN, E_NIGHT_START, E_NIGHT_END,
+  E_ROTATION, E_TIME_24H, E_AUTO_TIMEZONE, E_TIMEZONE, E_NTP_SERVER, E_LDR_DARK, E_LDR_LIGHT, E_SWAP, E_AUTO_UPDATE, E_TELNET,
+  E_RESTART, E_CHECK_UPDATE, E_UPDATE, E_WIFI, E_MEMORY, E_COUNT
+};
+enum Flag : uint8_t { STATE = 1, COMMAND = 2, CONFIG = 4, DIAGNOSTIC = 8, CUSTOM = 16 };  // CUSTOM: its extra part brings its own state topic
+struct Entity { const char *component, *key, *name; uint8_t flags; const char *extra; };
+constexpr const char *kSlider = "\"min\":1,\"max\":255,\"step\":1,\"mode\":\"slider\"";
+constexpr const char *kClock = "\"min\":5,\"max\":5,\"pattern\":\"^([01][0-9]|2[0-3]):[0-5][0-9]$\"";
+const Entity kEntities[E_COUNT] = {
+    {"number", "brightness", "Brightness", STATE | COMMAND, kSlider},
+    {"switch", "auto_brightness", "Auto brightness", STATE | COMMAND, ""},
+    {"switch", "night_clock", "Night clock", STATE | COMMAND, ""},
+    {"notify", "notify", "Notification", COMMAND, ""},
+    {"number", "min_brightness", "Minimum brightness", STATE | COMMAND | CONFIG, kSlider},
+    {"switch", "night_mode", "Night mode", STATE | COMMAND | CONFIG, ""},
+    {"switch", "night_sun", "Night from sunset to sunrise", STATE | COMMAND | CONFIG, ""},
+    {"text", "night_start", "Night starts", STATE | COMMAND | CONFIG, kClock},
+    {"text", "night_end", "Night ends", STATE | COMMAND | CONFIG, kClock},
+    {"select", "rotation", "Display orientation", STATE | COMMAND | CONFIG, "\"options\":[\"0\",\"90\",\"180\",\"270\"]"},
+    {"switch", "time_24h", "24-hour clock", STATE | COMMAND | CONFIG, ""},
+    {"switch", "auto_timezone", "Automatic time zone", STATE | COMMAND | CONFIG, ""},
+    {"text", "timezone", "Time zone", STATE | COMMAND | CONFIG, "\"min\":1,\"max\":47"},
+    {"text", "ntp_server", "Time server", STATE | COMMAND | CONFIG, "\"min\":1,\"max\":47"},
+    {"number", "ldr_dark", "Light sensor: dark level", STATE | COMMAND | CONFIG, "\"min\":0,\"max\":4094,\"step\":1,\"mode\":\"box\""},
+    {"number", "ldr_light", "Light sensor: bright level", STATE | COMMAND | CONFIG, "\"min\":1,\"max\":4095,\"step\":1,\"mode\":\"box\""},
+    {"switch", "swap_blue_green", "Swap blue and green (restarts)", STATE | COMMAND | CONFIG, ""},
+    {"switch", "auto_update", "Automatic updates", STATE | COMMAND | CONFIG, ""},
+    {"switch", "telnet", "Remote console", STATE | COMMAND | CONFIG, ""},
+    {"button", "restart", "Restart", COMMAND | CONFIG, "\"dev_cla\":\"restart\""},
+    {"button", "check_update", "Check for updates", COMMAND | CONFIG, ""},
+    {"update", "update", "Firmware", COMMAND | CUSTOM, "\"stat_t\":\"~/update\",\"payload_install\":\"INSTALL\",\"dev_cla\":\"firmware\""},
+    {"sensor", "wifi_signal", "Wi-Fi signal", STATE | DIAGNOSTIC, "\"dev_cla\":\"signal_strength\",\"unit_of_meas\":\"dBm\",\"stat_cla\":\"measurement\""},
+    {"sensor", "free_memory", "Free memory", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"kB\",\"stat_cla\":\"measurement\""},
+};
+
+// Appends formatted text to a buffer, stopping quietly when it is full
+struct Out {
+  char *buf;
+  size_t size, len = 0;
+  void add(const char *format, ...) __attribute__((format(printf, 2, 3))) {
+    if (len >= size) return;
+    va_list args;
+    va_start(args, format);
+    int n = vsnprintf(buf + len, size - len, format, args);
+    va_end(args);
+    if (n > 0) len = min(len + (size_t)n, size - 1);
+  }
+};
+
+uint32_t mix(uint32_t h, uint32_t v) { return (h ^ v) * 16777619u; }
+uint32_t mixText(uint32_t h, const char *s) {
+  for (; *s; s++) h = mix(h, (uint8_t)*s);
+  return mix(h, 0xFF);
+}
+// A fingerprint of everything Home Assistant shows from the settings: a change is published at once
+uint32_t signature(const Settings &s) {
+  uint32_t h = 2166136261u;
+  const uint32_t numbers[] = {s.brightness, s.autoBrightness, s.nightClock, s.minimumBrightness, s.nightEnabled, s.nightSun, s.nightStart,
+                              s.nightEnd, s.rotation, s.use24h, s.manualTimezone, s.ldrDark, s.ldrLight, s.swapBlueGreen, s.autoUpdate, s.telnet};
+  for (uint32_t n : numbers) h = mix(h, n);
+  h = mixText(h, s.timezone.c_str());
+  return mixText(h, s.ntpServer.c_str());
+}
+
+bool clockMinutes(const char *text, uint16_t &minutes) {
+  if (strlen(text) != 5 || text[2] != ':' || !isdigit((unsigned char)text[0]) || !isdigit((unsigned char)text[1]) ||
+      !isdigit((unsigned char)text[3]) || !isdigit((unsigned char)text[4])) return false;
+  const int hour = (text[0] - '0') * 10 + text[1] - '0', minute = (text[3] - '0') * 10 + text[4] - '0';
+  if (hour > 23 || minute > 59) return false;
+  minutes = hour * 60 + minute;
+  return true;
+}
 }
 
 // On the heap: the faces have little static RAM to spare
@@ -53,7 +127,8 @@ bool Mqtt::validHost(const char *host) {
   return true;
 }
 
-void Mqtt::begin(const char *version) {
+void Mqtt::begin(const char *version, const Hooks &hooks) {
+  _hooks = hooks;
   strlcpy(_version, version, sizeof(_version));
   uint8_t mac[6] = {};
   esp_read_mac(mac, ESP_MAC_WIFI_STA);
@@ -128,16 +203,23 @@ void Mqtt::handle(int32_t id, esp_mqtt_event_handle_t event) {
       if (event->topic_len <= (int)baseLen + 1 || strncmp(event->topic, _base, baseLen) != 0 || event->topic[baseLen] != '/') break;
       const char *key = event->topic + baseLen + 1;
       const int keyLen = event->topic_len - (int)baseLen - 1;
-      auto is = [&](const char *name) { return keyLen == (int)strlen(name) && strncmp(key, name, keyLen) == 0; };
+      if (keyLen < 5 || strncmp(key + keyLen - 4, "/set", 4) != 0) break;
+      const int nameLen = keyLen - 4;
+      int entity = -1;
+      for (int i = 0; i < E_COUNT; i++)
+        if ((kEntities[i].flags & COMMAND) && (int)strlen(kEntities[i].key) == nameLen && strncmp(kEntities[i].key, key, nameLen) == 0) { entity = i; break; }
+      if (entity < 0) break;
       char value[sizeof(_noticeText)];
       const int n = min(event->data_len, (int)sizeof(value) - 1);
       memcpy(value, event->data, n);
       value[n] = 0;
       std::lock_guard<std::mutex> guard(_lock);
-      if (is("brightness/set")) { int b = atoi(value); _brightness = b < 1 ? 1 : b > 255 ? 255 : b; }
-      else if (is("auto_brightness/set")) _auto = onOff(value);
-      else if (is("night_clock/set")) _night = onOff(value);
-      else if (is("notify/set")) { strlcpy(_noticeText, value, sizeof(_noticeText)); _hasNotice = true; }
+      if (entity == E_NOTIFY) { strlcpy(_noticeText, value, sizeof(_noticeText)); _hasNotice = true; }
+      else if (_queued < kQueue) {
+        _queue[_queued].entity = entity;
+        strlcpy(_queue[_queued].value, value, sizeof(_queue[_queued].value));
+        _queued++;
+      }
       break;
     }
     default: break;
@@ -176,8 +258,7 @@ void Mqtt::start() {
     strlcpy(_error, "Could not start the MQTT client.", sizeof(_error));
     return;
   }
-  _stateDue = true;
-  _lastState[0] = 0;
+  _stateDue = _updateDue = true;
 }
 
 void Mqtt::stop() {
@@ -197,23 +278,71 @@ bool Mqtt::publish(const char *topic, const char *payload, bool retain) {
   return esp_mqtt_client_enqueue(_client, topic, payload, 0, 0, retain, true) >= 0;
 }
 
+// One command from Home Assistant: validated like the settings page does, then applied to the settings (the caller
+// notices the change and runs the follow-ups). Bad values are ignored.
+void Mqtt::applyCommand(const Command &command, Settings &s) {
+  const char *value = command.value;
+  const int8_t on = onOff(value);
+  int number = atoi(value);
+  uint16_t minutes;
+  switch (command.entity) {
+    case E_BRIGHTNESS: s.brightness = constrain(number, 1, 255); break;
+    case E_MIN_BRIGHTNESS: s.minimumBrightness = constrain(number, 1, 255); break;
+    case E_AUTO_BRIGHTNESS: if (on >= 0) s.autoBrightness = on; break;
+    case E_NIGHT_CLOCK: if (on >= 0) s.nightClock = on; break;
+    case E_NIGHT_MODE: if (on >= 0) s.nightEnabled = on; break;
+    case E_NIGHT_SUN: if (on >= 0) s.nightSun = on; break;
+    case E_NIGHT_START: if (clockMinutes(value, minutes)) s.nightStart = minutes; break;
+    case E_NIGHT_END: if (clockMinutes(value, minutes)) s.nightEnd = minutes; break;
+    case E_ROTATION: if (number >= 0 && number <= 270 && number % 90 == 0) s.rotation = number / 90; break;
+    case E_TIME_24H: if (on >= 0) s.use24h = on; break;
+    case E_AUTO_TIMEZONE: if (on >= 0) s.manualTimezone = !on; break;
+    case E_TIMEZONE:
+      if (ultime::posixForZone(value)) { s.timezone = value; s.manualTimezone = true; }
+      break;
+    case E_NTP_SERVER: {
+      bool valid = value[0] != 0;
+      for (const char *c = value; *c; c++) valid &= isalnum((unsigned char)*c) || *c == '.' || *c == '-' || *c == ':';
+      if (valid) s.ntpServer = value;
+      break;
+    }
+    case E_LDR_DARK: if (number >= 0 && number <= 4094 && number < s.ldrLight) s.ldrDark = number; break;
+    case E_LDR_LIGHT: if (number >= 1 && number <= 4095 && number > s.ldrDark) s.ldrLight = number; break;
+    case E_SWAP: if (on >= 0) s.swapBlueGreen = on; break;
+    case E_AUTO_UPDATE: if (on >= 0) s.autoUpdate = on; break;
+    case E_TELNET: if (on >= 0) s.telnet = on; break;
+    case E_RESTART: if (_hooks.restart) _hooks.restart(); break;
+    case E_CHECK_UPDATE: if (_hooks.checkUpdate) _hooks.checkUpdate(); break;
+    case E_UPDATE: if (strcasecmp(value, "INSTALL") == 0 && _hooks.installUpdate) _hooks.installUpdate(); break;
+    default: break;
+  }
+}
+
 void Mqtt::applyCommands(uint32_t now) {
-  int brightness;
-  int8_t autoOn, night;
-  char text[sizeof(_noticeText)];
+  Command batch[kQueue];
+  uint8_t count;
   bool notice;
+  char text[sizeof(_noticeText)];
   {
     std::lock_guard<std::mutex> guard(_lock);
-    brightness = _brightness; autoOn = _auto; night = _night; notice = _hasNotice;
+    count = _queued;
+    memcpy(batch, _queue, sizeof(Command) * count);
+    notice = _hasNotice;
     if (notice) memcpy(text, _noticeText, sizeof(text));
-    _brightness = 0; _auto = _night = -1; _hasNotice = false;
+    _queued = 0;
+    _hasNotice = false;
   }
-  auto &s = *Settings::getInstance();
-  bool changed = false;
-  if (brightness > 0 && s.brightness != brightness) { s.brightness = (uint8_t)brightness; changed = true; }
-  if (autoOn >= 0 && s.autoBrightness != (autoOn == 1)) { s.autoBrightness = autoOn == 1; changed = true; }
-  if (night >= 0 && s.nightClock != (night == 1)) { s.nightClock = night == 1; changed = true; }
-  if (changed) { _saveAt = (now + kSaveDelayMs) | 1; _stateDue = true; }
+  if (count) {
+    auto &s = *Settings::getInstance();
+    const Settings previous = s;
+    const uint32_t before = signature(s);
+    for (uint8_t i = 0; i < count; i++) applyCommand(batch[i], s);
+    if (signature(s) != before) {
+      if (_hooks.changed) _hooks.changed(previous);
+      _saveAt = (now + kSaveDelayMs) | 1;
+      _stateDue = true;
+    }
+  }
   if (notice) {
     notice::Message message;
     const char *plain = text;
@@ -249,64 +378,79 @@ void Mqtt::applyCommands(uint32_t now) {
     notice::show(message, now);
     if (json) cJSON_Delete(json);
   }
-  if (_saveAt && (int32_t)(now - _saveAt) >= 0) { _saveAt = 0; s.save(); }
+  if (_saveAt && (int32_t)(now - _saveAt) >= 0) { _saveAt = 0; Settings::getInstance()->save(); }
 }
 
-// One message per call, so a connect never takes long on the clock task. Steps 1..kEntities are the discovery
-// messages, then the "online" status, then the state.
+// One message per call, so a connect never takes long on the clock task. Steps 1..E_COUNT are the discovery messages,
+// then the "online" status; after that the state and the update information.
 void Mqtt::publishNext(uint32_t now) {
   const uint8_t step = _step.load();
-  char topic[96], status[40];
-  snprintf(status, sizeof(status), "%s/status", _base);
-  if (step >= 1 && step <= kEntities) {
-    std::unique_ptr<char[]> payload(new (std::nothrow) char[kPayload]);
-    if (!payload) return;
-    static const char *const kComponent[kEntities] = {"number", "switch", "switch", "notify", "sensor", "sensor"};
-    static const char *const kKey[kEntities] = {"brightness", "auto_brightness", "night_clock", "notify", "wifi_signal", "free_memory"};
-    static const char *const kBody[kEntities] = {
-        "\"name\":\"Brightness\",\"stat_t\":\"~/state\",\"val_tpl\":\"{{value_json.brightness}}\",\"cmd_t\":\"~/brightness/set\","
-        "\"min\":1,\"max\":255,\"step\":1,\"mode\":\"slider\"",
-        "\"name\":\"Auto brightness\",\"stat_t\":\"~/state\",\"val_tpl\":\"{{value_json.auto}}\",\"cmd_t\":\"~/auto_brightness/set\"",
-        "\"name\":\"Night clock\",\"stat_t\":\"~/state\",\"val_tpl\":\"{{value_json.night}}\",\"cmd_t\":\"~/night_clock/set\"",
-        "\"name\":\"Notification\",\"cmd_t\":\"~/notify/set\"",
-        "\"name\":\"Wi-Fi signal\",\"stat_t\":\"~/state\",\"val_tpl\":\"{{value_json.rssi}}\",\"dev_cla\":\"signal_strength\","
-        "\"unit_of_meas\":\"dBm\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\"",
-        "\"name\":\"Free memory\",\"stat_t\":\"~/state\",\"val_tpl\":\"{{value_json.heap}}\",\"unit_of_meas\":\"kB\","
-        "\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\""};
-    const int i = step - 1;
-    const IPAddress ip = WiFi.localIP();
-    snprintf(topic, sizeof(topic), "%s/%s/%s/%s/config", kDiscovery, kComponent[i], _id, kKey[i]);
-    snprintf(payload.get(), kPayload,
-             "{%s,\"~\":\"%s\",\"avty_t\":\"~/status\",\"uniq_id\":\"ultimatrix_%s_%s\","
-             "\"dev\":{\"ids\":[\"ultimatrix_%s\"],\"name\":\"Ultimatrix\",\"mf\":\"Ultimatrix\",\"mdl\":\"%s\",\"sw\":\"%s\","
-             "\"cu\":\"http://%u.%u.%u.%u/\"}}",
-             kBody[i], _base, _id, kKey[i], _id, UM_MODE_NAME, _version, ip[0], ip[1], ip[2], ip[3]);
-    if (i == 3) {  // earlier builds announced the notification as a text entity: clear that retained announcement
-      char old[96];
-      snprintf(old, sizeof(old), "%s/text/%s/%s/config", kDiscovery, _id, kKey[i]);
-      publish(old, "", true);
-    }
-    if (publish(topic, payload.get(), true)) _step = step + 1;
+  if (step > E_COUNT + 1) { publishState(now); return; }
+  char topic[96];
+  if (step == E_COUNT + 1) {
+    snprintf(topic, sizeof(topic), "%s/status", _base);
+    if (publish(topic, "online", true)) { _step = step + 1; _stateDue = _updateDue = true; }
     return;
   }
-  if (step == kEntities + 1) {
-    if (publish(status, "online", true)) { _step = step + 1; _stateDue = true; }
-    return;
+  std::unique_ptr<char[]> payload(new (std::nothrow) char[kPayload]);
+  if (!payload) return;
+  const Entity &e = kEntities[step - 1];
+  const IPAddress ip = WiFi.localIP();
+  Out out{payload.get(), kPayload};
+  out.add("{\"name\":\"%s\"", e.name);
+  if ((e.flags & STATE) && !(e.flags & CUSTOM)) out.add(",\"stat_t\":\"~/state\",\"val_tpl\":\"{{value_json.%s}}\"", e.key);
+  if (e.flags & COMMAND) out.add(",\"cmd_t\":\"~/%s/set\"", e.key);
+  if (e.extra[0]) out.add(",%s", e.extra);
+  if (e.flags & CONFIG) out.add(",\"ent_cat\":\"config\"");
+  if (e.flags & DIAGNOSTIC) out.add(",\"ent_cat\":\"diagnostic\"");
+  out.add(",\"~\":\"%s\",\"avty_t\":\"~/status\",\"uniq_id\":\"ultimatrix_%s_%s\",", _base, _id, e.key);
+  out.add("\"dev\":{\"ids\":[\"ultimatrix_%s\"],\"name\":\"Ultimatrix\",\"mf\":\"Ultimatrix\",\"mdl\":\"%s\",\"sw\":\"%s\",", _id, UM_MODE_NAME, _version);
+  out.add("\"cu\":\"http://%u.%u.%u.%u/\"}}", ip[0], ip[1], ip[2], ip[3]);
+  snprintf(topic, sizeof(topic), "%s/%s/%s/%s/config", kDiscovery, e.component, _id, e.key);
+  if (step - 1 == E_NOTIFY) {  // earlier builds announced the notification as a text entity: clear that
+    char old[96];
+    snprintf(old, sizeof(old), "%s/text/%s/%s/config", kDiscovery, _id, e.key);
+    publish(old, "", true);
   }
-  // State: at once when a setting changes, and once a minute for the moving diagnostics
+  if (publish(topic, payload.get(), true)) _step = step + 1;
+}
+
+// The settings go out as one retained message whenever one changes and once a minute (the diagnostics move); the update
+// entity has its own message: when the versions or progress change, and once a minute.
+void Mqtt::publishState(uint32_t now) {
   const auto &s = *Settings::getInstance();
-  char key[24];
-  snprintf(key, sizeof(key), "%u,%d,%d", (unsigned)s.brightness, (int)s.autoBrightness, (int)s.nightClock);
-  if (!_stateDue && strcmp(key, _lastState) == 0 && (int32_t)(now - _stateAt) < (int32_t)kStateEveryMs) return;
-  char json[112];
-  snprintf(json, sizeof(json), "{\"brightness\":%u,\"auto\":\"%s\",\"night\":\"%s\",\"rssi\":%d,\"heap\":%u}",
-           (unsigned)s.brightness, s.autoBrightness ? "ON" : "OFF", s.nightClock ? "ON" : "OFF", (int)WiFi.RSSI(),
-           (unsigned)(ESP.getFreeHeap() / 1024));
-  snprintf(topic, sizeof(topic), "%s/state", _base);
-  if (publish(topic, json, true)) {
-    _stateDue = false;
-    _stateAt = now;
-    strlcpy(_lastState, key, sizeof(_lastState));
+  char topic[96];
+  const uint32_t sig = signature(s);
+  if (_stateDue || sig != _stateSignature || (int32_t)(now - _stateAt) >= (int32_t)kStateEveryMs) {
+    std::unique_ptr<char[]> json(new (std::nothrow) char[kPayload]);
+    if (!json) return;
+    Out out{json.get(), kPayload};
+    auto onoff = [](bool value) { return value ? "ON" : "OFF"; };
+    out.add("{\"brightness\":%u,\"auto_brightness\":\"%s\",\"night_clock\":\"%s\",\"min_brightness\":%u,", (unsigned)s.brightness,
+            onoff(s.autoBrightness), onoff(s.nightClock), (unsigned)s.minimumBrightness);
+    out.add("\"night_mode\":\"%s\",\"night_sun\":\"%s\",\"night_start\":\"%02u:%02u\",\"night_end\":\"%02u:%02u\",", onoff(s.nightEnabled),
+            onoff(s.nightSun), s.nightStart / 60u, s.nightStart % 60u, s.nightEnd / 60u, s.nightEnd % 60u);
+    out.add("\"rotation\":\"%u\",\"time_24h\":\"%s\",\"auto_timezone\":\"%s\",\"timezone\":\"%s\",\"ntp_server\":\"%s\",", (unsigned)s.rotation * 90,
+            onoff(s.use24h), onoff(!s.manualTimezone), s.timezone.c_str(), s.ntpServer.c_str());
+    out.add("\"ldr_dark\":%u,\"ldr_light\":%u,\"swap_blue_green\":\"%s\",\"auto_update\":\"%s\",\"telnet\":\"%s\",", (unsigned)s.ldrDark,
+            (unsigned)s.ldrLight, onoff(s.swapBlueGreen), onoff(s.autoUpdate), onoff(s.telnet));
+    out.add("\"wifi_signal\":%d,\"free_memory\":%u}", (int)WiFi.RSSI(), (unsigned)(ESP.getFreeHeap() / 1024));
+    snprintf(topic, sizeof(topic), "%s/state", _base);
+    if (publish(topic, json.get(), true)) { _stateDue = false; _stateAt = now; _stateSignature = sig; }
+    return;
+  }
+  UpdateInfo info = {};
+  if (!_hooks.updateInfo) return;
+  _hooks.updateInfo(info);
+  uint32_t updateSig = mixText(mixText(2166136261u, info.installed), info.latest);
+  updateSig = mix(mix(updateSig, info.busy), (uint32_t)info.percent);
+  if (_updateDue || updateSig != _updateSignature || (int32_t)(now - _updateAt) >= (int32_t)kStateEveryMs) {
+    char json[240], percent[12] = "null";
+    if (info.busy && info.percent >= 0) snprintf(percent, sizeof(percent), "%d", info.percent);
+    snprintf(json, sizeof(json), "{\"installed_version\":\"%s\",\"latest_version\":\"%s\",\"title\":\"Ultimatrix %s\",\"in_progress\":%s,\"update_percentage\":%s}",
+             info.installed, info.latest, UM_MODE_NAME, info.busy ? "true" : "false", percent);
+    snprintf(topic, sizeof(topic), "%s/update", _base);
+    if (publish(topic, json, true)) { _updateDue = false; _updateAt = now; _updateSignature = updateSig; }
   }
 }
 

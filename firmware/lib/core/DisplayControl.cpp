@@ -32,8 +32,7 @@ uint8_t DisplayControl::update(const Settings &s, uint32_t now, bool synced, uns
       (s.nightStart < s.nightEnd ? minute >= s.nightStart && minute < s.nightEnd : minute >= s.nightStart || minute < s.nightEnd);
   // Sunset to sunrise at the clock's location, once it is known; until then the fixed hours above still apply
   if (s.nightEnabled && s.nightSun && s.hasLocation && synced) _night = sun::isNight(s.latitude, s.longitude, time(nullptr), minute);
-  if (s.autoBrightness) _night = false;  // with the light sensor on, only the room decides: the night hours and sunset do not
-  if (!s.nightClock) _night = _dark = false;  // the night clock is switched off: the face stays, at the normal brightness
+  _clock = s.nightClock;  // switched off: the face stays up at night, still dimmed to the minimum brightness
   _sunDown = s.hasLocation && synced && sun::isNight(s.latitude, s.longitude, time(nullptr), minute);
   // The red night clock follows the minimum brightness; a face that paints its own night keeps its brightness until the room is dark
   if (faceHandlesNight ? _dark : nightActive()) value = std::min(s.minimumBrightness, s.brightness);

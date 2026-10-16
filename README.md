@@ -130,9 +130,9 @@ The page and its assets are stored in firmware flash. A new setting only appears
 
 ### Brightness and night display
 
-Brightness can be fixed or follow a light sensor. With automatic brightness enabled, only the sensor decides the night clock (the night hours and sunset are ignored); use the live sensor reading to set the dark and bright limits. Readings are averaged, and small changes are ignored to reduce flicker.
+Brightness can be fixed or follow a light sensor. With automatic brightness enabled, the panel dims to the minimum brightness, and the night clock comes on, when the sensor reads dark and also during the night hours or from sunset to sunrise, if you set those (switch the night clock off to keep the face up while it dims); use the live sensor reading to set the dark and bright limits. Readings are averaged, and small changes are ignored to reduce flicker.
 
-Most faces can switch to a dim numeric clock during chosen hours, from sunset to sunrise, or when the sensor detects a dark room (with automatic brightness on, only the sensor counts). It is dark red by default. Pac-Man uses the border colour for its night clock.
+Most faces can switch to a dim numeric clock during chosen hours, from sunset to sunrise, or when the sensor detects a dark room. These work together, also with automatic brightness on. It is dark red by default. Pac-Man uses the border colour for its night clock.
 
 Mario and Luigi scenes follow sunrise and sunset rather than the night schedule. A dark room can switch them to the dim numeric clock.
 
@@ -142,7 +142,10 @@ Changes tied to sunrise and sunset need a detected location. Automatic brightnes
 
 Every face can be controlled from Home Assistant over MQTT. It is off until you switch it on under **Home Assistant (MQTT)** on the settings page: enter the address of your MQTT broker (the Mosquitto add-on, for example) and, if it needs them, a username and password. Home Assistant then discovers the clock as a device with these entities:
 
-- **Brightness**, **Auto brightness** and **Night clock**: changes from Home Assistant apply at once and are stored a moment later, and changes made on the settings page show up in Home Assistant.
+- **Brightness**, **Auto brightness** and **Night clock** as controls.
+- All the standard settings under the device's configuration: minimum brightness, night mode, night from sunset to sunrise, night start and end (`HH:MM`), display orientation, 24-hour clock, automatic time zone, time zone, time server, the light sensor's dark and bright levels, swap blue and green (restarts the clock), automatic updates and the remote console. Changes from Home Assistant apply at once and are stored a moment later; changes made on the settings page show up in Home Assistant too. Bad values are ignored.
+- **Restart** and **Check for updates** buttons.
+- **Firmware**, an update entity: Home Assistant shows when a newer version is available and installs it from the device page or an automation (the clock restarts when it is done, and shows the progress while it downloads). It follows the update source of the settings page.
 - **Notification**: a notify entity. Call `notify.send_message` on it (it needs a Home Assistant release with MQTT notify entities) to show a message on the panel, whatever the face. Plain text understands two markers:
 
   - `Title|message` puts a title above the message (the first 20 characters of the title are shown).
@@ -165,7 +168,7 @@ Every face can be controlled from Home Assistant over MQTT. It is off until you 
     payload: '{"title": "Front door", "message": "Someone is at the door", "priority": "high", "color": "red", "seconds": 20}'
   ```
 
-  JSON fields: `message` (up to 200 characters), `title`, `color` (a name such as `red` or `#rrggbb`), `seconds` (2 to 300) and `priority` (`normal` or `high`). Text that does not fit scrolls, and the message stays up long enough to scroll through. A **normal** message shows as plain text for 10 seconds, waits while the night clock is up (up to an hour) and does not replace an urgent one. A **high** priority message shows at once at full brightness, whatever the hour, blinks like the doorbell on the Home face with a warning sign, and stays 30 seconds. An empty message dismisses what is showing.
+  JSON fields: `message` (up to 200 characters), `title`, `color` (a name such as `red` or `#rrggbb`), `seconds` (2 to 300) and `priority` (`normal` or `high`). Text that does not fit scrolls, and the message stays up long enough to scroll through. A **normal** message shows as plain text for 10 seconds, waits while night mode is on, with or without the night clock (up to an hour) and does not replace an urgent one. A **high** priority message shows at once at full brightness, whatever the hour, blinks like the doorbell on the Home face with a warning sign, and stays 30 seconds. An empty message dismisses what is showing.
 - **Wi-Fi signal** and **Free memory**, as diagnostics.
 
 The link is plain MQTT on your local network, without encryption, and costs the clock roughly 10 KB of memory while it is on.

@@ -11,6 +11,10 @@ public:
   bool nightActive() const { return _night || _dark; }
   // Only the dark room (the light sensor): for a face that paints its own night, this is what brings the red night clock
   bool roomDark() const { return _dark; }
+  // The red night clock replaces the face: only when it is switched on. Night itself (the dimming) does not depend on that.
+  bool nightClockShown(bool faceHandlesNight) const { return _clock && (faceHandlesNight ? _dark : nightActive()); }
+  // Night mode: what dims the panel, with or without the red clock
+  bool nightDimmed(bool faceHandlesNight) const { return faceHandlesNight ? _dark : nightActive(); }
   bool nightScheduled() const { return _night; }  // the night hours or sunset to sunrise, whatever the light sensor says
   // The sun is down at the clock's location, whatever the night settings say: a face that paints its own night follows this
   bool sunDown() const { return _sunDown; }
@@ -21,5 +25,5 @@ private:
   uint32_t _sum = 0;
   uint8_t _count = 0, _next = 0, _pin = 0;
   int _level = -1;  // the auto brightness actually applied: it ignores small sensor noise and eases towards bigger changes
-  bool _night = false, _dark = false, _sunDown = false;
+  bool _night = false, _dark = false, _sunDown = false, _clock = true;
 };

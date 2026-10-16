@@ -7,7 +7,7 @@
 class MatrixPanel_I2S_DMA;
 
 // A message with an optional title that takes the whole panel for a while (sent from Home Assistant over MQTT), on any
-// face. Text that does not fit scrolls. A normal message waits for the morning while the night clock is up; a high
+// face. Text that does not fit scrolls. A normal message waits for the morning while night mode is on (the night hours, sunset to sunrise or a dark room, whether or not the red night clock is shown); a high
 // priority one shows at full brightness at any hour, blinks like the Home face's doorbell and carries a warning sign.
 namespace notice {
 constexpr size_t kTitleMax = 41;    // 40 characters and the end; the first two lines of ten are shown
@@ -25,7 +25,7 @@ struct Message {
 };
 
 void show(const Message &message, uint32_t now);  // an empty message dismisses what is on show
-// True while a message is on the panel. A normal message held back by the night is not shown (and not yet counted down);
+// True while a message is on the panel; night is whether night mode is on. A normal message held back by the night is not shown (and not yet counted down);
 // it is dropped when it has waited an hour.
 bool active(uint32_t now, bool night);
 bool fullBrightness(uint32_t now);  // a high priority message is showing: the panel goes to full brightness
