@@ -451,7 +451,7 @@ document.querySelector('#welcome-start-button')?.addEventListener('click', async
 
 // Home Assistant (Home face): its own card and save button, outside the autosaving form so the token is only sent when typed
 const HA_TILES = ['Temperature', 'Humidity', 'People home', 'Power', 'Custom number', 'CO₂ (ppm)', 'Rain', 'EV charge (%)', 'Energy price', 'Outdoor humidity', 'Weather', 'Off'], HA_TILE_AUTO = [true, true, true, false, false, false, false, false, true, true, true, false];
-const HA_ICONS = ['Door', 'Window', 'Garage door', 'Washer', 'Dryer', 'Lights', 'Lock or alarm', 'Charger', 'Off', 'Occupied rooms', 'Low batteries', 'Offline devices', 'Water leaks', 'Blinds open', 'Media playing', 'Heating'], HA_ICON_AUTO = [true, true, true, false, false, true, true, true, false, true, true, true, true, true, true, true];
+const HA_ICONS = ['Door', 'Window', 'Garage door', 'Washer', 'Dryer', 'Lights', 'Unlocked locks', 'Charger', 'Off', 'Occupied rooms', 'Low batteries', 'Offline devices', 'Water leaks', 'Blinds open', 'Media playing', 'Heating'], HA_ICON_AUTO = [true, true, true, false, false, true, true, true, false, true, true, true, true, true, true, true];
 const HA_TILE_KIND = ['temperature', 'humidity', 'person', 'power', 'sensor', 'co2', 'rain', 'battery', 'price', 'humidity', 'weather', 'any'], HA_ICON_KIND = ['door', 'window', 'garage', 'any', 'any', 'light', 'lock', 'any', 'any', 'presence', 'battery_status', 'any', 'leak', 'blinds', 'media', 'climate'];
 // What Auto detects for each type, shown as grey tags while the entity field is empty
 const HA_TILE_DETECT = {0: 'temperature', 1: 'humidity', 2: 'person', 9: 'weather', 10: 'weather'}, HA_TILE_NOTE = {8: 'The tariff of the Energy dashboard’s grid source'};
@@ -515,7 +515,7 @@ function haTags(value, placeholder, kind, limit = 95) {
   const add = id => {
     id = id.trim().toLowerCase();
     if (!/^[a-z_]+\.[a-z0-9_]+$/.test(id) || ids.includes(id)) return false;
-    ids = ids.filter(one => one !== 'auto' && one !== 'off'); ids.push(id); input.value = ''; menu.hidden = true; changed(); return true;
+    ids = ids.filter(one => one !== 'auto' && one !== 'off' && one[0] !== '-'); ids.push(id); input.value = ''; menu.hidden = true; changed(); return true;
   };
   const suggest = async () => {
     const mine = ++seq, typed = input.value.trim().toLowerCase();
@@ -546,9 +546,10 @@ function haTags(value, placeholder, kind, limit = 95) {
   return root;
 }
 // An empty entity field means Auto: the entities found in Home Assistant show as grey tags (refresh detects again). Removing one of them, or typing your own entity, turns it into your own list.
-function haAutoRow(type, autoBox, entity, off, can, detect, notes, allowNone = false) {
+function haAutoRow(type, autoBox, entity, off, can, detect, notes, allowNone = false, exclude = false) {
   const preview = haEl('div', {className: 'ha-detected'}), refresh = haEl('button', {type: 'button', className: 'ha-refresh', title: 'Detect again', textContent: '↻'}), field = entity.querySelector('input');
   let seq = 0;
+  const parts = () => entity.value.split(',').map(t => t.trim()).filter(Boolean);  // exclude: "-id" parts are detected ones left out
   const show = async fresh => {
     const mine = ++seq, t = type.value;
     preview.hidden = !autoBox.checked;
@@ -561,13 +562,14 @@ function haAutoRow(type, autoBox, entity, off, can, detect, notes, allowNone = f
       let list = await haEntities(kind);
       if (detect[t] === 'charging' || detect[t] === 'ev_battery') list = list.filter(item => HA_CAR.test(item.id));
       if (mine !== seq) return;
-      const ids = list.map(item => item.id);
+      const left = exclude ? parts().filter(t => t[0] === '-').map(t => t.slice(1)) : [];
+      const ids = list.map(item => item.id).filter(id => !left.includes(id));
       if (!ids.length) { preview.textContent = 'Nothing found in Home Assistant.'; return; }
       preview.replaceChildren(...ids.slice(0, 12).map(id => {
         const tag = haEl('span', {className: 'tag tag-auto'}, id);
         {
           const x = haEl('button', {type: 'button', className: 'tag-x', textContent: '×'}); x.setAttribute('aria-label', 'Remove ' + id);
-          x.addEventListener('click', () => { entity.value = ids.filter(one => one !== id).join(',') || (allowNone ? 'off' : ''); entity.dispatchEvent(new Event('change', {bubbles: true})); });
+          x.addEventListener('click', () => { entity.value = exclude ? [...parts(), '-' + id].join(',') : ids.filter(one => one !== id).join(',') || (allowNone ? 'off' : ''); entity.dispatchEvent(new Event('change', {bubbles: true})); });
           tag.append(x);
         }
         return tag;
@@ -576,10 +578,10 @@ function haAutoRow(type, autoBox, entity, off, can, detect, notes, allowNone = f
   };
   const sync = () => {
     const ok = !!can[type.value];
-    autoBox.checked = ok && !entity.value.trim();
+    autoBox.checked = ok && (exclude ? parts().every(t => t[0] === '-') : !entity.value.trim());
     refresh.style.visibility = ok ? '' : 'hidden';
     haLock(entity, off(type.value));
-    field.placeholder = autoBox.checked ? 'Using what was detected. Type to choose your own…' : 'Type to find an entity…';
+    field.placeholder = autoBox.checked ? (exclude && entity.value.trim() ? 'Using what was detected, except the tags here. Type to choose your own…' : 'Using what was detected. Type to choose your own…') : 'Type to find an entity…';
     show(false);
   };
   type.addEventListener('change', sync); entity.addEventListener('change', sync);
@@ -646,8 +648,8 @@ async function initHomeAssistant() {
 
   const icons = haGroup('State icons', 'Low batteries counts devices at 20% or less (or reporting low battery). Offline counts devices with unavailable entities; entities without a device count separately. Heating uses actual heating activity. Select a group to limit what is counted. Lights with your own entities counts rooms with those lights on, not individual bulbs (lights without an area are left out); while the field is empty it counts every light. An empty field uses everything detected (grey tags; ↻ detects again); type an entity or remove a grey tag to use your own. Occupied rooms counts distinct Home Assistant areas with active motion or occupancy sensors; sensors without an area are left out. Lit when something of that kind is open, running or on. Alert after: flash a message once it has been lit that many minutes (doors, windows, garage), 0 for never.');
   state.icons.forEach(slot => {
-    const type = haSelect(HA_ICONS, slot.type), autoBox = {checked: slot.auto}, entity = haTags(slot.entity, 'Type to find an entity…', () => HA_ICON_KIND[type.value] || 'any'), alert = haEl('input', {type: 'number', min: 0, max: 240, value: slot.alertMins, title: 'Alert after (minutes)'});
-    const auto = haAutoRow(type, autoBox, entity, value => value === '8', HA_ICON_AUTO, HA_ICON_DETECT, HA_ICON_NOTE);
+    const type = haSelect(HA_ICONS, slot.type), autoBox = {checked: slot.auto}, entity = haTags(slot.entity, 'Type to find an entity…', () => HA_ICON_KIND[type.value] || 'any', 1023), alert = haEl('input', {type: 'number', min: 0, max: 240, value: slot.alertMins, title: 'Alert after (minutes)'});
+    const auto = haAutoRow(type, autoBox, entity, value => value === '8', HA_ICON_AUTO, HA_ICON_DETECT, HA_ICON_NOTE, false, true);
     const sync = () => { alert.hidden = !['0', '1', '2'].includes(type.value); };
     type.addEventListener('change', sync); sync(); auto.sync();
     icons.append(haEl('div', {className: 'ha-row'}, type, auto.refresh, haEl('div', {}, entity, auto.preview), alert));

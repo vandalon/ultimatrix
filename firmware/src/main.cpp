@@ -923,8 +923,8 @@ static void retryPanelQuality(uint32_t now) {
 
 #ifdef UM_HOME
 // ---- Home Assistant settings (Home face): GET the saved values, POST a form. The token is write-only. ----
-static String haSlotJson(const ha::Slot &slot) {
-  return "{\"type\":" + String(slot.type) + ",\"auto\":" + String(slot.autoMode ? "true" : "false") + ",\"entity\":" + jsonText(slot.entity) +
+static String haSlotJson(const ha::Slot &slot, const char *entity) {
+  return "{\"type\":" + String(slot.type) + ",\"auto\":" + String(slot.autoMode ? "true" : "false") + ",\"entity\":" + jsonText(entity) +
          ",\"unit\":" + jsonText(slot.unit) + ",\"decimals\":" + String(slot.decimals) + ",\"alertMins\":" + String(slot.alertMins) + ",\"flags\":" + String(slot.flags) + "}";
 }
 
@@ -940,14 +940,18 @@ static void haState() {
   json += ",\"tokenSet\":" + String(c.token[0] ? "true" : "false") + ",\"pages\":" + String(c.pages) + ",\"pageSecs\":" + String(c.pageSecs);
   json += ",\"gridImportPositive\":" + String(c.gridImportPositive ? "true" : "false") + ",\"batteryDischargePositive\":" + String(c.batteryDischargePositive ? "true" : "false");
   json += ",\"state\":" + String((int)HaClient::instance().state()) + ",\"status\":" + jsonText(status) + ",\"art\":" + jsonText(artNote) + ",\"tiles\":[";
-  for (int i = 0; i < ha::kHomeTiles; i++) json += (i ? "," : "") + haSlotJson(ha::tileSlot(c, i));
+  for (int i = 0; i < ha::kHomeTiles; i++) json += (i ? "," : "") + haSlotJson(ha::tileSlot(c, i), ha::tileSlot(c, i).entity);
   json += "],\"icons\":[";
-  for (int i = 0; i < ha::kIcons; i++) json += (i ? "," : "") + haSlotJson(c.icons[i]);
+  std::unique_ptr<char[]> iconList(new (std::nothrow) char[ha::kIconEntity]);
+  for (int i = 0; i < ha::kIcons; i++) {
+    if (iconList) ha::iconEntityCopy(i, iconList.get(), ha::kIconEntity);
+    json += (i ? "," : "") + haSlotJson(c.icons[i], iconList ? iconList.get() : "");
+  }
   json += "],\"energy\":[";
   for (int i = 0; i < ha::E_COUNT; i++) json += (i ? "," : "") + jsonText(c.energy[i]);
   json += "],\"media\":[";
   for (int i = 0; i < ha::kRooms; i++) json += (i ? "," : "") + jsonText(ha::mediaPlayers()[i]);
-  json += "],\"washer\":" + haSlotJson(ha::washerAlert()) + ",\"weather\":" + jsonText(ha::weatherEntity()) + ",\"doorbell\":" + jsonText(c.doorbell) + ",\"doorbellFlags\":" + String(c.doorbellFlags) + ",\"alarmFlags\":" + String(c.alarmFlags) + "}";
+  json += "],\"washer\":" + haSlotJson(ha::washerAlert(), ha::washerAlert().entity) + ",\"weather\":" + jsonText(ha::weatherEntity()) + ",\"doorbell\":" + jsonText(c.doorbell) + ",\"doorbellFlags\":" + String(c.doorbellFlags) + ",\"alarmFlags\":" + String(c.alarmFlags) + "}";
   server.sendHeader("Cache-Control", "no-store");
   server.send(200, "application/json", json);
 }
@@ -982,13 +986,13 @@ static bool haEnergyList(const String &name, char *out) {
   return true;
 }
 
-static bool haEntityList(const String &name, char *out) {
+static bool haEntityList(const String &name, char *out, size_t size = ha::kEntity) {
   String value = server.arg(name);
   value.trim();
   value.toLowerCase();
   value.replace(" ", "");
-  if (value.length() >= ha::kEntity || !ha::validEntityList(value.c_str())) return false;
-  strlcpy(out, value.c_str(), ha::kEntity);
+  if (value.length() >= size || !ha::validEntityList(value.c_str())) return false;
+  strlcpy(out, value.c_str(), size);
   return true;
 }
 
@@ -1104,7 +1108,10 @@ static void haSave() {
     if (!number((key + "Type").c_str(), 0, ha::ICON_TYPES - 1, value)) { settingsResponse(400, "Choose an icon type from the list."); return; }
     slot.type = value;
     slot.autoMode = server.arg(key + "Auto") == "1" && ha::autoAvailable(false, slot.type);
-    if (!haEntityList(key + "Entity", slot.entity)) { settingsResponse(400, "Entity IDs look like binary_sensor.front_door."); return; }
+    std::unique_ptr<char[]> list(new (std::nothrow) char[ha::kIconEntity]);
+    if (!list) { settingsResponse(500, "Out of memory."); return; }
+    if (!haEntityList(key + "Entity", list.get(), ha::kIconEntity)) { settingsResponse(400, server.arg(key + "Entity").length() >= ha::kIconEntity ? "Too many entities for the clock to store: remove some." : "Entity IDs look like binary_sensor.front_door."); return; }
+    if (!ha::setIconEntity(i, list.get())) { settingsResponse(500, "Out of memory."); return; }
     if (!number((key + "Alert").c_str(), 0, 240, value)) value = 0;
     slot.alertMins = value;
     slot.flags = number((key + "Flags").c_str(), 0, 7, value) ? value : 0;
@@ -1408,7 +1415,8 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
     }
   });
   wifi.setWaitCallback(bootTick);  // keep the connecting pulse going while a saved network is tried
-  wifi.setConnectTimeout(60);  // seconds, as the core's own wait: without a timeout the wait does not call bootTick, so the pulse froze
+  wifi.setConnectTimeout(40);  // seconds per attempt, as the core's own wait: without a timeout the wait does not call bootTick, so the pulse froze
+  wifi.setConnectRetries(3);  // three attempts before the setup portal: a router that is still starting after a power cut should not bring up the QR code
   Preferences setupPrefs;
   bool forceSetup = false;
   if (setupPrefs.begin("ultimatrix", false)) {

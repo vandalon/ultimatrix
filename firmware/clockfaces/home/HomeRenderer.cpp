@@ -145,7 +145,7 @@ void smallIcon(MatrixPanel_I2S_DMA &d, uint8_t icon, int x, int y, uint16_t colo
     }
     case SI_BULB: bitmap(d, kBulb, x, y, color); break;
     case SI_LOCK: {
-      const char *const rows[] = {"..#####..", ".#.....#.", ".#.....#.", ".#.....#.", "#########", "####.####", "####.####", "####.####", "#########"};
+      const char *const rows[] = {"..#####..", ".#.....#.", ".#.......", ".#.......", "#########", "####.####", "####.####", "####.####", "#########"};  // open: the icon is for what is unlocked
       bitmap(d, rows, x - 1, y - 1, color); break;
     }
     case SI_PLUG: {

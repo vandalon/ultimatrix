@@ -4,6 +4,8 @@
 #include "HaTemplate.h"
 
 #include <math.h>
+#include <memory>
+#include <new>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,7 +61,7 @@ const char *litStates(uint8_t type) {
     case ICON_OFFLINE: return "['unavailable']";
     case ICON_BLINDS: return "['open','opening','closing']";
     case ICON_LEAK: case ICON_LIGHTS: return "['on']";
-    case ICON_LOCK: return "['armed_home','armed_away','armed_night','armed_vacation','armed_custom_bypass','locked']";
+    case ICON_LOCK: return "['unlocked','unlocking','open','opening','jammed']";
     default: return "['on','open','opening']";
   }
 }
@@ -75,7 +77,8 @@ void quoted(const char *list, char *out, size_t size) {
 }
 
 // The HA states that make up an icon: its Auto rule, or the entity (a group is expanded to its members)
-bool iconList(const Slot &slot, char *out, size_t size) {
+constexpr size_t kIconScratch = kIconEntity * 3 / 2;  // the quoted list of entities, or the ones left out
+bool iconList(const Slot &slot, const char *entity, char *out, size_t size, char *scratch) {
   if (slot.type == ICON_NONE || slot.type >= ICON_TYPES) return false;
   if (slot.autoMode && autoAvailable(false, slot.type)) {
     const char *list = nullptr;
@@ -102,16 +105,24 @@ bool iconList(const Slot &slot, char *out, size_t size) {
         break;
       case ICON_LIGHTS: list = "states.light|selectattr('state','eq','on')|list"; break;
       case ICON_LOCK:
-        list = "(states.alarm_control_panel|selectattr('state','match','armed')|list + states.lock|selectattr('state','eq','locked')|list)";
+        list = "states.lock|selectattr('state','in',['unlocked','unlocking','open','opening','jammed'])|list";
         break;
     }
     if (!list) return false;
-    snprintf(out, size, "%s", list);
+    // "-entity" items of the field are ones taken out of what is detected
+    char *skipped = scratch;
+    size_t used = 0;
+    skipped[0] = 0;
+    char id[kEntity];
+    for (const char *at = entity; nextListed(at, id, sizeof(id));)
+      if (id[0] == '-' && id[1] && used + strlen(id) + 4 < kIconScratch) used += snprintf(skipped + used, kIconScratch - used, "%s'%s'", used ? "," : "", id + 1);
+    if (used) snprintf(out, size, "(%s)|rejectattr('entity_id','in',[%s])|list", list, skipped);
+    else snprintf(out, size, "%s", list);
     return true;
   }
-  if (!slot.entity[0]) return false;
-  char ids[kEntity * 3];
-  quoted(slot.entity, ids, sizeof(ids));
+  if (!entity[0]) return false;
+  char *ids = scratch;
+  quoted(entity, ids, kIconScratch);
   if (slot.type == ICON_LOW_BATTERY) snprintf(out, size, "expand('%s')|list", ids);
   else if (slot.type == ICON_HEATING) snprintf(out, size, "expand('%s')|selectattr('attributes.hvac_action','eq','heating')|rejectattr('state','in',['unknown','unavailable'])|list", ids);
   else snprintf(out, size, "expand('%s')|selectattr('state','in',%s)|list", ids, litStates(slot.type));
@@ -195,8 +206,10 @@ size_t buildTemplate(const Config &c, char *out, size_t capacity) {
   bool presence = false;
   for (const auto &slot : c.icons) presence |= slot.type == ICON_PRESENCE || (slot.type == ICON_LIGHTS && !slot.autoMode);
   if (presence) o.add("{%- macro rooms(l) -%}{%- set n = namespace(ids=[]) -%}{%- for s in l -%}"
-                      "{%- set a = area_id(s.entity_id) -%}{%- if a and a not in n.ids -%}"
-                      "{%- set n.ids = n.ids + [a] -%}{%- endif -%}{%- endfor -%}{{ n.ids|count }}/0{%- endmacro -%}");
+                      // a group (an entity that lists members) has no area of its own: its members that are on count
+                      "{%- set ms = s.attributes.entity_id if s.attributes.entity_id is defined and s.attributes.entity_id is not string else [s.entity_id] -%}"
+                      "{%- for m in ms -%}{%- set a = area_id(m) -%}{%- if a and a not in n.ids and (m == s.entity_id or is_state(m,'on')) -%}"
+                      "{%- set n.ids = n.ids + [a] -%}{%- endif -%}{%- endfor -%}{%- endfor -%}{{ n.ids|count }}/0{%- endmacro -%}");
   bool devices = false, lowBattery = false;
   for (const auto &slot : c.icons) {
     devices |= slot.type == ICON_OFFLINE || slot.type == ICON_LOW_BATTERY;
@@ -209,28 +222,35 @@ size_t buildTemplate(const Config &c, char *out, size_t capacity) {
                         "{%- if (s.domain == 'binary_sensor' and s.state == 'on') or "
                         "(is_number(s.state) and s.attributes.unit_of_measurement == '%' and s.state|float <= 20) -%}"
                         "{%- set n.items = n.items + [s] -%}{%- endif -%}{%- endfor -%}{{ devices(n.items) }}{%- endmacro -%}");
-  char expression[800];
+  // On the heap: the stack of the Home Assistant task is small and an icon's list can be long
+  constexpr size_t kExpression = 1800, kList = 1500;
+  std::unique_ptr<char[]> expressionBuf(new (std::nothrow) char[kExpression]), listBuf(new (std::nothrow) char[kList]);
+  std::unique_ptr<char[]> scratch(new (std::nothrow) char[kIconScratch]), entity(new (std::nothrow) char[kIconEntity]);
+  if (!expressionBuf || !listBuf || !scratch || !entity) return 0;
+  char *expression = expressionBuf.get();
   for (int i = 0; i < kHomeTiles; i++) {
     const Slot &tile = tileSlot(c, i);
     if (tile.type == TILE_WEATHER || tile.type == TILE_OUTDOOR_HUMIDITY) {
       if (tile.autoMode || !tile.entity[0])
-        snprintf(expression, sizeof(expression), "{%%- set w%d = states.weather|rejectattr('state','in',['unknown','unavailable'])|map(attribute='entity_id')|first|default('') -%%}", i);
-      else snprintf(expression, sizeof(expression), "{%%- set w%d = '%s' -%%}", i, tile.entity);
+        snprintf(expression, kExpression, "{%%- set w%d = states.weather|rejectattr('state','in',['unknown','unavailable'])|map(attribute='entity_id')|first|default('') -%%}", i);
+      else snprintf(expression, kExpression, "{%%- set w%d = '%s' -%%}", i, tile.entity);
       o.add(expression);
       if (tile.type == TILE_OUTDOOR_HUMIDITY && !tile.autoMode && strncmp(tile.entity, "weather.", 8)) {
-        snprintf(expression, sizeof(expression), "num('%s')", tile.entity);
+        snprintf(expression, kExpression, "num('%s')", tile.entity);
       } else {
         const char *attr = tile.type == TILE_WEATHER ? "temperature" : "humidity";
-        snprintf(expression, sizeof(expression), "state_attr(w%d,'%s') if w%d and is_number(state_attr(w%d,'%s')) else '-'", i, attr, i, i, attr);
+        snprintf(expression, kExpression, "state_attr(w%d,'%s') if w%d and is_number(state_attr(w%d,'%s')) else '-'", i, attr, i, i, attr);
       }
       o.field(expression);
-    } else if (tile.type != TILE_NONE && tileExpression(tile, expression, sizeof(expression))) o.field(expression);
+    } else if (tile.type != TILE_NONE && tileExpression(tile, expression, kExpression)) o.field(expression);
     else o.add(";-");
   }
-  char list[600];
-  for (const auto &icon : c.icons) {
-    if (iconList(icon, list, sizeof(list))) {
-      snprintf(expression, sizeof(expression), "%s(%s)", (icon.type == ICON_PRESENCE || (icon.type == ICON_LIGHTS && !icon.autoMode)) ? "rooms" : icon.type == ICON_OFFLINE ? "devices" : icon.type == ICON_LOW_BATTERY ? "low" : "grp", list);
+  char *list = listBuf.get();
+  for (int i = 0; i < kIcons; i++) {
+    const Slot &icon = c.icons[i];
+    iconEntityCopy(i, entity.get(), kIconEntity);
+    if (iconList(icon, entity.get(), list, kList, scratch.get())) {
+      snprintf(expression, kExpression, "%s(%s)", (icon.type == ICON_PRESENCE || (icon.type == ICON_LIGHTS && !icon.autoMode)) ? "rooms" : icon.type == ICON_OFFLINE ? "devices" : icon.type == ICON_LOW_BATTERY ? "low" : "grp", list);
       o.field(expression);
     } else {
       o.add(";-");
@@ -240,32 +260,32 @@ size_t buildTemplate(const Config &c, char *out, size_t capacity) {
   for (int i = 0; i < E_COUNT; i++) {
     if (!c.energy[i][0]) { o.add(";-"); continue; }
     if (!strcmp(c.energy[i], "auto")) { o.add(";-"); continue; }  // not resolved (the Energy dashboard has no such sensor)
-    if (macroOf[i][0] == 'n') { snprintf(expression, sizeof(expression), "num('%s')", c.energy[i]); o.field(expression); continue; }
-    int at = snprintf(expression, sizeof(expression), "%s(['", macroOf[i]);
-    for (const char *p = c.energy[i]; *p && at < (int)sizeof(expression) - 8; ++p) {
-      if (*p == ',') at += snprintf(expression + at, sizeof(expression) - at, "','");
+    if (macroOf[i][0] == 'n') { snprintf(expression, kExpression, "num('%s')", c.energy[i]); o.field(expression); continue; }
+    int at = snprintf(expression, kExpression, "%s(['", macroOf[i]);
+    for (const char *p = c.energy[i]; *p && at < (int)kExpression - 8; ++p) {
+      if (*p == ',') at += snprintf(expression + at, kExpression - at, "','");
       else expression[at++] = *p;
     }
-    snprintf(expression + at, sizeof(expression) - at, "'])");
+    snprintf(expression + at, kExpression - at, "'])");
     o.field(expression);
   }
   o.field("states.alarm_control_panel|selectattr('state','eq','triggered')|list|count");
   if (c.doorbell[0]) {
-    snprintf(expression, sizeof(expression), "expand('%s')|selectattr('state','eq','on')|list|count", c.doorbell);
+    snprintf(expression, kExpression, "expand('%s')|selectattr('state','eq','on')|list|count", c.doorbell);
     o.field(expression);
   } else {
     o.add(";0");
   }
   o.field("today_at().isoformat()");
   if (washerAlert().entity[0]) {
-    snprintf(expression, sizeof(expression), "{%%- set we = '%s' -%%}", washerAlert().entity);
+    snprintf(expression, kExpression, "{%%- set we = '%s' -%%}", washerAlert().entity);
     o.add(expression);
-    snprintf(expression, sizeof(expression), "grp(expand(we)|selectattr('state','in',%s)|list) if states(we) not in ['unknown','unavailable'] else '-'", litStates(ICON_WASHER));
+    snprintf(expression, kExpression, "grp(expand(we)|selectattr('state','in',%s)|list) if states(we) not in ['unknown','unavailable'] else '-'", litStates(ICON_WASHER));
     o.field(expression);
   } else o.add(";-");
   for (int i = 0; i < kHomeTiles; i++) {
     if (tileSlot(c, i).type == TILE_WEATHER) {
-      snprintf(expression, sizeof(expression), "states(w%d) if w%d else '-'", i, i);
+      snprintf(expression, kExpression, "states(w%d) if w%d else '-'", i, i);
       o.field(expression);
     } else o.add(";-");
   }

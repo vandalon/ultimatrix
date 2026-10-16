@@ -12,7 +12,7 @@
 namespace ha {
 
 constexpr int kHomeTiles = 6;  // visible slots; keep the original three-slot NVS blob layout stable (the rest have NVS keys of their own)
-constexpr int kTiles = 3, kIcons = 6, kEntity = 96, kTokenMax = 255, kHostMax = 63;
+constexpr int kTiles = 3, kIcons = 6, kEntity = 96, kIconEntity = 1024, kTokenMax = 255, kHostMax = 63;
 
 enum TileType : uint8_t { TILE_TEMP, TILE_HUMIDITY, TILE_PEOPLE, TILE_POWER, TILE_CUSTOM, TILE_CO2, TILE_RAIN, TILE_EV, TILE_PRICE, TILE_OUTDOOR_HUMIDITY, TILE_WEATHER, TILE_NONE, TILE_TYPES };
 enum IconType : uint8_t { ICON_DOOR, ICON_WINDOW, ICON_GARAGE, ICON_WASHER, ICON_DRYER, ICON_LIGHTS, ICON_LOCK, ICON_CHARGER, ICON_NONE, ICON_PRESENCE, ICON_LOW_BATTERY, ICON_OFFLINE, ICON_LEAK, ICON_BLINDS, ICON_MEDIA, ICON_HEATING, ICON_TYPES };
@@ -54,6 +54,11 @@ Config &config();
 char (&weatherEntity())[kEntity];
 Slot &extraTile(int index);  // tiles kTiles..kHomeTiles-1
 const Slot &tileSlot(const Config &c, int index);
+// The entity lists of the state icons (doors, windows, motion... can be many): heap strings of their own length, up to kIconEntity - 1,
+// separate NVS keys; the icon slots' own entity stays empty. Safe to call from any task.
+size_t iconEntityCopy(int index, char *out, size_t size);
+bool setIconEntity(int index, const char *list);
+bool hasIconEntity(int index);
 char (*mediaPlayers())[kEntity];  // the kRooms media_player entities of the Now playing page; separate NVS key
 Slot &washerAlert();  // independent of the six visible icons; separate NVS key
 void defaults(Config &c);

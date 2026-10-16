@@ -35,6 +35,7 @@ void parseResult(const char *text, Snapshot &out);
 // A JSON string value ("result":"...") copied out with its escapes resolved and accents folded to plain ASCII
 size_t unescape(const char *json, char *out, size_t capacity);
 
+void clear();                            // nothing is playing as far as we know (connection lost, no player chosen)
 void publish(const Snapshot &snapshot);   // from the Home Assistant task
 bool snapshot(Snapshot &out);             // false until a result has arrived
 uint32_t version();

@@ -57,7 +57,7 @@ uint8_t smallIconOf(uint8_t type) {
 uint8_t litTone(uint8_t type) {
   switch (type) {
     case ha::ICON_OFFLINE: case ha::ICON_LEAK: return T_RED;
-    case ha::ICON_LOW_BATTERY: return T_AMBER;
+    case ha::ICON_LOW_BATTERY: case ha::ICON_LOCK: return T_AMBER;
     default: return T_BLUE;
   }
 }
@@ -319,7 +319,7 @@ void Clockface::fillHome(Frame &frame) const {
   memcpy(frame.iconCount, _now.iconCount, sizeof(frame.iconCount));
   for (int i = 0; i < ha::kIcons; i++) {
     const ha::Slot &slot = config.icons[i];
-    frame.icon[i] = slotUsable(slot, false) ? smallIconOf(slot.type) : (uint8_t)SI_NONE;
+    frame.icon[i] = (slotUsable(slot, false) || ha::hasIconEntity(i)) ? smallIconOf(slot.type) : (uint8_t)SI_NONE;
     const bool lit = (_now.iconOk >> i & 1) && _now.iconCount[i] > 0;
     frame.iconTone[i] = lit ? litTone(slot.type) : (uint8_t)T_DIM;
   }

@@ -18,8 +18,8 @@ extern std::atomic<bool> firmwareUpdating;
 
 namespace {
 
-constexpr size_t kTemplateMax = 5000;  // the template and the message around it, on the heap only while they are sent
-constexpr size_t kMessageMax = 12288;   // a received message: the result is one short line, plus the list of entities Home Assistant watches
+constexpr size_t kTemplateMax = 9000;  // the template and the message around it, on the heap only while they are sent
+constexpr size_t kMessageMax = 4096;    // a received message. The Energy dashboard's answer is longer but only its first part is read; history is asked for one statistic at a time
 constexpr uint32_t kPingEveryMs = 25000, kSilenceMs = 75000, kStatisticsEveryMs = 60000, kHistoryEveryMs = 600000;
 
 // The id a message of ours starts with: {"id":N,...
@@ -194,7 +194,9 @@ void HaClient::run() {
     } else if (firmwareUpdating) {
       set(IDLE, "Paused for an update");
     } else if (!rejected) {
-      if (session(version)) pause = 3000;
+      const bool ended = session(version);
+      ha::media::clear();  // the Now playing page must not outlive the connection that said something was playing
+      if (ended) pause = 3000;
       else {
         bool changed = ha::version() != version;
         { std::lock_guard<std::mutex> guard(_lock); _valid = false; }
@@ -267,7 +269,12 @@ bool HaClient::session(uint32_t version) {
   int heard = 0;
   const uint32_t began = millis();
   uint32_t lastPing = millis();
-  uint32_t lastId = 100, prefsId = 0, statsId = 0, histId = 0, lastStatistics = 0, lastHistory = 0;
+  uint32_t lastId = 100, prefsId = 0, statsId = 0, histFirst = 0, lastStatistics = 0, lastHistory = 0;
+  constexpr int kHistoryAsks = 8;
+  struct HistorySlot { char id[ha::kEntity]; uint8_t field; uint32_t mask; float v[ha::kHistoryBars]; };
+  struct HistoryAsk { HistorySlot slot[kHistoryAsks]; int count; uint32_t hour; };
+  std::unique_ptr<HistoryAsk> hist;  // the statistics asked for, one request each, until all have answered
+  int histCount = 0, histGot = 0;
   bool historyAsked = false;  // Home Assistant wants every id higher than the one before
   bool statisticsAsked = false;
   bool resolving = false;
@@ -300,7 +307,7 @@ bool HaClient::session(uint32_t version) {
       memcpy(body.get(), head, at);
       built = ha::media::buildTemplate(*config, body.get() + at, kTemplateMax);
       if (built) { at += built; memcpy(body.get() + at, "\"}", 3); socket.text(body.get(), at + 2); }
-      else mediaId = 0;
+      else { mediaId = 0; ha::media::clear(); }
     }
     devicesId = 0;
     if (config->pages & ha::PAGE_DEVICES) {
@@ -322,11 +329,7 @@ bool HaClient::session(uint32_t version) {
       if (_state != FAILED) set(FAILED, "Connection lost");
       break;
     }
-    if (n == -2 && prefsId && (uint32_t)idOf(message.get()) == prefsId) {  // the Energy dashboard's answer did not fit
-      std::lock_guard<std::mutex> guard(_lock);
-      _prefs.state = EnergyPrefs::FAILED_ASKING;
-      strlcpy(_prefs.note, "The answer was too big", sizeof(_prefs.note));
-    }
+    if (n == -2 && prefsId && (uint32_t)idOf(message.get()) == prefsId) n = (int)strlen(message.get());  // the Energy dashboard's answer is mostly its device list; the sources that are read come first
     if (n == 0 || n == -2) {
       if (millis() - socket.lastData > kSilenceMs) { set(FAILED, "Connection lost"); break; }
       if (live && _wantPrefs.exchange(false)) {
@@ -359,23 +362,31 @@ bool HaClient::session(uint32_t version) {
         lastStatistics = millis();
       }
       if (live && time(nullptr) > 1700000000 && (!historyAsked || millis() - lastHistory >= kHistoryEveryMs)) {
-        // The last hours of power, for the bars: the means of the recorder's long-term statistics
-        std::unique_ptr<char[]> ask(new (std::nothrow) char[700]);
-        int ids = 0;
-        if (ask) {
+        // The last hours of power, for the bars: the means of the recorder's long-term statistics. One request per statistic: an answer for all of them would not fit the message buffer
+        std::unique_ptr<char[]> ask(new (std::nothrow) char[360]);
+        std::unique_ptr<HistoryAsk> next(new (std::nothrow) HistoryAsk{});
+        hist.reset();
+        histCount = histGot = 0;
+        if (ask && next) {
           const time_t from = (time(nullptr) / 3600 - (ha::kHistoryBars - 1)) * 3600;
           struct tm utc;
           gmtime_r(&from, &utc);
-          histId = ++lastId;
-          int at = snprintf(ask.get(), 700, "{\"id\":%u,\"type\":\"recorder/statistics_during_period\",\"start_time\":\"%04d-%02d-%02dT%02d:00:00+00:00\",\"period\":\"hour\",\"types\":[\"mean\"],\"units\":{\"power\":\"kW\"},\"statistic_ids\":[",
-                            (unsigned)histId, utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday, utc.tm_hour);
+          next->hour = (uint32_t)(time(nullptr) / 3600 * 3600);
+          histFirst = lastId + 1;
           const int power[4] = {ha::E_USAGE, ha::E_SOLAR, ha::E_GRID, ha::E_BATTERY};
           for (int e : power) {
             char id[ha::kEntity];
-            for (const char *list = config->energy[e]; ha::nextListed(list, id, sizeof(id)) && at < 600;)
-              at += snprintf(ask.get() + at, 700 - at, "%s\"%s\"", ids++ ? "," : "", id);
+            for (const char *list = config->energy[e]; ha::nextListed(list, id, sizeof(id)) && next->count < kHistoryAsks;) {
+              HistorySlot &slot = next->slot[next->count++];
+              strlcpy(slot.id, id, sizeof(slot.id));
+              slot.field = (uint8_t)e;
+              snprintf(ask.get(), 360, "{\"id\":%u,\"type\":\"recorder/statistics_during_period\",\"start_time\":\"%04d-%02d-%02dT%02d:00:00+00:00\",\"period\":\"hour\",\"types\":[\"mean\"],\"units\":{\"power\":\"kW\"},\"statistic_ids\":[\"%s\"]}",
+                       (unsigned)++lastId, utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, id);
+              socket.text(ask.get());
+            }
           }
-          if (ids) { snprintf(ask.get() + at, 700 - at, "]}"); socket.text(ask.get()); }
+          histCount = next->count;
+          if (histCount) hist = std::move(next);
         }
         historyAsked = true;
         lastHistory = millis();
@@ -434,18 +445,19 @@ bool HaClient::session(uint32_t version) {
           if (!strcmp(config->energy[i], "auto")) strlcpy(config->energy[i], found.state == EnergyPrefs::READY ? found.id[i] : "", ha::kEntity);
         if (!subscribe()) break;
       }
-    } else if (histId && (uint32_t)idOf(text) == histId) {  // hourly power means
-      if (!strstr(text, "\"success\":false")) {
-        const uint32_t hour = (uint32_t)(time(nullptr) / 3600 * 3600);
+    } else if (hist && (uint32_t)idOf(text) >= histFirst && (uint32_t)idOf(text) < histFirst + (uint32_t)histCount) {  // hourly power means of one statistic
+      HistorySlot &slot = hist->slot[(uint32_t)idOf(text) - histFirst];
+      slot.mask = strstr(text, "\"success\":false") ? 0 : ha::parseHourly(text, slot.id, hist->hour, slot.v);
+      if (++histGot >= histCount) {
+        const uint32_t hour = hist->hour;
         float use[ha::kHistoryBars] = {}, solar[ha::kHistoryBars] = {};
         uint32_t useMask = 0, solarMask = 0;
         const int gridSign = config->gridImportPositive ? 1 : -1, batterySign = config->batteryDischargePositive ? 1 : -1;
         auto add = [&](int entity, float sign, float *into, uint32_t &mask) {  // all meters of a field, added up
-          char id[ha::kEntity];
-          for (const char *list = config->energy[entity]; ha::nextListed(list, id, sizeof(id));) {
-            float one[ha::kHistoryBars] = {};
-            const uint32_t got = ha::parseHourly(text, id, hour, one);
-            for (int i = 0; i < ha::kHistoryBars; i++) if (got >> i & 1) { into[i] += sign * one[i]; mask |= 1u << i; }
+          for (int k = 0; k < hist->count; k++) {
+            const HistorySlot &one = hist->slot[k];
+            if (one.field != entity) continue;
+            for (int i = 0; i < ha::kHistoryBars; i++) if (one.mask >> i & 1) { into[i] += sign * one.v[i]; mask |= 1u << i; }
           }
         };
         add(ha::E_SOLAR, 1, solar, solarMask);
@@ -461,6 +473,8 @@ bool HaClient::session(uint32_t version) {
             useMask |= 1u << i;
           }
         }
+        hist.reset();
+        histCount = histGot = 0;
         std::lock_guard<std::mutex> guard(_lock);
         memcpy(_history.use, use, sizeof(use));
         memcpy(_history.solar, solar, sizeof(solar));

@@ -299,6 +299,13 @@ void parseResult(const char *text, Snapshot &out) {
   }
 }
 
+void clear() {
+  std::lock_guard<std::mutex> guard(lock);
+  if (!current.count) return;
+  memset(&current, 0, sizeof(current));
+  changes++;
+}
+
 void publish(const Snapshot &snapshot) {
   std::lock_guard<std::mutex> guard(lock);
   current = snapshot;

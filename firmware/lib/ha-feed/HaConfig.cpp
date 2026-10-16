@@ -9,6 +9,7 @@
 #include <esp_log.h>
 #include <nvs.h>
 #include <atomic>
+#include <mutex>
 #include <string.h>
 #include "CacheBlob.h"
 
@@ -22,7 +23,46 @@ const char *failedStep = "";
 char weather[kEntity] = {};
 Slot extras[kHomeTiles - kTiles] = {{TILE_WEATHER, 1, 0, 0, 0, "", ""}, {TILE_NONE, 0, 0, 0, 0, "", ""}, {TILE_NONE, 0, 0, 0, 0, "", ""}};  // fourth, fifth and sixth tile
 Slot washer = {ICON_WASHER, 0, 0, 0, 0, "", ""};
+char *iconText[kIcons] = {};  // heap, exactly as long as each list is; null is empty
+std::mutex iconLock;
 struct Rooms { char id[kRooms][kEntity]; } rooms = {};
+
+// Flash only: a list whose IDs all share one domain is stored as "domain|name,name" ('|' is not valid in an ID)
+void packList(const char *list, char *out, size_t size) {
+  strlcpy(out, list, size);
+  const char *dot = strchr(list, '.');
+  if (!dot) return;
+  const size_t n = dot - list + 1;  // the domain with its dot
+  for (const char *at = list; *at;) {
+    if (strncmp(at, list, n)) return;
+    const char *comma = strchr(at, ',');
+    if (!comma) break;
+    at = comma + 1;
+  }
+  if (!strchr(list, ',')) return;
+  size_t used = snprintf(out, size, "%.*s|", (int)n - 1, list);
+  for (const char *at = list; *at && used + 1 < size;) {
+    const char *comma = strchr(at, ',');
+    const size_t len = comma ? size_t(comma - at) - n : strlen(at) - n;
+    used += snprintf(out + used, size - used, "%s%.*s", at == list ? "" : ",", (int)len, at + n);
+    if (!comma) break;
+    at = comma + 1;
+  }
+}
+
+void unpackList(const char *stored, char *out, size_t size) {
+  const char *bar = strchr(stored, '|');
+  if (!bar) { strlcpy(out, stored, size); return; }
+  out[0] = 0;
+  size_t used = 0;
+  for (const char *at = bar + 1; *at && used + 1 < size;) {
+    const char *comma = strchr(at, ',');
+    const size_t len = comma ? size_t(comma - at) : strlen(at);
+    used += snprintf(out + used, size - used, "%s%.*s.%.*s", used ? "," : "", int(bar - stored), stored, (int)len, at);
+    if (!comma) break;
+    at = comma + 1;
+  }
+}
 
 void terminateAll(Config &c) {
   cacheblob::terminate(c.host);
@@ -41,6 +81,26 @@ Config &config() {
 
 char (&weatherEntity())[kEntity] { return weather; }
 char (*mediaPlayers())[kEntity] { return rooms.id; }
+size_t iconEntityCopy(int index, char *out, size_t size) {
+  std::lock_guard<std::mutex> guard(iconLock);
+  return strlcpy(out, iconText[index] ? iconText[index] : "", size);
+}
+
+bool hasIconEntity(int index) {
+  std::lock_guard<std::mutex> guard(iconLock);
+  return iconText[index] && iconText[index][0];
+}
+
+bool setIconEntity(int index, const char *list) {
+  const size_t n = strlen(list);
+  std::lock_guard<std::mutex> guard(iconLock);
+  if (!n) { free(iconText[index]); iconText[index] = nullptr; return true; }
+  char *copy = (char *)realloc(iconText[index], n + 1);
+  if (!copy) return false;
+  memcpy(copy, list, n + 1);
+  iconText[index] = copy;
+  return true;
+}
 Slot &washerAlert() { return washer; }
 Slot &extraTile(int index) { return extras[index - kTiles]; }
 const Slot &tileSlot(const Config &c, int index) { return index < kTiles ? c.tiles[index] : extras[index - kTiles]; }
@@ -87,8 +147,27 @@ void load() {
       q.end();
     }
     terminateAll(c);
+    // Icon entity lists have a blob of their own; before it existed they lived in the icon slots
+    Preferences r;
+    const bool stored = r.begin("ultimatrix", true) && r.isKey("haIcnV");
+    std::unique_ptr<char[]> packed(new (std::nothrow) char[kIconEntity]), plain(new (std::nothrow) char[kIconEntity]);
+    for (int i = 0; i < kIcons; i++) {
+      if (packed && plain) {
+        char key[8];
+        snprintf(key, sizeof(key), "haIcn%d", i);
+        packed[0] = 0;
+        if (stored) { r.getString(key, packed.get(), kIconEntity); unpackList(packed.get(), plain.get(), kIconEntity); }
+        else strlcpy(plain.get(), c.icons[i].entity, kIconEntity);
+        plain[kIconEntity - 1] = 0;
+        if (!validEntityList(plain.get())) plain[0] = 0;
+        setIconEntity(i, plain.get());
+      }
+      c.icons[i].entity[0] = 0;
+    }
+    r.end();
   }
   else {
+    for (int i = 0; i < kIcons; i++) setIconEntity(i, "");
     defaults(c);
     // A blob of an older layout can never be read again, and it would need the room twice when the new one is written
     Preferences stale;
@@ -149,6 +228,22 @@ bool save() {
     ok = cacheblob::put(p, "haMedia", rooms, 1);
     if (!ok) { p.remove("haMedia"); ok = cacheblob::put(p, "haMedia", rooms, 1); }  // settings flash is small: replace instead of update
     if (!ok) failedStep = "media";
+  }
+  if (ok) {
+    // One string per icon: only the length of each list is stored, not the padding, and a shared domain once
+    std::unique_ptr<char[]> plain(new (std::nothrow) char[kIconEntity]), packed(new (std::nothrow) char[kIconEntity]);
+    if (!plain || !packed) ok = false;
+    for (int i = 0; ok && i < kIcons; i++) {
+      char key[8];
+      snprintf(key, sizeof(key), "haIcn%d", i);
+      iconEntityCopy(i, plain.get(), kIconEntity);
+      packList(plain.get(), packed.get(), kIconEntity);
+      const size_t n = strlen(packed.get());
+      if (n) ok = p.putString(key, packed.get()) == n;
+      else if (p.isKey(key)) ok = p.remove(key);
+    }
+    if (ok) ok = p.putBool("haIcnV", true) == 1;
+    if (!ok) failedStep = "icons";
   }
   if (ok && !(ok = p.putBool("haBarV", true) == 1)) failedStep = "marker";
   p.end();

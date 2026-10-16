@@ -65,7 +65,7 @@ bool validEntityList(const char *list) {
   const char *at = list;
   char id[kEntity];
   int count = 0;
-  while (nextListed(at, id, sizeof(id))) { if (strcmp(id, "-") && strcmp(id, "off") && !validEntity(id)) return false; count++; }  // EV tile: "-" is a part left to detection, "off" one that is not used
+  while (nextListed(at, id, sizeof(id))) { if (strcmp(id, "-") && strcmp(id, "off") && !validEntity(id[0] == '-' ? id + 1 : id)) return false; count++; }  // EV tile: "-" is a part left to detection, "off" one that is not used; "-entity" (icons) is one that detection leaves out
   return count > 0;
 }
 
