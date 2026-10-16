@@ -14,7 +14,8 @@
 namespace {
 constexpr const char *kDiscovery = "homeassistant";
 constexpr uint32_t kSaveDelayMs = 30000;   // commands from automations change settings often: store them once they settle
-constexpr uint32_t kStateEveryMs = 60000;  // the diagnostics move all the time, so state goes out at most this often
+constexpr uint32_t kStateEveryMs = 60000;
+constexpr uint32_t kLightEveryMs = 10000;  // the diagnostics move all the time, so state goes out at most this often
 constexpr size_t kPayload = 800;
 
 struct Color { const char *name; uint16_t rgb; };
@@ -42,7 +43,7 @@ int8_t onOff(const char *text) {
 enum EntityId : uint8_t {
   E_BRIGHTNESS, E_AUTO_BRIGHTNESS, E_NIGHT_CLOCK, E_NOTIFY, E_MIN_BRIGHTNESS, E_NIGHT_MODE, E_NIGHT_SUN, E_NIGHT_START, E_NIGHT_END,
   E_ROTATION, E_TIME_24H, E_AUTO_TIMEZONE, E_TIMEZONE, E_NTP_SERVER, E_LDR_DARK, E_LDR_LIGHT, E_SWAP, E_AUTO_UPDATE, E_TELNET,
-  E_RESTART, E_CHECK_UPDATE, E_UPDATE, E_WIFI, E_MEMORY, E_COUNT
+  E_RESTART, E_CHECK_UPDATE, E_UPDATE, E_LIGHT, E_WIFI, E_MEMORY, E_COUNT
 };
 enum Flag : uint8_t { STATE = 1, COMMAND = 2, CONFIG = 4, DIAGNOSTIC = 8, CUSTOM = 16 };  // CUSTOM: its extra part brings its own state topic
 struct Entity { const char *component, *key, *name; uint8_t flags; const char *extra; };
@@ -71,6 +72,7 @@ const Entity kEntities[E_COUNT] = {
     {"button", "restart", "Restart", COMMAND | CONFIG, "\"dev_cla\":\"restart\""},
     {"button", "check_update", "Check for updates", COMMAND | CONFIG, ""},
     {"update", "update", "Firmware", COMMAND | CUSTOM, "\"stat_t\":\"~/update\",\"payload_install\":\"INSTALL\",\"dev_cla\":\"firmware\""},
+    {"sensor", "light_level", "Light level", STATE, "\"stat_cla\":\"measurement\",\"icon\":\"mdi:brightness-5\""},
     {"sensor", "wifi_signal", "Wi-Fi signal", STATE | DIAGNOSTIC, "\"dev_cla\":\"signal_strength\",\"unit_of_meas\":\"dBm\",\"stat_cla\":\"measurement\""},
     {"sensor", "free_memory", "Free memory", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"kB\",\"stat_cla\":\"measurement\""},
 };
@@ -421,7 +423,10 @@ void Mqtt::publishState(uint32_t now) {
   const auto &s = *Settings::getInstance();
   char topic[96];
   const uint32_t sig = signature(s);
-  if (_stateDue || sig != _stateSignature || (int32_t)(now - _stateAt) >= (int32_t)kStateEveryMs) {
+  const int light = _hooks.lightLevel ? _hooks.lightLevel() : -1;
+  // A moving light reading goes out every 10 s, so the sensor levels can be tuned from Home Assistant
+  const uint32_t every = light >= 0 ? kLightEveryMs : kStateEveryMs;
+  if (_stateDue || sig != _stateSignature || (int32_t)(now - _stateAt) >= (int32_t)every) {
     std::unique_ptr<char[]> json(new (std::nothrow) char[kPayload]);
     if (!json) return;
     Out out{json.get(), kPayload};
@@ -434,6 +439,8 @@ void Mqtt::publishState(uint32_t now) {
             onoff(s.use24h), onoff(!s.manualTimezone), s.timezone.c_str(), s.ntpServer.c_str());
     out.add("\"ldr_dark\":%u,\"ldr_light\":%u,\"swap_blue_green\":\"%s\",\"auto_update\":\"%s\",\"telnet\":\"%s\",", (unsigned)s.ldrDark,
             (unsigned)s.ldrLight, onoff(s.swapBlueGreen), onoff(s.autoUpdate), onoff(s.telnet));
+    if (light >= 0) out.add("\"light_level\":%d,", light);
+    else out.add("\"light_level\":null,");
     out.add("\"wifi_signal\":%d,\"free_memory\":%u}", (int)WiFi.RSSI(), (unsigned)(ESP.getFreeHeap() / 1024));
     snprintf(topic, sizeof(topic), "%s/state", _base);
     if (publish(topic, json.get(), true)) { _stateDue = false; _stateAt = now; _stateSignature = sig; }

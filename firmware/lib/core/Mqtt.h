@@ -31,6 +31,7 @@ public:
     void (*checkUpdate)();
     void (*installUpdate)();
     void (*updateInfo)(UpdateInfo &out);
+    int (*lightLevel)();  // the averaged light sensor reading, or -1 while the sensor is not read
   };
   static Mqtt &instance();
   static bool validHost(const char *host);

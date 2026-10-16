@@ -787,6 +787,7 @@ static void mqttSettingsChanged(const Settings &previous) {
   if (previous.swapBlueGreen != s.swapBlueGreen && s.save()) restartAt = millis() + 1000;  // the panel colours are set up at start
 }
 
+static int mqttLightLevel() { return displayControl.lightReading(); }
 static void mqttRestart() { restartAt = millis() + 500; }
 static void mqttCheckUpdate() { firmwareUpdate.checkNow(false); }
 static void mqttInstallUpdate() { firmwareUpdate.request(); }
@@ -1331,7 +1332,7 @@ void setup() {
   ha::load();
 #endif
   firmwareUpdate.begin();  // the cached "update available" result, so the boot screen can mention it
-  Mqtt::instance().begin(firmwareUpdate.version(), {mqttSettingsChanged, mqttRestart, mqttCheckUpdate, mqttInstallUpdate, mqttUpdateInfo});
+  Mqtt::instance().begin(firmwareUpdate.version(), {mqttSettingsChanged, mqttRestart, mqttCheckUpdate, mqttInstallUpdate, mqttUpdateInfo, mqttLightLevel});
   {  // The fast display is only for the Wi-Fi setup QR: when setup was asked for. A start that needs the setup late restarts into it (setupRefresh flag)
     Preferences refreshPrefs;
     bool asked = false;
