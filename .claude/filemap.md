@@ -42,6 +42,8 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - PanelTier.h: panel colour quality levels (depth, I2S clock, refresh), the NVS state and the retry rule
 - DisplayControl, PanelLayout, BootScreen, ScreenTimer, FlipDigits, NumericFont, LapFonts: display/panel helpers, fonts
 - TelnetConsole.cpp/.h, Console.h: remote logging console
+- Mqtt.cpp/.h: optional MQTT link to Home Assistant (default off): config in NVS, discovery entities, commands queued by the esp-mqtt task and applied by poll(), state publishing
+- Notice.cpp/.h: full-panel text message (wrapped, paged) sent from Home Assistant, drawn over any face by main.cpp
 - DiskCache.h: mounts LittleFS; formats only genuinely erased cache flash
 - CacheBlob.h: versioned NVS POD blobs with size/CRC validation
 - NetworkBudget.h, MemoryLimits.h: shared download/update gates, feed-task coordination and collection limits

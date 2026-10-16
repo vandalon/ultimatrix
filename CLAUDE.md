@@ -10,3 +10,5 @@
 
 ## File map
 `.claude/filemap.md` indexes the repo (path + purpose per file/dir). Check it before exploring; read only the files the task needs. Update it when files are added, removed or repurposed.
+
+@.claude/filemap.md

@@ -138,6 +138,38 @@ Mario and Luigi scenes follow sunrise and sunset rather than the night schedule.
 
 Changes tied to sunrise and sunset need a detected location. Automatic brightness and the night schedule are off by default.
 
+### Control from Home Assistant (MQTT, optional)
+
+Every face can be controlled from Home Assistant over MQTT. It is off until you switch it on under **Home Assistant (MQTT)** on the settings page: enter the address of your MQTT broker (the Mosquitto add-on, for example) and, if it needs them, a username and password. Home Assistant then discovers the clock as a device with these entities:
+
+- **Brightness**, **Auto brightness** and **Night clock**: changes from Home Assistant apply at once and are stored a moment later, and changes made on the settings page show up in Home Assistant.
+- **Notification**: a notify entity. Call `notify.send_message` on it (it needs a Home Assistant release with MQTT notify entities) to show a message on the panel, whatever the face. Plain text understands two markers:
+
+  - `Title|message` puts a title above the message (the first 20 characters of the title are shown).
+  - A leading `!` makes it high priority.
+
+  ```yaml
+  action: notify.send_message
+  target:
+    entity_id: notify.ultimatrix_notification
+  data:
+    message: "!Front door|Someone is at the door"
+  ```
+
+  For a colour or a display time, publish JSON to `ultimatrix/<id>/notify/set`, for example with the `mqtt.publish` action:
+
+  ```yaml
+  action: mqtt.publish
+  data:
+    topic: ultimatrix/<id>/notify/set
+    payload: '{"title": "Front door", "message": "Someone is at the door", "priority": "high", "color": "red", "seconds": 20}'
+  ```
+
+  JSON fields: `message` (up to 200 characters), `title`, `color` (a name such as `red` or `#rrggbb`), `seconds` (2 to 300) and `priority` (`normal` or `high`). Text that does not fit scrolls, and the message stays up long enough to scroll through. A **normal** message shows as plain text for 10 seconds, waits while the night clock is up (up to an hour) and does not replace an urgent one. A **high** priority message shows at once at full brightness, whatever the hour, blinks like the doorbell on the Home face with a warning sign, and stays 30 seconds. An empty message dismisses what is showing.
+- **Wi-Fi signal** and **Free memory**, as diagnostics.
+
+The link is plain MQTT on your local network, without encryption, and costs the clock roughly 10 KB of memory while it is on.
+
 ### Birthdays
 
 Add birthdays under **Birthdays** in settings: a name (capitals, digits and spaces, up to 12 characters), a day, a month and an optional birth year, up to 10. On that day every face is replaced by a birthday screen with the name, the age (or HAPPY BIRTHDAY! without a year) and the time. It steps aside while a favourite team's football match or any F1/MotoGP session is live (and for a minute afterwards), and the night clock still takes over at night. A 29 February birthday is celebrated on 1 March in other years. With the remote console on, `birthday` shows the screen for a minute whatever the date.

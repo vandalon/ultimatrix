@@ -797,3 +797,31 @@ async function initHomeAssistant() {
   for (const type of ['input', 'change']) card.addEventListener(type, () => { clearTimeout(haSaveTimer); haSaveTimer = setTimeout(saveHa, 1500); });
   button.hidden = true;
 }
+
+// Home Assistant over MQTT (optional, off by default)
+{
+  const $ = (id) => document.querySelector('#mqtt-' + id);
+  let timer;
+  const load = async (fill) => {
+    try {
+      const state = await (await fetch('/api/mqtt')).json();
+      $('status').textContent = state.status;
+      if (fill) {
+        $('enabled').checked = state.enabled; $('host').value = state.host; $('port').value = state.port === 1883 ? '' : state.port;
+        $('user').value = state.user; $('password').placeholder = state.passwordSet ? 'Saved: leave empty to keep' : 'No password';
+      }
+      clearTimeout(timer);
+      if (state.enabled && !state.connected) timer = setTimeout(() => load(false), 4000);
+    } catch (_) {}
+  };
+  $('save').addEventListener('click', async () => {
+    const body = new URLSearchParams({enabled: $('enabled').checked ? '1' : '0', host: $('host').value.trim(), port: $('port').value.trim(),
+      user: $('user').value.trim(), password: $('password').value, passwordClear: $('password-clear').checked ? '1' : '0'});
+    try {
+      const response = await fetch('/api/mqtt', {method:'POST', body}); const result = await response.json();
+      $('status').textContent = result.message;
+      if (response.ok) { $('password').value = ''; $('password-clear').checked = false; setTimeout(() => load(true), 1500); }
+    } catch (_) { $('status').textContent = 'Could not reach the clock.'; }
+  });
+  load(true);
+}

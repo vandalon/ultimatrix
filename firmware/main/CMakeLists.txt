@@ -15,6 +15,8 @@ set(sources
     "${root}/lib/core/JsonScan.cpp"
     "${root}/lib/core/BootScreen.cpp"
     "${root}/lib/core/TelnetConsole.cpp"
+    "${root}/lib/core/Mqtt.cpp"
+    "${root}/lib/core/Notice.cpp"
     "${root}/lib/core/qrcodegen.c"
     "${root}/clockfaces/${face}/Clockface.cpp")
 if(ULTIMATRIX_MODE STREQUAL "football")
@@ -101,7 +103,7 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)  # commands are not scriptable in IDF's requ
 endif()
 idf_component_register(SRCS ${sources}
     INCLUDE_DIRS "${root}/lib/core" "${CMAKE_CURRENT_BINARY_DIR}/generated" "${root}/lib/${sport}" "${root}/lib/faces" "${root}/lib/motogp-feed" "${root}/clockfaces/${face}"
-    REQUIRES espressif__arduino-esp32 clock-libraries esp_wifi esp_netif esp_event espressif__network_provisioning nvs_flash esp_http_client esp-tls app_update json)
+    REQUIRES espressif__arduino-esp32 clock-libraries esp_wifi esp_netif esp_event espressif__network_provisioning nvs_flash esp_http_client esp-tls app_update json mqtt)
 if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     add_dependencies(${COMPONENT_LIB} tzdb_header)
 endif()

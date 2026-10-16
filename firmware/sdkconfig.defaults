@@ -68,3 +68,16 @@ CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
 # Per-core CPU load in the 60 s [Cpu] log line (idle task run time).
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+# The optional MQTT link talks plain TCP on the local network: no TLS or WebSocket code in the image
+# CONFIG_MQTT_TRANSPORT_SSL is not set
+# CONFIG_MQTT_TRANSPORT_WEBSOCKET is not set
+# Every TLS client in the clock calls setInsecure(), so the root certificate bundle is unused weight. The bundle feature has to stay
+# (the unused arduino-esp32 RainMaker dependency includes its header and an empty bundle is refused), so ship the small common set
+# CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL is not set
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+# Silent assertions and warnings-only IDF logs keep their file names and format strings out of the image
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y
+CONFIG_LOG_DEFAULT_LEVEL_WARN=y
+# Size optimisation instead of the debug default: about 175 KB smaller on football. For a debugging session, switch back to
+# CONFIG_COMPILER_OPTIMIZATION_DEBUG=y (delete build/<face>/sdkconfig first: an existing one keeps its old values)
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y

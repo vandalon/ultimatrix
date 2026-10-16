@@ -41,6 +41,8 @@
 #include <BootScreen.h>
 #include <Console.h>
 #include <TelnetConsole.h>
+#include <Mqtt.h>
+#include <Notice.h>
 #include <memory>
 #include <new>
 #include <strings.h>
@@ -73,6 +75,7 @@ static DisplayControl displayControl;
 static NightClock nightClock;
 static bool nightShown = false;
 static bool birthdayShown = false;  // the birthday screen is on the panel instead of the face
+static bool noticeShown = false;    // a message from Home Assistant is on the panel instead of the face
 static uint32_t birthdayPreviewUntil = 0;  // telnet "birthday": show the screen until then, whatever the date
 constexpr uint32_t kBirthdayFrameMs = 60;
 static bool birthdayPreviewing() { return birthdayPreviewUntil && (int32_t)(birthdayPreviewUntil - millis()) > 0; }
@@ -768,6 +771,34 @@ static void displaySave() {
   restartAt = millis() + 1000;
 }
 
+static void mqttState() {
+  const Mqtt::Config &c = Mqtt::instance().config();
+  char status[80];
+  Mqtt::instance().status(status, sizeof(status));
+  server.send(200, "application/json", String("{\"enabled\":") + (c.enabled ? "true" : "false") + ",\"host\":" + jsonText(c.host) + ",\"port\":" + c.port +
+              ",\"user\":" + jsonText(c.user) + ",\"passwordSet\":" + (c.pass[0] ? "true" : "false") +
+              ",\"connected\":" + (Mqtt::instance().connected() ? "true" : "false") + ",\"status\":" + jsonText(status) + "}");
+}
+
+static void mqttSave() {
+  Mqtt::Config c = Mqtt::instance().config();
+  c.enabled = server.arg("enabled") == "1";
+  String host = server.arg("host"), user = server.arg("user"), password = server.arg("password");
+  host.trim();
+  if (host.length() && !Mqtt::validHost(host.c_str())) { settingsResponse(400, "Enter the broker as an IP address or a host name."); return; }
+  if (c.enabled && host.isEmpty()) { settingsResponse(400, "Enter the address of the MQTT broker first."); return; }
+  long port = server.arg("port").length() ? server.arg("port").toInt() : 1883;
+  if (port < 1 || port > 65535) { settingsResponse(400, "The port must be between 1 and 65535."); return; }
+  if (user.length() >= sizeof(c.user) || password.length() >= sizeof(c.pass)) { settingsResponse(400, "That username or password is too long."); return; }
+  strlcpy(c.host, host.c_str(), sizeof(c.host));
+  strlcpy(c.user, user.c_str(), sizeof(c.user));
+  c.port = (uint16_t)port;
+  if (server.arg("passwordClear") == "1") c.pass[0] = 0;
+  else if (password.length()) strlcpy(c.pass, password.c_str(), sizeof(c.pass));  // empty keeps the saved one: it is never sent back
+  const bool saved = Mqtt::instance().save(c);
+  settingsResponse(saved ? 200 : 500, saved ? "Saved." : "Could not save the MQTT settings.");
+}
+
 static void saveUpdateServer() {
   bool saved = firmwareUpdate.setServer(server.arg("url").c_str());
   settingsResponse(saved ? 200 : 400, saved ? "Update source saved." : "Enter an http:// or https:// address, or leave it empty for GitHub.");
@@ -1244,6 +1275,7 @@ static void background() {
     restartAt = now + 1500;
   }
   firmwareUpdate.poll(now, bootDone && !portalActive && WiFi.status() == WL_CONNECTED);
+  Mqtt::instance().poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
   autoUpdate(now);
   reportMemory();
   noteLiveData();
@@ -1270,6 +1302,7 @@ void setup() {
   ha::load();
 #endif
   firmwareUpdate.begin();  // the cached "update available" result, so the boot screen can mention it
+  Mqtt::instance().begin(firmwareUpdate.version());
   {  // The fast display is only for the Wi-Fi setup QR: when setup was asked for. A start that needs the setup late restarts into it (setupRefresh flag)
     Preferences refreshPrefs;
     bool asked = false;
@@ -1463,6 +1496,8 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/firmware/server", saveUpdateServer);
   server.on("/api/display", HTTP_GET, displayStatus);
   postRoute("/api/display", displaySave);
+  server.on("/api/mqtt", HTTP_GET, mqttState);
+  postRoute("/api/mqtt", mqttSave);
 #ifdef UM_HOME
   server.on("/api/ha", HTTP_GET, haState);
   postRoute("/api/ha", haSave);
@@ -1520,7 +1555,7 @@ void loop() {
   if ((int32_t)(now - nextFrame) >= 0) {
     uint8_t brightness = displayControl.update(*Settings::getInstance(), now, ultime::timeStatus() == timeSet,
         clockTime.getHour24() * 60 + clockTime.getMinute(), !bootDone || portalActive, face && face->handlesNight());
-    if (face && face->alertFullBrightness()) brightness = 255;  // a popup that asked for full brightness
+    if ((face && face->alertFullBrightness()) || notice::fullBrightness(now)) brightness = 255;  // a popup that asked for full brightness
     uint8_t panel = panelBrightness(brightness);
     if (panel != appliedBrightness) {
       const uint8_t dimFloor = display->brightnessFloor();
@@ -1537,7 +1572,11 @@ void loop() {
       // A face that paints its own night (Mario, Luigi) follows the sun for its sky and only gives way to the red clock in a dark room
       face->poll();  // the face follows its data while the night clock is up too
       const bool popup = face->alertOverridesNight();  // an alert that must show through the night clock and the birthday screen
-      if ((face->handlesNight() ? displayControl.roomDark() : displayControl.nightActive()) && !popup) {
+      const bool night = (face->handlesNight() ? displayControl.roomDark() : displayControl.nightActive()) && !popup;
+      if (notice::active(now, night)) {  // a message sent from Home Assistant takes the panel, whatever the face; a normal one waits out the night
+        notice::draw(*display, now);
+        noticeShown = true;
+      } else if (night) {
         nightClock.draw(*display, clockTime.getHour(), clockTime.getMinute(), clockTime.is24hFormat());
         nightShown = true;
       } else if (const Birthdays::Entry *birthday = popup ? nullptr : birthdayToday()) {
@@ -1548,7 +1587,7 @@ void loop() {
         display->flipDMABuffer();
         birthdayShown = true;
       } else {
-        if (nightShown || birthdayShown) { nightShown = birthdayShown = false; nightClock.reset(); face->invalidate(); }
+        if (nightShown || birthdayShown || noticeShown) { nightShown = birthdayShown = noticeShown = false; nightClock.reset(); face->invalidate(); }
         face->setNight(face->handlesNight() ? displayControl.sunDown() : displayControl.nightActive());
         face->update();
       }
