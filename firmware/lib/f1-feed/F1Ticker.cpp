@@ -791,6 +791,7 @@ static long parseTimeMs(const char *text) {
 
 // A gap as the 3x5 font shows it: "+.088", "+1.234", "+12.3", "+1:05"
 static void formatGap(char *out, size_t size, long ms) {
+  ms = ms < 0 ? 0 : ms > 3599999 ? 3599999 : ms;  // bounded, so the longest text is "+59:59" and always fits
   if (ms < 1000) snprintf(out, size, "+0.%03ld", ms);
   else if (ms < 10000) snprintf(out, size, "+%ld.%03ld", ms / 1000, ms % 1000);
   else if (ms < 60000) snprintf(out, size, "+%ld.%ld", ms / 1000, ms % 1000 / 100);

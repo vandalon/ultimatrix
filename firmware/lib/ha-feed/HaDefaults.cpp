@@ -14,6 +14,7 @@ void defaults(Config &c) {
   c.port = 8123;
   c.pages = PAGE_HOME | PAGE_ENERGY | PAGE_DEVICES;
   c.pageSecs = 10;
+  for (auto &entity : c.energy) strlcpy(entity, "auto", sizeof(entity));  // the sensors of the Energy dashboard
   c.gridImportPositive = 1;
   c.batteryDischargePositive = 1;
   c.tiles[0] = {TILE_TEMP, 1, 0, 0, 0, "", ""};
