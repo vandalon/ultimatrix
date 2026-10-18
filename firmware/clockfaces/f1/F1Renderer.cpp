@@ -656,7 +656,7 @@ static bool showPit = true;  // off while the list of a finished part is drawn: 
 static void drawPlace(MatrixPanel_I2S_DMA *d, int place, const F1Ticker::Row &row, int y, bool race = false, int moved = 0, bool fav = false) {
   if (!row.code[0]) return;
   if (moved) d->fillRect(0, y - 1, W, 7, moved > 0 ? rgb(0, 80, 20) : rgb(50, 0, 4));  // gained or lost a place
-  char number[3];
+  char number[12];  // room for any int, so the compiler cannot flag truncation
   snprintf(number, sizeof(number), "%d", place);
   drawText(d, number, place < 10 ? 4 : 2, y, placeInk(place == 1 ? GOLD : GREY));
   d->fillRect(10, y, 2, 5, placeInk(row.color));
