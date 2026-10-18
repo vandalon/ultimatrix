@@ -43,6 +43,10 @@
 #include <TelnetConsole.h>
 #include <Mqtt.h>
 #include <Notice.h>
+#include <nvs.h>
+#ifdef UM_WLED_OVERLAY
+#include <Wled.h>
+#endif
 #include <memory>
 #include <new>
 #include <strings.h>
@@ -75,7 +79,12 @@ static DisplayControl displayControl;
 static NightClock nightClock;
 static bool nightShown = false;
 static bool birthdayShown = false;  // the birthday screen is on the panel instead of the face
+static uint32_t nvsFreeEntries = 1000;  // free entries in the settings storage, refreshed once a minute
+static void watchNvs();
 static bool noticeShown = false;    // a message from Home Assistant is on the panel instead of the face
+#ifdef UM_WLED_OVERLAY
+static bool wledShown = false;      // WLED content (an effect, a drawing or a pixel stream) is on the panel instead of the face
+#endif
 static uint32_t birthdayPreviewUntil = 0;  // telnet "birthday": show the screen until then, whatever the date
 constexpr uint32_t kBirthdayFrameMs = 60;
 static bool birthdayPreviewing() { return birthdayPreviewUntil && (int32_t)(birthdayPreviewUntil - millis()) > 0; }
@@ -247,22 +256,47 @@ static void bootTick() {
 
 // The mDNS name is set up again after every GOT_IP, so ultimatrix.local survives a router restart
 static bool memoryShed = false;  // set once out-of-memory errors showed up: telnet and mDNS stay off until the next restart
+#ifdef UM_WLED_OVERLAY
+static bool wledBusy(uint32_t now) { return wled::wanted(now); }  // WLED has the panel: no new background network work (update checks, geo-IP); the feeds park themselves
+#else
+static bool wledBusy(uint32_t) { return false; }
+#endif
+static bool telnetLow = false;  // telnet is off for now because memory is short
 static bool telnetStarted = false;  // telnet comes up after the face starts, like mDNS
 static bool updateChecking = false;  // mDNS is left off while an update check runs: its RAM goes to the TLS session
+static char mdnsHost[24] = "ultimatrix";  // the WLED record needs a name of its own: a second clock on the network would take ultimatrix.local first
+static uint32_t mdnsStartedAt = 0;  // for the telnet "mdns" command
+static char mdnsServices[48] = "";  // which services registered, for the telnet "mdns" command
 static void startMdns() {
   if (memoryShed || updateChecking || !(face || welcomeMode)) return;  // after the face: what can be stopped again (mDNS, telnet) sits above the permanent allocations, so stopping it leaves one big free block
   mdnsRetryAt = millis() + 15000;
   if (mdnsStarted) MDNS.end();
-  mdnsStarted = MDNS.begin("ultimatrix");
+#ifdef UM_WLED_OVERLAY
+  if (wled::enabled()) {  // like WLED's own wled-xxxxxx: the last three MAC bytes
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    snprintf(mdnsHost, sizeof(mdnsHost), "ultimatrix-%02x%02x%02x", mac[3], mac[4], mac[5]);
+  } else strcpy(mdnsHost, "ultimatrix");
+#endif
+  mdnsStarted = MDNS.begin(mdnsHost);
   if (mdnsStarted) {
     MDNS.setInstanceName("Ultimatrix " UM_MODE_NAME);
-    MDNS.addService("http", "tcp", 80);
+    const bool httpOk = MDNS.addService("http", "tcp", 80);
+    snprintf(mdnsServices, sizeof(mdnsServices), "http %s", httpOk ? "ok" : "FAILED");
     if (Settings::getInstance()->telnet) MDNS.addService("telnet", "tcp", 23);
+#ifdef UM_WLED_OVERLAY
+    if (wled::enabled()) {  // Home Assistant finds the clock as a WLED device through this record
+      const bool wledOk = wled::mdnsAdd();
+      size_t n = strlen(mdnsServices);
+      snprintf(mdnsServices + n, sizeof(mdnsServices) - n, ", wled %s", wledOk ? "ok" : "FAILED");
+    }
+#endif
   }
-  consoleLog("mDNS: ultimatrix.local %s\n", mdnsStarted ? "up" : "FAILED");
+  mdnsStartedAt = millis();
+  consoleLog("mDNS: %s.local %s (%s)\n", mdnsHost, mdnsStarted ? "up" : "FAILED", mdnsServices);
 }
 
-#define UM_TELNET_COMMON_HELP "  update  download signed application update\r\n  update-status  show update progress\r\n  birthday  show the birthday screen for a minute (again to stop)\r\n"
+#define UM_TELNET_COMMON_HELP "  nvs  show how full the settings storage is\r\n  mdns  show the mDNS name and records (mdns restart: announce again)\r\n  update  download signed application update\r\n  update-status  show update progress\r\n  birthday  show the birthday screen for a minute (again to stop)\r\n"
 #if defined(UM_MARIO) || defined(UM_LUIGI)
 #define UM_TELNET_HELP "  world   pick the world: world list, world demo, world rotate, world <name>\r\n"
 #elif defined(UM_F1)
@@ -285,6 +319,31 @@ static void telnetWatch(Print *out) {
 }
 
 static bool telnetCommand(const char *c, Print &out) {
+  if (!strcasecmp(c, "nvs")) {
+    nvs_stats_t stats = {};
+    nvs_get_stats(nullptr, &stats);
+    out.printf("NVS: %u of %u entries used, %u free (%u namespaces)\r\n", (unsigned)stats.used_entries, (unsigned)stats.total_entries, (unsigned)stats.free_entries, (unsigned)stats.namespace_count);
+    return true;
+  }
+  if (!strncasecmp(c, "mdns", 4) && (!c[4] || c[4] == ' ')) {  // "mdns" reports, "mdns restart" announces again
+    if (strstr(c, "restart")) startMdns();
+    out.printf("mDNS: %s.local %s%s%s; registered: %s; started %u s ago; Wi-Fi %d dBm ch %d\r\n", mdnsHost, mdnsStarted ? "up" : "DOWN", memoryShed ? " (stopped after memory trouble)" : "", updateChecking ? " (paused during an update check)" : "", mdnsServices, (unsigned)((millis() - mdnsStartedAt) / 1000), (int)WiFi.RSSI(), (int)WiFi.channel());
+#ifdef UM_WLED_OVERLAY
+    { uint32_t n[9]; wled::realtimeCounts(n); out.printf("UDP received/valid: DDP %u/%u, UDP %u/%u, Art-Net %u/%u, E1.31 %u/%u\r\n", (unsigned)n[0], (unsigned)n[4], (unsigned)n[1], (unsigned)n[5], (unsigned)n[2], (unsigned)n[6], (unsigned)n[3], (unsigned)n[7]); }
+    out.printf("WLED: %s; _wled._tcp record %s; UDP listeners %s; %u packets, %u dropped; free heap %u\r\n", wled::enabled() ? "on" : "off", wled::mdnsAdded() ? "in the responder" : "absent", wled::realtimeListening() ? "open" : "closed", (unsigned)wled::realtimePackets(), (unsigned)wled::realtimeDropped(), (unsigned)ESP.getFreeHeap());
+#endif
+    return true;
+  }
+#ifdef UM_WLED_OVERLAY
+  if (!strncasecmp(c, "udp", 3) && (!c[3] || c[3] == ' ')) {  // "udp off" / "udp on": the realtime listeners, for tests
+    const char *arg = c + 3;
+    while (*arg == ' ') ++arg;
+    if (!strcasecmp(arg, "off")) wled::setEnabled(false);
+    else if (!strcasecmp(arg, "on")) wled::setEnabled(true);
+    out.printf("WLED: %s, UDP listeners %s (usage: udp on|off)\r\n", wled::enabled() ? "on" : "off", wled::realtimeListening() ? "open" : "closed");
+    return true;
+  }
+#endif
   if (telnetUpdate == TelnetUpdate::Asking) {
     if (!strcasecmp(c, "y") || !strcasecmp(c, "yes")) {
       telnetUpdate = TelnetUpdate::None;
@@ -389,6 +448,9 @@ static String selectedValues(const char *name) {
 }
 
 static void settingsPage() {
+#ifdef UM_WLED_OVERLAY
+  if (wled::wantsLightPage(server)) { server.sendHeader("Location", "/wled"); server.send(302, "text/plain", ""); return; }
+#endif
   welcomeVisited = true;  // the welcome screens drop the QR code once somebody has opened the page
   server.send_P(200, "text/html; charset=utf-8", settingsHtml); }
 
@@ -413,6 +475,7 @@ static void settingsState() {
   json += ultime::timeStatus() == timeSet ? "true" : "false";
   json += ",\"lightReading\":" + String(displayControl.lightReading());
   json += ",\"nightActive\":" + String(displayControl.nightActive() ? "true" : "false");
+  json += ",\"nvsFree\":" + String(nvsFreeEntries);
   json += ",\"nightWhy\":\"" + String(!Settings::getInstance()->nightClock ? "" : displayControl.roomDark() ? "dark" : displayControl.nightScheduled() ? "schedule" : "") + "\"";
   {
     int rise = 0, set = 0;
@@ -715,7 +778,7 @@ static void saveSettings() {
   if (displayReady) display->setRotation(s.rotation);
   if (timeChanged && face) clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (consoleChanged) {
-    if (s.telnet && !memoryShed) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
+    if (s.telnet && !memoryShed && !telnetLow) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
     else { telnet.stop(); telnetStarted = false; }
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
@@ -779,7 +842,7 @@ static void mqttSettingsChanged(const Settings &previous) {
   if ((previous.timezone != s.timezone || previous.use24h != s.use24h || previous.ntpServer != s.ntpServer) && face)
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (previous.telnet != s.telnet) {
-    if (s.telnet && !memoryShed) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
+    if (s.telnet && !memoryShed && !telnetLow) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
     else { telnet.stop(); telnetStarted = false; }
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
@@ -852,7 +915,7 @@ static void requestFirmwareUpdate() {
 static void autoUpdate(uint32_t now) {
   static bool tried = false;
   static uint32_t nextTry = 0;
-  if (tried || !Settings::getInstance()->autoUpdate || !bootDone || portalActive || WiFi.status() != WL_CONNECTED || scheduledMode[0]) return;
+  if (tried || !Settings::getInstance()->autoUpdate || !bootDone || portalActive || WiFi.status() != WL_CONNECTED || scheduledMode[0] || wledBusy(now)) return;
   if (now < 120000 || (int32_t)(now - nextTry) < 0) return;
   nextTry = now + 60000;
   FirmwareUpdate::Latest latest; firmwareUpdate.latest(latest);
@@ -925,6 +988,9 @@ static void reportMemory() {
     if (rs.active)
       consoleLog("[Ring] rows=%u missed=%u mean=%u longest=%u us of %u us per row\n", (unsigned)rs.rows, (unsigned)rs.missed,
           (unsigned)(rs.meanCycles / getCpuFrequencyMhz()), (unsigned)(rs.maxCycles / getCpuFrequencyMhz()), (unsigned)rs.rowPeriodUs);
+    if (rs.active)
+      consoleLog("[Ring] flips=%u waits=%u wait total=%u ms longest=%u us\n", (unsigned)rs.flips, (unsigned)rs.waits,
+          (unsigned)(rs.waitUs / 1000), (unsigned)rs.waitMaxUs);
   }
 }
 
@@ -967,6 +1033,9 @@ static void shedOnLowMemory() {
   memoryShed = true;
   telnet.stop();
   if (mdnsStarted) { MDNS.end(); mdnsStarted = false; }
+#ifdef UM_WLED_OVERLAY
+  wled::service(false);  // the UDP listeners and the drawing buffer go too
+#endif
   consoleLog("[Memory] allocation failures: telnet and mDNS stopped until restart (free=%u largest=%u)\n",
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 }
@@ -1263,7 +1332,9 @@ static void background() {
     server.begin();
     settingsServerStarted = true;
   }
-  if (settingsServerStarted) server.handleClient();
+  if (settingsServerStarted) {
+    server.handleClient();
+  }
   uint32_t now = millis();
   if (WiFi.status() == WL_CONNECTED) { reconnectAt = 0; reconnectDelay = 5000; }
   else if (!portalActive && !firmwareUpdating && (int32_t)(now - reconnectAt) >= 0) {
@@ -1276,8 +1347,25 @@ static void background() {
     updateChecking = check.checking;
     if (updateChecking && mdnsStarted) { MDNS.end(); mdnsStarted = false; mdnsRetryAt = now; }  // restarts by itself once the check is over
   }
-  if (!telnetStarted && face && !memoryShed && Settings::getInstance()->telnet) { telnetStarted = true; telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); }
+  {  // telnet needs heap of its own: it goes while memory is short and comes back once there is room again
+    static uint32_t lowSince = 0;
+    const size_t dataFree = heap_caps_get_free_size(MALLOC_CAP_8BIT), dataBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    if (telnetLow) {
+      if (dataFree >= 30000 && dataBlock >= 14000) { telnetLow = false; lowSince = 0; }
+    } else if (telnetStarted && (dataFree < 20000 || dataBlock < 8000)) {
+      if (!lowSince) lowSince = now;
+      else if ((int32_t)(now - lowSince) >= 3000) {  // short dips do not count
+        telnet.stop(); telnetStarted = false; telnetLow = true; lowSince = 0;
+        Serial.printf("[Memory] telnet stopped while memory is short (free=%u largest=%u)\n", (unsigned)dataFree, (unsigned)dataBlock);
+      }
+    } else lowSince = 0;
+  }
+  if (!telnetStarted && face && !memoryShed && !telnetLow && Settings::getInstance()->telnet) { telnetStarted = true; telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); }
   if (!portalActive && WiFi.status() == WL_CONNECTED && !mdnsStarted && (int32_t)(now - mdnsRetryAt) >= 0) startMdns();
+#ifdef UM_WLED_OVERLAY
+  wled::service(face && bootDone && !updateChecking && !firmwareUpdating && WiFi.status() == WL_CONNECTED, now, updateChecking || firmwareUpdating);  // a memory shed gives the canvas back once (shedOnLowMemory) but does not switch the listeners off for good  // opens the UDP listeners when there is heap for them, closes them when it is needed elsewhere
+#endif
+  { static uint32_t nvsCheckAt = 0; if ((int32_t)(now - nvsCheckAt) >= 0) { nvsCheckAt = now + 60000; watchNvs(); } }
   firmwareUpdate.confirmBoot(startupHealthy(), now, memoryAllocationFailures.load());
   FirmwareUpdate::Status updateStatus; firmwareUpdate.status(updateStatus);
   if (updateStatus.ready && !restartAt) restartAt = now + 1500;
@@ -1304,7 +1392,7 @@ static void background() {
     firmwareUpdate.scheduleAfterReboot(firmwareUpdate.target());
     restartAt = now + 1500;
   }
-  firmwareUpdate.poll(now, bootDone && !portalActive && WiFi.status() == WL_CONNECTED);
+  firmwareUpdate.poll(now, bootDone && !portalActive && WiFi.status() == WL_CONNECTED && !wledBusy(now));  // a check that came due waits until WLED lets go
   Mqtt::instance().poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
   autoUpdate(now);
   reportMemory();
@@ -1321,13 +1409,71 @@ static void background() {
 }
 
 
+// The NVS partition is only 20 KB and shared by every face, so what no longer belongs to the running firmware goes:
+// the namespace of the clock software this one replaced always; the F1 cache and the Home Assistant records of faces that are not running only while fewer than 100 entries are free (so people who switch faces often keep them).
+// Wi-Fi, settings and update records are not touched.
+static bool nvsHas(const char *name) {
+  nvs_iterator_t it = nullptr;
+  const bool found = nvs_entry_find("nvs", name, NVS_TYPE_ANY, &it) == ESP_OK;
+  if (it) nvs_release_iterator(it);
+  return found;
+}
+static void nvsEraseNamespace(const char *name) {
+  if (!nvsHas(name)) return;
+  nvs_handle_t handle;
+  if (nvs_open(name, NVS_READWRITE, &handle) != ESP_OK) return;
+  nvs_erase_all(handle);
+  nvs_commit(handle);
+  nvs_close(handle);
+}
+static void nvsEraseKeys(const char *name, const char *const *keys, size_t count) {
+  nvs_handle_t handle;
+  if (nvs_open(name, NVS_READWRITE, &handle) != ESP_OK) return;
+  for (size_t i = 0; i < count; ++i) nvs_erase_key(handle, keys[i]);
+  nvs_commit(handle);
+  nvs_close(handle);
+}
+static void tidyNvs(bool force = false) {
+  nvs_stats_t before = {}, after = {};
+  nvs_get_stats(nullptr, &before);
+  nvsEraseNamespace("clockwise");  // always: nothing reads it
+  // Another face's own records stay for people who switch faces often, and go only when the partition is nearly full
+  nvs_stats_t now = {};
+  nvs_get_stats(nullptr, &now);
+  const bool crowded = force || now.free_entries < 100;
+#if !defined(UM_F1)
+  if (crowded) nvsEraseNamespace("um-f1cache");
+#endif
+#if !defined(UM_HOME)
+  if (crowded) {  // the Home Assistant face's own records (settings, token, tiles, alert and media options)
+    static const char *const homeKeys[] = {"haCfg", "haTile4", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather"};
+    nvsEraseKeys("ultimatrix", homeKeys, sizeof(homeKeys) / sizeof(homeKeys[0]));
+  }
+#endif
+  nvs_get_stats(nullptr, &after);
+  if (before.used_entries != after.used_entries) consoleLog("[Nvs] removed data that no longer belongs: %u of %u entries used (was %u)\n", (unsigned)after.used_entries, (unsigned)after.total_entries, (unsigned)before.used_entries);
+}
+
+// The settings storage is watched while the clock runs: when it gets crowded the leftovers go (also those of other faces),
+// and what is still too full is reported to the settings page
+static void watchNvs() {
+  nvs_stats_t stats = {};
+  if (nvs_get_stats(nullptr, &stats) != ESP_OK) return;
+  if (stats.free_entries < 100) { tidyNvs(true); nvs_get_stats(nullptr, &stats); }
+  nvsFreeEntries = stats.free_entries;
+}
+
 void setup() {
   Serial.begin(115200);
   heap_caps_register_failed_alloc_callback(allocationFailed);
   telnet.setWatcher(telnetWatch);
   if (FirmwareUpdate::takeScheduled(scheduledMode, sizeof(scheduledMode))) { firmwareUpdating = true; scheduledSince = millis(); bootWasScheduled = true; updateOnly = true; }  // keeps the feeds off until the update has run
+  tidyNvs();
   auto &s = *Settings::getInstance();
   s.load();
+#ifdef UM_WLED_OVERLAY
+  wled::load();
+#endif
 #ifdef UM_HOME
   ha::load();
 #endif
@@ -1365,6 +1511,7 @@ void setup() {
 #define UM_RING_ROWS 8
 #endif
   if (!setupRefresh) panel.ring_rows = UM_RING_ROWS;  // streaming mode: 8 rows of bit planes are kept, the rest is generated from a compact framebuffer (0 = keep every row)
+
   if (setupRefresh) {
     panel.i2sspeed = HUB75_I2S_CFG::HZ_20M;
     panel.min_refresh_rate = 255;
@@ -1528,6 +1675,9 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/display", displaySave);
   server.on("/api/mqtt", HTTP_GET, mqttState);
   postRoute("/api/mqtt", mqttSave);
+#ifdef UM_WLED_OVERLAY
+  wled::apiAttach(server, postRoute);
+#endif
 #ifdef UM_HOME
   server.on("/api/ha", HTTP_GET, haState);
   postRoute("/api/ha", haSave);
@@ -1551,7 +1701,7 @@ void loop() {
       geoSettled = !(!s.manualTimezone || !s.hasLocation);
       geoWanted = !geoSettled;
     }
-    if (geoWanted && geoState.load() == 0 && (int32_t)(now - geoRetryAt) >= 0) { geoWanted = false; startGeo(); }
+    if (geoWanted && geoState.load() == 0 && (int32_t)(now - geoRetryAt) >= 0 && !wledBusy(now)) { geoWanted = false; startGeo(); }
     if (geoState.load() == 2) {
       if (geoFound) {
         bool changed = false, zoneChanged = false;
@@ -1580,6 +1730,9 @@ void loop() {
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
     face = new Clockface(display);
     face->setup(&clockTime);
+#ifdef UM_WLED_OVERLAY
+    wled::attachPanel(*display);
+#endif
     consoleLog("Ultimatrix %s settings: http://%s/ (http://ultimatrix.local/)\n", UM_MODE_NAME, WiFi.localIP().toString().c_str());
   }
   if ((int32_t)(now - nextFrame) >= 0) {
@@ -1601,6 +1754,10 @@ void loop() {
     if (bootDone) {  // keeps drawing during an update: the feeds are parked, the face shows its last snapshot
       // A face that paints its own night (Mario, Luigi) follows the sun for its sky and only gives way to the red clock in a dark room
       face->poll();  // the face follows its data while the night clock is up too
+#ifdef UM_WLED_OVERLAY
+      wled::poll(clockTime.getHour24(), clockTime.getMinute(), clockTime.getSecond(), clockTime.is24hFormat(), clockTime.getWeekday(), now);
+      bool wledDrawn = false;
+#endif
       const bool popup = face->alertOverridesNight();  // an alert that must show through the night clock and the birthday screen
       const bool night = displayControl.nightClockShown(face->handlesNight()) && !popup;
       if (notice::active(now, displayControl.nightDimmed(face->handlesNight()) && !popup)) {  // a message sent from Home Assistant takes the panel, whatever the face; a normal one waits out the night
@@ -1609,6 +1766,11 @@ void loop() {
       } else if (night) {
         nightClock.draw(*display, clockTime.getHour(), clockTime.getMinute(), clockTime.is24hFormat());
         nightShown = true;
+#ifdef UM_WLED_OVERLAY
+      } else if (wled::wanted(now)) {  // WLED content takes the panel below the Notice and the night clock; the face is not updated meanwhile
+        wled::draw(*display, now);
+        wledDrawn = wledShown = true;
+#endif
       } else if (const Birthdays::Entry *birthday = popup ? nullptr : birthdayToday()) {
         char time[16];
         snprintf(time, sizeof(time), clockTime.is24hFormat() ? "%02d:%02d" : "%d:%02d", clockTime.getHour(), clockTime.getMinute());
@@ -1617,20 +1779,42 @@ void loop() {
         display->flipDMABuffer();
         birthdayShown = true;
       } else {
-        if (nightShown || birthdayShown || noticeShown) { nightShown = birthdayShown = noticeShown = false; nightClock.reset(); face->invalidate(); }
+        if (nightShown || birthdayShown || noticeShown
+#ifdef UM_WLED_OVERLAY
+            || wledShown
+#endif
+        ) {
+          nightShown = birthdayShown = noticeShown = false;
+#ifdef UM_WLED_OVERLAY
+          wledShown = false;
+#endif
+          nightClock.reset(); face->invalidate();
+        }
         face->setNight(face->handlesNight() ? displayControl.sunDown() : displayControl.nightActive());
         face->update();
       }
+#ifdef UM_WLED_OVERLAY
+      if (!wledDrawn) wled::hidden();  // something above took the panel, or the content ended: the listeners stop drawing before anyone else does
+#endif
     }
+#ifdef UM_WLED_OVERLAY
+    static bool wledPace = false;  // effects and streams run at up to 50 frames per second while WLED has the panel
+    wledPace = bootDone && wledShown && wled::shown();
+#endif
 #ifdef UM_FOOTBALL_ONLY
     // The goal animation paces itself (40 ms frames by wall time): poll fast so no frame is late or skipped
     nextFrame = millis() + (face && face->animating() ? 4 : layout::frameMs);
+#elif defined(UM_SCANNER)
+    nextFrame = millis() + 20;
 #elif defined(UM_MARIO) || defined(UM_LUIGI)
     nextFrame = millis() + 33;  // smoother plumber animation at about 30 frames per second
 #else
     nextFrame = millis() + layout::frameMs;
 #endif
     if (birthdayShown) nextFrame = millis() + kBirthdayFrameMs;
+#ifdef UM_WLED_OVERLAY
+    if (wledPace) nextFrame = millis() + 20;
+#endif
     if (portalActive && millis() - loopStart - backgroundMs > 40) consoleLog("[Portal] frame took %u ms\n", (unsigned)(millis() - loopStart - backgroundMs));
   }
   delay(portalActive ? 1 : 2);  // the setup page and DNS answers wait on this loop

@@ -17,7 +17,7 @@
 #include <rom/tjpgd.h>
 #include "Console.h"
 
-extern std::atomic<bool> firmwareUpdating;
+#include <NetworkBudget.h>
 
 namespace ha {
 namespace media {
@@ -192,7 +192,7 @@ void fetchTask(void *) {
   }
   bool ok = false;
   if (!pixels) setNote("Out of memory");
-  else if (WiFi.status() == WL_CONNECTED && !firmwareUpdating) ok = download(config(), picture, pixels);
+  else if (WiFi.status() == WL_CONNECTED && !feedsHalted()) ok = download(config(), picture, pixels);
   {
     std::lock_guard<std::mutex> guard(lock);
     if (ok) { strlcpy(haveFor, picture, sizeof(haveFor)); coverId++; }
@@ -347,7 +347,7 @@ ArtState art(const char *picture, const uint16_t **pixels, uint16_t *id) {
   }
   if (fetching.exchange(true)) return ART_LOADING;  // one fetch at a time; the page asks again
   // Data memory only: getMaxAllocHeap() counts instruction RAM that no buffer can use
-  if (firmwareUpdating || WiFi.status() != WL_CONNECTED || heap_caps_get_free_size(MALLOC_CAP_8BIT) < 30000 || heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 14000) {
+  if (feedsHalted() || WiFi.status() != WL_CONNECTED || heap_caps_get_free_size(MALLOC_CAP_8BIT) < 30000 || heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 14000) {
     fetching = false;
     setNote("Waiting for memory (%u free)", (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     return ART_LOADING;

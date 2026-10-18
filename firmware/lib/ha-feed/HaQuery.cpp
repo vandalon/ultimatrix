@@ -13,7 +13,7 @@
 #include <string.h>
 #include "HaConfig.h"
 
-extern std::atomic<bool> firmwareUpdating;
+#include <NetworkBudget.h>
 
 namespace ha {
 
@@ -59,7 +59,7 @@ const char *loopFor(const char *kind) {
 bool suggest(const char *kind, const char *typed, char *out, size_t capacity, char *error, size_t errorSize) {
   out[0] = 0;
   if (!configured()) { strlcpy(error, "Home Assistant is not set up yet", errorSize); return false; }
-  if (WiFi.status() != WL_CONNECTED || firmwareUpdating) { strlcpy(error, "Not available now", errorSize); return false; }
+  if (WiFi.status() != WL_CONNECTED || feedsHalted()) { strlcpy(error, "Not available now", errorSize); return false; }
   const Config &c = config();
 
   // What was typed is reduced to the characters of an entity ID, so it can sit between quotes in the template

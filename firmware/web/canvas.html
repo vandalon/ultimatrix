@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Canvas</title>
+<style>
+:root{color-scheme:dark;--bg:#14161a;--card:#1d2026;--line:#2c313a;--text:#e8eaed;--muted:#9aa0a6;--accent:#4aa3ff}
+@media (prefers-color-scheme:light){:root{color-scheme:light;--bg:#f4f5f7;--card:#fff;--line:#d8dbe0;--text:#1d2026;--muted:#5f6670}}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--text)}
+main{max-width:980px;margin:0 auto;padding:16px;display:grid;gap:16px;grid-template-columns:minmax(0,560px) minmax(240px,1fr)}
+@media (max-width:820px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+h1{font-size:18px;margin:0 0 8px;grid-column:1/-1}h2{font-size:14px;margin:0 0 8px;color:var(--muted);font-weight:600}
+canvas{width:100%;aspect-ratio:1;image-rendering:pixelated;touch-action:none;background:#000;border-radius:8px;display:block;cursor:crosshair}
+.row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;align-items:center}
+button,select,input[type=number],input[type=text]{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+button{cursor:pointer}button.on{border-color:var(--accent);color:var(--accent)}button:disabled{opacity:.4}
+input[type=color]{width:44px;height:36px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.sw{width:26px;height:26px;padding:0;border-radius:6px}
+.slot{display:flex;gap:6px;align-items:center;margin:6px 0}.slot span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+small,#status{color:var(--muted)}a{color:var(--accent)}
+.gres{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:6px;margin:8px 0}.gres img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;background:#000;image-rendering:auto}
+.crop{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:10;padding:16px}.crop.open{display:flex}
+.crop .box{background:var(--card,#fff);color:var(--text);border-radius:14px;padding:14px;width:min(100%,420px);display:grid;gap:10px}
+.crop canvas.stage{width:100%;aspect-ratio:1;background:#111;border-radius:8px;cursor:move;image-rendering:auto}
+.crop .pv{width:64px;height:64px;image-rendering:pixelated;border:1px solid var(--line);border-radius:4px;cursor:default;aspect-ratio:auto}
+.crop input[type=range]{flex:1}
+.embed{color-scheme:light}.embed body{background:transparent}.embed{--bg:transparent;--card:#fff;--line:#d8dbe0;--text:#1d2026;--muted:#5f6670}.embed h1,.embed main>section:last-child>p:last-child{display:none}.embed main{padding:8px}
+</style><script>if(location.search.indexOf("embed")>=0)document.documentElement.className="embed"</script></head><body><main>
+<h1>Canvas <small>paint the panel pixel by pixel</small></h1>
+<section class="card"><canvas id="c" width="64" height="64"></canvas>
+<div class="row" id="tools"></div>
+<div class="row"><input type="color" id="color" value="#ff8800"><span id="palette" class="row" style="margin:0"></span><button id="addcolor" title="Save this colour">+</button></div>
+<div class="row"><button id="undo">Undo</button><button id="redo">Redo</button><button id="mirror" title="Mirror strokes left to right">Mirror</button><button id="fillshape" title="Filled rectangles">Filled</button>
+<button id="fliph">Flip ↔</button><button id="flipv">Flip ↕</button><button data-shift="-1,0">←</button><button data-shift="1,0">→</button><button data-shift="0,-1">↑</button><button data-shift="0,1">↓</button><button id="clear">Clear</button></div>
+<p id="status">Connecting…</p></section>
+<section class="card"><h2>Saved drawings</h2><div id="slots"></div>
+<div class="row"><input type="text" id="name" maxlength="15" placeholder="Name" style="width:9em"><button id="save">Save as new</button></div>
+<h2>Animation</h2><div class="row"><input type="number" id="delay" value="150" min="20" max="60000" style="width:6em"><small>ms per frame</small><select id="target"></select><button id="frame">Add as next frame</button></div>
+<small>Draw a frame, save it, then add frames to the same drawing (up to 64, as many as fit). A drawing with several frames plays in a loop.</small>
+<h2 style="margin-top:14px">Cycle drawings</h2><div class="row"><input type="number" id="cycle" value="0" min="0" max="3600" style="width:6em"><small>seconds (0 = off)</small><button id="setcycle">Set</button></div>
+<h2 style="margin-top:14px">Search GIFs</h2>
+<details style="margin-bottom:8px"><summary><small>How this works</small></summary><small><ol style="margin:6px 0;padding-left:20px">
+<li>Choose a source and get a free key. KLIPY: create an API key in the partner panel at partner.klipy.com (a new key is limited to 100 requests an hour until KLIPY approves it). GIPHY: sign in at developers.giphy.com, create an app (choose API, not SDK) and copy its key.</li>
+<li>Paste the key above and press <b>Save key</b>. Each source keeps its own key. It is stored on the clock (anyone who can open this page on your network can read it), so you only do this once.</li>
+<li>Search, then tap a GIF. Still pictures open a crop square; animated GIFs are loaded as frames (up to 64, as many as fit) into the clock's memory and play at once.</li>
+<li>An imported GIF is kept in the clock's memory only: it is gone when WLED stops or the clock restarts. Pictures and drawings you press <b>Save as new</b> for are kept on the clock.</li>
+</ol>
+This device needs internet access for the search (the clock does not). Animated import needs Chrome or Edge; Safari and the WLED app load the first frame only. The free key allows about 100 searches an hour.</small></details>
+<div class="row"><select id="gsrc"><option value="klipy">KLIPY</option><option value="giphy">GIPHY</option></select><input type="text" id="gkey" placeholder="Your KLIPY API key" style="flex:1;min-width:0"><button id="gsavekey">Save key</button></div>
+<div class="row"><input type="text" id="gq" placeholder="Search KLIPY" style="flex:1;min-width:0"><button id="gsearch">Search</button></div>
+<div class="gres" id="gres"></div><small id="gcredit">Powered by KLIPY. The key is stored on the clock, so every browser has it; get one in the partner panel at partner.klipy.com.</small>
+<h2 style="margin-top:14px">Import</h2><div class="row"><label for="gifContrast">GIF contrast</label><input id="gifContrast" type="range" min="80" max="160" step="5" value="120"><output id="gifContrastValue" for="gifContrast">120%</output></div><small>GIFs use 32 colours without dithering. Contrast applies to the next import; 100% keeps the original contrast.</small><div class="row"><input type="file" id="file" accept="image/*"></div>
+<div class="row"><input type="text" id="url" placeholder="or a web address of a picture or GIF" style="flex:1;min-width:0"><button id="geturl">Load</button></div>
+<small>Or paste a web address of a picture or GIF (the site must allow other pages to load it; direct image links usually do), or choose a file. Pictures open a crop square first; pictures and GIFs are scaled to 64×64 here in the browser; animated GIFs import as an animation in Chrome and Edge. Imports go to the selected drawing slot above.</small>
+<p><a href="/">Settings</a></p></section>
+</main>
+<div class="crop" id="crop"><div class="box"><canvas class="stage" id="stage" width="400" height="400"></canvas>
+<div class="row" style="margin:0"><small>Size</small><input type="range" id="csize" min="8" max="100" value="100"><canvas class="pv" id="cprev" width="64" height="64"></canvas></div>
+<div class="row" style="margin:0"><small>Drag the square to move it, drag a corner or use the slider to resize.</small></div>
+<div class="row" style="margin:0;justify-content:flex-end"><button id="cfit" title="Whole picture with black bars">Fit whole picture</button><button id="ccancel">Cancel</button><button id="cuse" class="on">Use crop</button></div></div></div>
+<script>
+const N = 64, cv = document.getElementById('c'), ctx = cv.getContext('2d'), image = ctx.createImageData(N, N);
+const $ = id => document.getElementById(id), msg = $('status');
+let px = new Uint32Array(N * N), shadow = new Uint32Array(N * N), tool = 'pencil', mirror = false, filled = false, busy = false, dirty = false;
+let undo = [], redo = [], base = null, start = null, drawing = false;
+const tools = { pencil: 'Pencil', eraser: 'Eraser', fill: 'Fill', line: 'Line', rect: 'Rectangle', pick: 'Eyedropper' };
+for (const [id, name] of Object.entries(tools)) { const b = document.createElement('button'); b.textContent = name; b.dataset.tool = id; $('tools').append(b); }
+const hex = v => '#' + v.toString(16).padStart(6, '0'), rgb = () => parseInt($('color').value.slice(1), 16);
+function render() { for (let i = 0; i < N * N; i++) { const v = px[i]; image.data[i * 4] = v >> 16; image.data[i * 4 + 1] = v >> 8; image.data[i * 4 + 2] = v; image.data[i * 4 + 3] = 255; } ctx.putImageData(image, 0, 0); }
+const to565 = v => ((v >> 16 & 0xF8) << 8) | ((v >> 8 & 0xFC) << 3) | ((v & 255) >> 3);
+const q = v => { const c = to565(v); return ((c >> 8 & 0xF8) | (c >> 13)) << 16 | ((c >> 3 & 0xFC) | (c >> 9 & 3)) << 8 | ((c << 3 & 0xF8) | (c >> 2 & 7)); };
+async function post(url, body, type) { const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': type || 'text/plain' }, body: body ?? '' }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.message || r.msg); return j; }
+let importSerial = 0, abortPush = false;  // a newer import stops an older one: only the newest may write to the clock
+async function push() {
+  if (busy) { dirty = true; return; }
+  busy = true; dirty = false;
+  try {
+    const changed = []; for (let i = 0; i < N * N; i++) if (px[i] !== shadow[i]) changed.push(i);
+    if (changed.length && changed.length <= 100) {  // small requests: the clock builds a String from every body, and its heap is short
+      if (abortPush) { busy = false; return; }
+      await post('/api/canvas/pixels', changed.map(i => i + ':' + px[i].toString(16).padStart(6, '0')).join(';'));
+      for (const i of changed) shadow[i] = px[i];
+    } else if (changed.length) {
+      const first = Math.floor(changed[0] / N), last = Math.floor(changed[changed.length - 1] / N);
+      for (let y = first; y <= last; y += 4) {
+        if (abortPush) break;
+        const n = Math.min(4, last - y + 1), bytes = new Uint8Array(n * N * 2);
+        for (let i = 0; i < n * N; i++) { const c = to565(px[y * N + i]); bytes[i * 2] = c & 255; bytes[i * 2 + 1] = c >> 8; }
+        let text = ''; for (let i = 0; i < bytes.length; i += 1024) text += String.fromCharCode(...bytes.subarray(i, i + 1024));
+        await post('/api/canvas/rows?y=' + y, btoa(text));
+        for (let i = 0; i < n * N; i++) shadow[y * N + i] = px[y * N + i];
+      }
+    }
+    msg.textContent = 'Live on the panel.';
+  } catch (e) { msg.textContent = 'Could not reach the clock: ' + e.message; }
+  busy = false;
+  if (dirty) push();
+}
+function commit() { undo.push(Uint32Array.from(base)); if (undo.length > 40) undo.shift(); redo = []; }
+function setPx(x, y, v) { if (x >= 0 && y >= 0 && x < N && y < N) px[y * N + x] = v; }
+function put(x, y, v) { setPx(x, y, v); if (mirror) setPx(N - 1 - x, y, v); }
+function line(x0, y0, x1, y1, v) { const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1; let e = dx + dy; for (;;) { put(x0, y0, v); if (x0 === x1 && y0 === y1) break; const e2 = 2 * e; if (e2 >= dy) { e += dy; x0 += sx; } if (e2 <= dx) { e += dx; y0 += sy; } } }
+function rect(x0, y0, x1, y1, v) { for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) if (filled || x === x0 || x === x1 || y === y0 || y === y1) put(x, y, v); }
+function flood(x, y, v) { const from = px[y * N + x]; if (from === v) return; const stack = [[x, y]]; while (stack.length) { const [a, b] = stack.pop(); if (a < 0 || b < 0 || a >= N || b >= N || px[b * N + a] !== from) continue; put(a, b, v); if (mirror && px[b * N + a] === from) px[b * N + a] = v; stack.push([a + 1, b], [a - 1, b], [a, b + 1], [a, b - 1]); } }
+const cell = e => { const r = cv.getBoundingClientRect(); return [Math.min(N - 1, Math.max(0, Math.floor((e.clientX - r.left) / r.width * N))), Math.min(N - 1, Math.max(0, Math.floor((e.clientY - r.top) / r.height * N)))]; };
+cv.addEventListener('pointerdown', e => {
+  cv.setPointerCapture(e.pointerId); const [x, y] = cell(e), v = tool === 'eraser' ? 0 : rgb();
+  if (tool === 'pick') { $('color').value = hex(px[y * N + x]); return; }
+  base = Uint32Array.from(px); start = [x, y]; drawing = true;
+  if (tool === 'fill') { flood(x, y, v); commit(); drawing = false; } else if (tool === 'pencil' || tool === 'eraser') put(x, y, v); else if (tool === 'line') line(x, y, x, y, v); else rect(x, y, x, y, v);
+  render(); push();
+});
+cv.addEventListener('pointermove', e => {
+  if (!drawing) return; const [x, y] = cell(e), v = tool === 'eraser' ? 0 : rgb();
+  if (tool === 'pencil' || tool === 'eraser') { line(start[0], start[1], x, y, v); start = [x, y]; } else { px.set(base); tool === 'line' ? line(start[0], start[1], x, y, v) : rect(start[0], start[1], x, y, v); }
+  render(); push();
+});
+const end = () => { if (drawing) { commit(); drawing = false; } }; cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+function apply(fn) { base = Uint32Array.from(px); const next = new Uint32Array(N * N); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const [a, b] = fn(x, y); next[b * N + a] = px[y * N + x]; } px = next; commit(); render(); push(); }
+document.querySelectorAll('[data-shift]').forEach(b => b.addEventListener('click', () => { const [dx, dy] = b.dataset.shift.split(',').map(Number); apply((x, y) => [(x + dx + N) % N, (y + dy + N) % N]); }));
+$('fliph').onclick = () => apply((x, y) => [N - 1 - x, y]); $('flipv').onclick = () => apply((x, y) => [x, N - 1 - y]);
+$('clear').onclick = () => { base = Uint32Array.from(px); px.fill(0); commit(); render(); push(); };
+$('undo').onclick = () => { if (undo.length) { redo.push(Uint32Array.from(px)); px = undo.pop(); render(); push(); } };
+$('redo').onclick = () => { if (redo.length) { undo.push(Uint32Array.from(px)); px = redo.pop(); render(); push(); } };
+$('mirror').onclick = e => { mirror = !mirror; e.target.classList.toggle('on', mirror); }; $('fillshape').onclick = e => { filled = !filled; e.target.classList.toggle('on', filled); };
+$('tools').addEventListener('click', e => { if (e.target.dataset.tool) { tool = e.target.dataset.tool; document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('on', b.dataset.tool === tool)); } });
+document.querySelector('[data-tool=pencil]').classList.add('on');
+// Saved colours
+let palette = []; try { palette = JSON.parse(localStorage.getItem('canvasPalette') || '[]'); } catch (_) {}
+function drawPalette() { $('palette').replaceChildren(...palette.map(c => { const b = document.createElement('button'); b.className = 'sw'; b.style.background = c; b.onclick = () => $('color').value = c; b.oncontextmenu = e => { e.preventDefault(); palette = palette.filter(p => p !== c); save(); }; return b; })); }
+function save() { try { localStorage.setItem('canvasPalette', JSON.stringify(palette)); } catch (_) {} drawPalette(); }
+$('addcolor').onclick = () => { const c = $('color').value; if (!palette.includes(c)) { palette.push(c); if (palette.length > 16) palette.shift(); save(); } }; drawPalette();
+// Device
+function fromBase64(text) { const bin = atob(text), out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
+async function pull() { const bytes = fromBase64(await (await fetch('/api/canvas/pixels', { cache: 'no-store' })).text()); for (let i = 0; i < N * N; i++) px[i] = q(bytes[i * 2] | bytes[i * 2 + 1] << 8); shadow = Uint32Array.from(px); render(); }
+function playbackBusy(active) { if (parent !== window) parent.postMessage({ type: 'canvas-busy', active }, location.origin); }
+async function slots() {
+  const info = await (await fetch('/api/canvas', { cache: 'no-store' })).json(), list = $('slots'), target = $('target');
+  playbackBusy(info.frames > 1);
+  list.replaceChildren(); target.replaceChildren(new Option('New slot', -1));
+  $('cycle').value = info.cycle;
+  for (const s of info.slots) {
+    const row = document.createElement('div'); row.className = 'slot';
+    const label = document.createElement('span'); label.textContent = (s.id + 1) + '. ' + s.name + (s.frames > 1 ? ' (' + s.frames + ' frames)' : '') + (s.id === info.slot ? ' ●' : '');
+    const load = document.createElement('button'), del = document.createElement('button');
+    load.textContent = 'Show'; load.onclick = async () => { try { await post('/api/canvas/slot?op=load&slot=' + s.id); await pull(); await slots(); } catch (e) { msg.textContent = e.message; } };
+    del.textContent = '×'; del.onclick = async () => { try { await post('/api/canvas/slot?op=delete&slot=' + s.id); await slots(); } catch (e) { msg.textContent = e.message; } };
+    row.append(label, load, del); list.append(row); target.append(new Option(s.id + 1 + '. ' + s.name, s.id));
+  }
+  if (!info.slots.length) list.textContent = 'Nothing saved yet.';
+  const left = document.createElement('small'); left.textContent = 'Storage left on the clock: ' + Math.floor(info.free / 1024) + ' KB (it is shared with other data; remove drawings with × to make room).'; list.append(left);
+  const used = new Set(info.slots.map(s => s.id)); window.freeSlot = [0, 1, 2, 3, 4, 5, 6, 7].find(i => !used.has(i)) ?? -1;
+  window.freeBytes = info.free; window.slotList = info.slots;
+}
+async function store(newDrawing, slot) { await push(); while (busy) await new Promise(r => setTimeout(r, 30)); return post('/api/canvas/save?slot=' + slot + '&delay=' + ($('delay').value || 150) + (newDrawing ? '&name=' + encodeURIComponent($('name').value || 'Drawing') : '&append=1')); }
+$('save').onclick = async () => { if (window.freeSlot < 0) { msg.textContent = 'All 8 slots are used: remove one first.'; return; } try { await store(true, window.freeSlot); $('name').value = ''; await slots(); msg.textContent = 'Saved.'; } catch (e) { msg.textContent = e.message; } };
+$('frame').onclick = async () => { const t = +$('target').value; if (t < 0) { msg.textContent = 'Choose a saved drawing to add the frame to.'; return; } try { await store(false, t); await slots(); msg.textContent = 'Frame added.'; } catch (e) { msg.textContent = e.message; } };
+$('setcycle').onclick = async () => { try { await post('/api/canvas/cycle?sec=' + ($('cycle').value || 0)); msg.textContent = 'Cycle set.'; } catch (e) { msg.textContent = e.message; } };
+// Crop: a square over the picture, chosen in the browser; returns the picked bitmap rect or null
+function cropImage(bitmap) {
+  return new Promise(resolve => {
+    const W = bitmap.width, H = bitmap.height, S = 400, k = S / Math.max(W, H), ox = (S - W * k) / 2, oy = (S - H * k) / 2, st = $('stage'), g = st.getContext('2d'), pv = $('cprev').getContext('2d');
+    const min = Math.max(4, Math.min(W, H) / 12);
+    let s = Math.min(W, H), x = (W - s) / 2, y = (H - s) / 2, drag = null;
+    const clamp = () => { s = Math.max(min, Math.min(s, W, H)); x = Math.max(0, Math.min(x, W - s)); y = Math.max(0, Math.min(y, H - s)); };
+    const draw = () => {
+      g.clearRect(0, 0, S, S); g.drawImage(bitmap, ox, oy, W * k, H * k);
+      const bx = ox + x * k, by = oy + y * k, bs = s * k;
+      g.fillStyle = 'rgba(0,0,0,.6)'; g.beginPath(); g.rect(0, 0, S, S); g.rect(bx, by, bs, bs); g.fill('evenodd');
+      g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1; g.beginPath();
+      for (let i = 1; i < 3; i++) { g.moveTo(bx + bs * i / 3, by); g.lineTo(bx + bs * i / 3, by + bs); g.moveTo(bx, by + bs * i / 3); g.lineTo(bx + bs, by + bs * i / 3); } g.stroke();
+      g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(bx, by, bs, bs);
+      g.fillStyle = '#fff'; for (const [cx, cy] of [[bx, by], [bx + bs, by], [bx, by + bs], [bx + bs, by + bs]]) g.fillRect(cx - 6, cy - 6, 12, 12);
+      pv.imageSmoothingEnabled = true; pv.imageSmoothingQuality = 'high'; pv.drawImage(bitmap, x, y, s, s, 0, 0, N, N);
+      $('csize').value = Math.round(s / Math.min(W, H) * 100);
+    };
+    const at = e => { const r = st.getBoundingClientRect(); return [(e.clientX - r.left) * S / r.width, (e.clientY - r.top) * S / r.height]; };
+    st.onpointerdown = e => {
+      const [px_, py_] = at(e), bx = ox + x * k, by = oy + y * k, bs = s * k; st.setPointerCapture(e.pointerId);
+      const corner = [[bx, by], [bx + bs, by], [bx, by + bs], [bx + bs, by + bs]].findIndex(([cx, cy]) => Math.abs(px_ - cx) < 18 && Math.abs(py_ - cy) < 18);
+      if (corner >= 0) { const ax = corner & 1 ? x : x + s, ay = corner & 2 ? y : y + s; drag = { ax, ay, cx: corner & 1 ? 1 : -1, cy: corner & 2 ? 1 : -1 }; }
+      else if (px_ >= bx && px_ <= bx + bs && py_ >= by && py_ <= by + bs) drag = { mx: px_ - x * k, my: py_ - y * k };
+      else { x = (px_ - ox) / k - s / 2; y = (py_ - oy) / k - s / 2; clamp(); drag = { mx: px_ - x * k, my: py_ - y * k }; draw(); }
+    };
+    st.onpointermove = e => {
+      if (!drag) return; const [px_, py_] = at(e), ix = (px_ - ox) / k, iy = (py_ - oy) / k;
+      if (drag.ax !== undefined) {
+        const ms = Math.min(drag.cx > 0 ? W - drag.ax : drag.ax, drag.cy > 0 ? H - drag.ay : drag.ay);
+        s = Math.max(min, Math.min(ms, Math.max((ix - drag.ax) * drag.cx, (iy - drag.ay) * drag.cy)));
+        x = drag.cx > 0 ? drag.ax : drag.ax - s; y = drag.cy > 0 ? drag.ay : drag.ay - s;
+      } else { x = (px_ - drag.mx) / k; y = (py_ - drag.my) / k; }
+      clamp(); draw();
+    };
+    st.onpointerup = st.onpointercancel = () => { drag = null; };
+    st.onwheel = e => { e.preventDefault(); const c = [x + s / 2, y + s / 2]; s *= e.deltaY < 0 ? 0.93 : 1.07; clamp(); x = c[0] - s / 2; y = c[1] - s / 2; clamp(); draw(); };
+    $('csize').oninput = e => { const c = [x + s / 2, y + s / 2]; s = Math.min(W, H) * e.target.value / 100; clamp(); x = c[0] - s / 2; y = c[1] - s / 2; clamp(); draw(); };
+    const done = v => { $('crop').classList.remove('open'); resolve(v); };
+    $('cuse').onclick = () => done({ x, y, s }); $('cfit').onclick = () => done({ fit: true }); $('ccancel').onclick = () => done(null);
+    $('crop').classList.add('open'); draw();
+  });
+}
+function fromCrop(bitmap, c) {
+  tctx.fillStyle = '#000'; tctx.fillRect(0, 0, N, N); tctx.imageSmoothingEnabled = true; tctx.imageSmoothingQuality = 'high';
+  tctx.drawImage(bitmap, c.x, c.y, c.s, c.s, 0, 0, N, N);
+  const d = tctx.getImageData(0, 0, N, N).data; for (let i = 0; i < N * N; i++) px[i] = d[i * 4] << 16 | d[i * 4 + 1] << 8 | d[i * 4 + 2]; render();
+}
+// GIF frames without the browser's ImageDecoder (Safari, the WLED app): at most MAXF frames, spread over the animation, each already scaled to 64x64
+const MAXF = 64;
+function lzw(min, data, n) {
+  const out = new Uint8Array(n), clear = 1 << min, eoi = clear + 1, prefix = new Uint16Array(4096), suffix = new Uint8Array(4096), stack = new Uint8Array(4097);
+  let size = min + 1, next = eoi + 1, bits = 0, acc = 0, ip = 0, op = 0, old = -1, first = 0;
+  while (op < n) {
+    while (bits < size) { if (ip >= data.length) return out; acc |= data[ip++] << bits; bits += 8; }
+    const code = acc & ((1 << size) - 1); acc >>= size; bits -= size;
+    if (code === clear) { size = min + 1; next = eoi + 1; old = -1; continue; }
+    if (code === eoi) break;
+    if (old === -1) { out[op++] = code; old = code; first = code; continue; }
+    let sp = 0, c = code;
+    if (code >= next) { stack[sp++] = first; c = old; }
+    while (c >= clear) { stack[sp++] = suffix[c]; c = prefix[c]; }
+    stack[sp++] = first = c;
+    if (next < 4096) { prefix[next] = old; suffix[next] = first; next++; if (next === 1 << size && size < 12) size++; }
+    old = code; while (sp > 0 && op < n) out[op++] = stack[--sp];
+  }
+  return out;
+}
+function gifFrames(buf) {
+  const b = new Uint8Array(buf); if (String.fromCharCode(...b.subarray(0, 3)) !== 'GIF') throw new Error('Not a GIF.');
+  const W = b[6] | b[7] << 8, H = b[8] | b[9] << 8; let p = 13, gct = null;
+  if (b[10] & 0x80) { const n = 3 << ((b[10] & 7) + 1); gct = b.subarray(p, p + n); p += n; }
+  const list = []; let ms = 100, trans = -1, disposal = 0;
+  const skip = () => { while (b[p]) p += b[p] + 1; p++; };
+  while (p < b.length && b[p] !== 0x3B) {
+    const t = b[p++];
+    if (t === 0x21) { const l = b[p++]; if (l === 0xF9) { const f = b[p + 1]; disposal = f >> 2 & 7; ms = (b[p + 2] | b[p + 3] << 8) * 10 || 100; trans = f & 1 ? b[p + 4] : -1; } skip(); }
+    else if (t === 0x2C) {
+      const x = b[p] | b[p + 1] << 8, y = b[p + 2] | b[p + 3] << 8, w = b[p + 4] | b[p + 5] << 8, h = b[p + 6] | b[p + 7] << 8, f = b[p + 8]; p += 9;
+      let ct = gct; if (f & 0x80) { const n = 3 << ((f & 7) + 1); ct = b.subarray(p, p + n); p += n; }
+      const min = b[p++], parts = []; while (b[p]) { parts.push(b.subarray(p + 1, p + 1 + b[p])); p += b[p] + 1; } p++;
+      const data = new Uint8Array(parts.reduce((a, q) => a + q.length, 0)); let o = 0; for (const q of parts) { data.set(q, o); o += q.length; }
+      list.push({ x, y, w, h, ct, min, data, ms, trans, disposal, interlace: !!(f & 0x40) });
+    } else break;
+  }
+  if (!list.length) throw new Error('Empty GIF.');
+  const total = list.reduce((a, fr) => a + fr.ms, 0), step = Math.max(1, Math.ceil(list.length / MAXF)), cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const c = cv.getContext('2d', { willReadFrequently: true }), frames = []; let back = null;
+  list.forEach((fr, i) => {
+    if (fr.disposal === 3) back = c.getImageData(0, 0, W, H);
+    const idx = lzw(fr.min, fr.data, fr.w * fr.h), img = c.createImageData(fr.w, fr.h), rows = [];
+    if (fr.interlace) { for (const [s0, st] of [[0, 8], [4, 8], [2, 4], [1, 2]]) for (let r = s0; r < fr.h; r += st) rows.push(r); } else for (let r = 0; r < fr.h; r++) rows.push(r);
+    for (let k = 0; k < fr.h; k++) for (let x = 0; x < fr.w; x++) {
+      const v = idx[k * fr.w + x], o = (rows[k] * fr.w + x) * 4; if (v === fr.trans || !fr.ct) continue;
+      img.data[o] = fr.ct[v * 3]; img.data[o + 1] = fr.ct[v * 3 + 1]; img.data[o + 2] = fr.ct[v * 3 + 2]; img.data[o + 3] = 255;
+    }
+    const part = document.createElement('canvas'); part.width = fr.w; part.height = fr.h; part.getContext('2d').putImageData(img, 0, 0); c.drawImage(part, fr.x, fr.y);
+    if (i % step === 0 && frames.length < MAXF) { fit(cv, W, H); frames.push({ px: Uint32Array.from(px) }); }
+    if (fr.disposal === 2) c.clearRect(fr.x, fr.y, fr.w, fr.h); else if (fr.disposal === 3 && back) c.putImageData(back, 0, 0);
+  });
+  return { frames, totalMs: total };
+}
+// GIF search: GIPHY or KLIPY, with the user's own key for each, kept in this browser
+const sources = {
+  giphy: { name: 'GIPHY', credit: 'Powered by GIPHY. The key is stored on the clock, so every browser has it; get a free one at developers.giphy.com.',
+    url: (k, q) => 'https://api.giphy.com/v1/gifs/search?api_key=' + encodeURIComponent(k) + '&limit=24&rating=g&q=' + encodeURIComponent(q),
+    list: j => (j.data || []).map(g => (g.images.fixed_width_small || g.images.fixed_width || g.images.original).url) },
+  klipy: { name: 'KLIPY', credit: 'Powered by KLIPY. The key is stored on the clock, so every browser has it; get one in the partner panel at partner.klipy.com.',
+    url: (k, q) => 'https://api.klipy.com/api/v1/' + encodeURIComponent(k) + '/gifs/search?per_page=24&customer_id=' + encodeURIComponent(customer) + '&q=' + encodeURIComponent(q),
+    list: j => ((j.data && j.data.data) || []).map(g => { const f = g.file || {}, v = f.xs || f.sm || f.md || f.hd || {}; return (v.gif || {}).url; }).filter(Boolean) }
+};
+const DEFAULT_KEYS = { klipy: '', giphy: '' };  // keys that ship with the firmware; a key entered on the page takes precedence
+let customer = ''; try { customer = localStorage.getItem('customerId') || ''; if (!customer) localStorage.setItem('customerId', customer = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now())); } catch (_) { customer = 'anonymous'; }
+const keys = {}; for (const id in sources) { try { keys[id] = localStorage.getItem(id + 'Key') || ''; } catch (_) { keys[id] = ''; } }
+const keyOf = id => keys[id] || DEFAULT_KEYS[id];
+let src = 'klipy';
+try { if (sources[localStorage.getItem('gifSource')]) src = localStorage.getItem('gifSource'); } catch (_) {}
+function showSource() { const o = sources[src]; $('gsrc').value = src; $('gkey').value = keys[src]; $('gkey').placeholder = DEFAULT_KEYS[src] && !keys[src] ? 'Built-in ' + o.name + ' key in use (paste your own to replace it)' : 'Your ' + o.name + ' API key'; $('gq').placeholder = 'Search ' + o.name; $('gcredit').textContent = o.credit; $('gres').replaceChildren(); }
+$('gsrc').onchange = () => { src = $('gsrc').value; try { localStorage.setItem('gifSource', src); } catch (_) {} showSource(); };
+async function saveKey() {  // the keys live on the clock, so every browser has them; this browser keeps a copy
+  keys[src] = $('gkey').value.trim(); let onClock = false;
+  try { await post('/api/canvas/key?src=' + src, keys[src]); onClock = true; } catch (e) { msg.textContent = e.message; }
+  try { localStorage.setItem(src + 'Key', keys[src]); } catch (_) {}
+  return onClock;
+}
+$('gsavekey').onclick = async () => { const ok = await saveKey(); if (ok) msg.textContent = keys[src] ? 'Key saved on the clock.' : DEFAULT_KEYS[src] ? 'Back to the built-in key.' : 'Key removed.'; };
+$('gkey').onchange = saveKey;
+(async () => {  // what the clock has is the truth; a key only this browser has moves to the clock
+  for (const id in sources) {
+    try {
+      const k = (await (await fetch('/api/canvas/key?src=' + id, { cache: 'no-store' })).json()).key || '';
+      if (k) keys[id] = k; else if (keys[id]) await post('/api/canvas/key?src=' + id, keys[id]);
+    } catch (_) {}
+  }
+  showSource();
+})();
+async function gsearch() {
+  const o = sources[src], q = $('gq').value.trim(); if (!q) return; if ($('gkey').value.trim() !== keys[src]) await saveKey(); if (!keyOf(src)) { msg.textContent = 'Paste a ' + o.name + ' API key first.'; return; }
+  msg.textContent = 'Searching…';
+  try {
+    const r = await fetch(o.url(keyOf(src), q));
+    if (!r.ok) throw new Error(r.status === 401 || r.status === 403 || r.status === 404 ? o.name + ' refused the key.' : r.status === 429 ? o.name + ' rate limit: try again later.' : o.name + ' answered ' + r.status + '.');
+    const list = o.list(await r.json());
+    $('gres').replaceChildren(...list.map(u => { const i = document.createElement('img'); i.src = u; i.loading = 'lazy'; i.onclick = () => loadUrl(u); return i; }));
+    msg.textContent = list.length ? 'Tap a GIF to load it.' : 'Nothing found.';
+  } catch (e) { msg.textContent = e instanceof TypeError ? 'Could not reach ' + o.name + ' (no internet on this device?).' : e.message; }
+}
+$('gsearch').onclick = gsearch; $('gq').onkeydown = e => { if (e.key === 'Enter') gsearch(); }; showSource();
+// Import: draw the picture on a 64x64 canvas (contain, black bars) in the browser
+const tmp = document.createElement('canvas'); tmp.width = tmp.height = N; const tctx = tmp.getContext('2d', { willReadFrequently: true });
+function fit(source, w, h) { tctx.fillStyle = '#000'; tctx.fillRect(0, 0, N, N); const k = Math.min(N / w, N / h), dw = Math.round(w * k), dh = Math.round(h * k); tctx.imageSmoothingEnabled = k < 1; tctx.drawImage(source, Math.floor((N - dw) / 2), Math.floor((N - dh) / 2), dw, dh); const d = tctx.getImageData(0, 0, N, N).data; for (let i = 0; i < N * N; i++) px[i] = d[i * 4] << 16 | d[i * 4 + 1] << 8 | d[i * 4 + 2]; render(); }
+$('geturl').onclick = () => loadUrl($('url').value.trim());
+function directUrl(url) {  // a GIPHY page address -> the GIF itself, which GIPHY lets other pages load
+  const m = url.match(/^https?:\/\/(?:www\.)?giphy\.com\/(?:gifs|stickers|embed|clips)\/(?:[^/?#]*-)?([A-Za-z0-9]+)\/?(?:[?#].*)?$/i);
+  return m ? 'https://media.giphy.com/media/' + m[1] + '/giphy.gif' : url;
+}
+async function loadUrl(url) {
+  url = directUrl(url); if (!url) return;
+  msg.textContent = 'Downloading…';
+  try {
+    const r = await fetch(url); if (!r.ok) throw new Error('The site answered ' + r.status + '.');
+    const blob = await r.blob(); if (!/^image\//.test(blob.type)) throw new Error('That address is not a picture.');
+    await importFile(new File([blob], 'web', { type: blob.type }));
+  } catch (e) { msg.textContent = e instanceof TypeError ? 'The site does not allow other pages to load it: save the picture and choose the file instead.' : e.message; }
+}
+$('file').onchange = async () => { const file = $('file').files[0]; if (file) await importFile(file); $('file').value = ''; };
+// Keeps frames spread over the full animation in RAM; allocation refusals reduce the count one frame at a time.
+// A failed import never leaves a half-uploaded animation behind: what was stored plays if it is at least two frames, otherwise it is removed.
+try {
+  const saved = Number(localStorage.getItem('gifContrast'));
+  if (saved >= 80 && saved <= 160) $('gifContrast').value = saved;
+} catch (_) {}
+function showGifContrast() { $('gifContrastValue').textContent = $('gifContrast').value + '%'; }
+$('gifContrast').oninput = () => {
+  showGifContrast();
+  try { localStorage.setItem('gifContrast', $('gifContrast').value); } catch (_) {}
+};
+showGifContrast();
+// One RGB888 palette for the animation keeps indexes stable for delta compression.
+// Preserve exact colours when there are <=32; otherwise use a weighted median-cut palette.
+function indexAnimation(frames) {
+  // One fixed curve for the whole GIF avoids brightness pumping between frames.
+  const contrast = +$('gifContrast').value / 100;
+  const curve = Uint8Array.from({ length: 256 }, (_, v) => Math.max(0, Math.min(255, Math.round((v - 127.5) * contrast + 127.5))));
+  frames = frames.map(frame => ({ ...frame, px: Uint32Array.from(frame.px, rgb => curve[rgb >> 16] << 16 | curve[rgb >> 8 & 255] << 8 | curve[rgb & 255]) }));
+  const exact = new Map();
+  let overflow = false;
+  for (const frame of frames) {
+    for (const rgb of frame.px) {
+      if (!exact.has(rgb)) exact.set(rgb, exact.size);
+      if (exact.size > 32) { overflow = true; break; }
+    }
+    if (overflow) break;
+  }
+  let palette, lookup;
+  if (!overflow) {
+    palette = Array.from(exact.keys()); lookup = rgb => exact.get(rgb);
+  } else {
+    const bins = new Map(), key = rgb => (rgb >> 9 & 0x7C00) | (rgb >> 6 & 0x3E0) | (rgb >> 3 & 31);
+    for (const frame of frames) for (const rgb of frame.px) {
+      const k = key(rgb);
+      let bin = bins.get(k);
+      if (!bin) { bin = { n: 0, r: 0, g: 0, b: 0 }; bins.set(k, bin); }
+      bin.n++; bin.r += rgb >> 16; bin.g += rgb >> 8 & 255; bin.b += rgb & 255;
+    }
+    const points = Array.from(bins, ([k, bin]) => ({ k, n: bin.n, c: [bin.r / bin.n, bin.g / bin.n, bin.b / bin.n] }));
+    const box = items => {
+      const lo = [255, 255, 255], hi = [0, 0, 0]; let n = 0;
+      for (const p of items) { n += p.n; for (let c = 0; c < 3; c++) { lo[c] = Math.min(lo[c], p.c[c]); hi[c] = Math.max(hi[c], p.c[c]); } }
+      const ranges = hi.map((v, c) => v - lo[c]), axis = ranges.indexOf(Math.max(...ranges));
+      return { items, n, axis, score: items.length > 1 ? ranges[axis] * Math.sqrt(n) : 0 };
+    };
+    const boxes = [box(points)];
+    while (boxes.length < 32) {
+      let best = 0;
+      for (let i = 1; i < boxes.length; i++) if (boxes[i].score > boxes[best].score) best = i;
+      const current = boxes[best]; if (!current.score) break;
+      current.items.sort((a, b) => a.c[current.axis] - b.c[current.axis]);
+      let count = 0, split = 1;
+      for (; split < current.items.length; split++) { count += current.items[split - 1].n; if (count >= current.n / 2) break; }
+      split = Math.min(split, current.items.length - 1);
+      boxes[best] = box(current.items.slice(0, split)); boxes.push(box(current.items.slice(split)));
+    }
+    palette = boxes.map(group => {
+      const c = [0, 0, 0];
+      for (const p of group.items) for (let i = 0; i < 3; i++) c[i] += p.c[i] * p.n;
+      return Math.round(c[0] / group.n) << 16 | Math.round(c[1] / group.n) << 8 | Math.round(c[2] / group.n);
+    });
+    const table = new Uint8Array(32768);
+    for (const p of points) {
+      let nearest = 0, distance = Infinity;
+      for (let i = 0; i < palette.length; i++) {
+        const rgb = palette[i], dr = p.c[0] - (rgb >> 16), dg = p.c[1] - (rgb >> 8 & 255), db = p.c[2] - (rgb & 255);
+        const d = dr * dr * 2 + dg * dg * 3 + db * db;
+        if (d < distance) { distance = d; nearest = i; }
+      }
+      table[p.k] = nearest;
+    }
+    lookup = rgb => table[key(rgb)];
+  }
+  return { palette, frames: frames.map(frame => ({ ...frame, indexes: Uint8Array.from(frame.px, lookup) })) };
+}
+// LZ back-references catch repeated shapes and rows that plain runs miss.
+// Literal token 0..127: 1..128 bytes. Match token 128..255: 3..130 bytes + u16 distance.
+const compressedIndexCache = new WeakMap();
+function compressIndexes(pixels) {
+  if (compressedIndexCache.has(pixels)) return compressedIndexCache.get(pixels);
+  const out = [], recent = new Int32Array(4096); recent.fill(-1);
+  const hash = i => ((pixels[i] * 251 + pixels[i + 1]) * 251 + pixels[i + 2]) & 4095;
+  const literals = (first, end) => {
+    while (first < end) {
+      const count = Math.min(128, end - first); out.push(count - 1);
+      for (let i = 0; i < count; i++) out.push(pixels[first++]);
+    }
+  };
+  let at = 0, start = 0;
+  while (at + 2 < pixels.length) {
+    const h = hash(at), previous = recent[h]; recent[h] = at;
+    let count = 0;
+    if (previous >= 0) {
+      while (count < 130 && at + count < pixels.length && pixels[previous + count] === pixels[at + count]) count++;
+    }
+    if (count < 3) { at++; continue; }
+    literals(start, at);
+    const distance = at - previous;
+    out.push(128 + count - 3, distance & 255, distance >> 8);
+    const end = at + count;
+    for (let i = at + 1; i < end && i + 2 < pixels.length; i++) recent[hash(i)] = i;
+    at = end; start = at;
+  }
+  literals(start, pixels.length);
+  compressedIndexCache.set(pixels, out);
+  return out;
+}
+function encodeFrame(pixels, previous, palette) {
+  let bits = 1; while ((1 << bits) < palette.length) bits++;
+  const packed = []; let pending = 0, available = 0;
+  for (const index of pixels) {
+    pending |= index << available; available += bits;
+    while (available >= 8) { packed.push(pending & 255); pending >>>= 8; available -= 8; }
+  }
+  if (available) packed.push(pending & 255);
+  const runs = delta => {
+    const out = [], limit = delta ? 127 : 255;
+    for (let i = 0; i < pixels.length;) {
+      let n = 1;
+      if (delta && pixels[i] === previous[i]) {
+        while (i + n < pixels.length && n < limit && pixels[i + n] === previous[i + n]) n++;
+        out.push(128 + n);
+      } else {
+        while (i + n < pixels.length && n < limit && pixels[i + n] === pixels[i]) n++;
+        out.push(n, pixels[i]);
+      }
+      i += n;
+    }
+    return out;
+  };
+  let coding = 0, data = packed;
+  const rle = runs(false); if (rle.length < data.length) { coding = 1; data = rle; }
+  if (previous) { const delta = runs(true); if (delta.length < data.length) { coding = 2; data = delta; } }
+  const lz = compressIndexes(pixels);
+  if (lz.length < data.length) { coding = 3; data = lz; }
+  if (previous) {
+    // Unchanged pixels become zero; LZ can compress repeating changes as well as still areas.
+    const difference = Uint8Array.from(pixels, (value, i) => value ^ previous[i]);
+    const deltaLz = compressIndexes(difference);
+    if (deltaLz.length < data.length) { coding = 7; data = deltaLz; }
+  }
+  const prefix = [coding | (previous ? 0 : 128)];
+  if (!previous) {
+    prefix.push(palette.length & 255, palette.length >> 8);
+    for (const rgb of palette) prefix.push(rgb >> 16, rgb >> 8 & 255, rgb & 255);
+  }
+  const head = (prefix.length + data.length) | 3 << 14;
+  return Uint8Array.from([head & 255, head >> 8, ...prefix, ...data]);
+}
+async function storeAnimation(frames, totalMs, mine) {
+  playbackBusy(true);
+  msg.textContent = 'Preparing RGB888 palette…';
+  await new Promise(r => setTimeout(r, 0));
+  const indexed = indexAnimation(frames), palette = indexed.palette;
+  frames = indexed.frames;
+  let keep = frames, stored = 0;
+  const pause = ms => new Promise(r => setTimeout(r, ms));
+  const alive = () => { if (mine !== importSerial) throw new Error('cancelled'); };  // a newer import has started: this one stops without touching the clock again
+  abortPush = true; while (busy) await pause(30); await pause(200); abortPush = false;  // a push of an older import ends first (one request may still be in flight)
+  alive();
+  // The old import goes first, so the clock never holds both. The canvas is cleared and read back: only when it really is empty on the clock
+  // does the import start, so nothing of the old picture can show through the black parts of the new one.
+  let clean = false;
+  for (let k = 0; k < 4 && !clean; k++) {
+    alive();
+    try { await post('/api/canvas/slot?op=delete&slot=8&import=1'); await post('/api/canvas/clear'); await pull(); clean = shadow.every(v => v === 0); } catch (_) {}
+    if (!clean) await pause(300);
+  }
+  if (!clean) throw new Error('The clock did not clear its canvas (it may be busy). Try again in a moment.');
+  try {  // start with a frame count that fits, so a long GIF does not fail and restart several times
+    const room = (await (await fetch('/api/canvas', { cache: 'no-store' })).json()).room || 0;
+    for (let count = frames.length; count >= 2; count--) {
+      const candidate = Array.from({ length: count }, (_, i) => frames[Math.floor(i * frames.length / count)]);
+      let bytes = 0, previous = null;
+      for (const frame of candidate) {
+        const pixels = frame.indexes;
+        bytes += encodeFrame(pixels, previous, palette).length; previous = pixels;
+      }
+      keep = candidate;
+      if (bytes <= room) break;
+    }
+  } catch (_) {}
+  const play = async () => {
+    await post('/api/canvas/slot?op=load&slot=8');
+    // Playback starts with a nearly full heap: avoid an 11 KB readback from its drawing loop.
+    px.set(Uint32Array.from(keep[0].indexes, index => palette[index]));
+    shadow.set(px); render();
+    await slots();
+  };
+  try {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const delay = Math.max(20, Math.round(totalMs / keep.length)); $('delay').value = delay;
+      let full = false; stored = 0;
+      let previous = null;
+      for (let n = 0; n < keep.length && !full; n++) {
+        alive();
+        const pixels = keep[n].indexes, packed = encodeFrame(pixels, previous, palette);
+        try {
+          for (let offset = 0; offset < packed.length; offset += 768) {
+            alive();
+            const body = btoa(String.fromCharCode(...packed.subarray(offset, offset + 768)));
+            await post('/api/canvas/frame?offset=' + offset + '&size=' + packed.length + '&total=' + keep.length + '&delay=' + delay + (!n && !offset ? '&first=1' : ''), body);
+          }
+          stored = n + 1; previous = pixels;
+          px.set(keep[n].px); shadow.set(px); render();
+        } catch (e) { if (/memory|room/i.test(e.message)) full = true; else throw e; }
+        msg.textContent = 'Frame ' + (n + 1) + ' of ' + keep.length + '…';
+      }
+      if (!full) {
+        alive();
+        await play();
+        msg.textContent = 'Playing ' + keep.length + ' frames with ' + palette.length + ' RGB888 colours' + (keep.length < frames.length ? ' (the clock\'s memory is limited)' : '') + '. It is kept in memory only and goes when WLED stops.'; return;
+      }
+      const count = keep.length - 1; if (count < 2) break;
+      // Always resample the full sequence: retries must not compound earlier frame drops.
+      keep = Array.from({ length: count }, (_, i) => frames[Math.floor(i * frames.length / count)]);
+    }
+    throw new Error('Not enough memory on the clock for that animation. Close other pages that use the clock and try again.');
+  } catch (e) {
+    if (e.message === 'cancelled') throw e;  // the newer import owns the clock now
+    try {
+      if (stored >= 2) { await play(); msg.textContent = 'Only ' + stored + ' frames fit in the clock\'s memory, playing those.'; return; }
+      await post('/api/canvas/slot?op=delete&slot=8');
+      playbackBusy(false);
+    } catch (_) {}
+    throw e;
+  }
+}
+async function importFile(file) {
+  const mine = ++importSerial;
+  try {
+    const gif = file.type === 'image/gif';
+    if (!gif) await pull();  // GIF imports replace the canvas; they do not need its old pixels
+    base = Uint32Array.from(px); let slot = +$('target').value; if (slot < 0) { const old = (window.slotList || []).find(s => s.name === 'Import'); slot = old ? old.id : window.freeSlot; }  // an import replaces the last one instead of piling up
+    const native = gif && 'ImageDecoder' in window;
+    const g = gif && !native ? gifFrames(await file.arrayBuffer()) : null;
+    if (g && g.frames.length > 1) {
+      if (mine !== importSerial) return;
+      await storeAnimation(g.frames, g.totalMs, mine);
+    } else if (native) {
+      const d = new ImageDecoder({ data: file.stream(), type: 'image/gif' });
+      const frames = []; let spent = 0, count = 0;
+      try {
+        await d.tracks.ready;
+        count = d.tracks.selectedTrack.frameCount;
+        const step = Math.max(1, Math.ceil(count / MAXF));
+        for (let i = 0; i < count && frames.length < MAXF; i += step) {
+          if (mine !== importSerial) return;
+          const { image } = await d.decode({ frameIndex: i });
+          try {
+            spent += (image.duration || 100000) / 1000;
+            fit(image, image.displayWidth, image.displayHeight);
+            frames.push({ px: Uint32Array.from(px) });
+          } finally { image.close(); }
+        }
+      } finally { d.close(); }  // release decoder resources before uploading, also on cancellation/error
+      if (!frames.length) throw new Error('The GIF contains no frames.');
+      if (mine !== importSerial) return;
+      await storeAnimation(frames, spent / frames.length * count, mine);
+    } else {
+      const bitmap = await createImageBitmap(file), c = await cropImage(bitmap);
+      if (c) { if (c.fit) fit(bitmap, bitmap.width, bitmap.height); else fromCrop(bitmap, c); commit(); push(); msg.textContent = 'Imported: save it to keep it.'; }
+      bitmap.close();
+    }
+  } catch (e) { if (e.message !== 'cancelled') msg.textContent = e.message || 'Could not read that image.'; }
+}
+(async () => { try { for (let k = 0; ; k++) { try { await post('/api/canvas/open'); break; } catch (e) { if (k >= 8) throw e; msg.textContent = 'Waiting for the clock to finish its data downloads…'; await new Promise(r => setTimeout(r, 2000)); } } await pull(); await slots(); msg.textContent = 'Live on the panel.'; } catch (e) { msg.textContent = 'Could not open the canvas: ' + e.message; } })();
+</script></body></html>

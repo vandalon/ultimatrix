@@ -11,6 +11,7 @@
 #include <atomic>
 #include <map>
 #include <mutex>
+#include <memory>
 #include <vector>
 
 #include "FootballSnapshot.h"
@@ -72,6 +73,7 @@ class FootballTicker {
     // one short lock, no files. version() changes whenever any of it does, so a face only needs to copy it then.
     void snapshot(football::Snapshot &out);
     uint32_t version();
+    void trim();  // while parked: release cached data and staging; retain published snapshot and live event baselines
     void resume();  // restarts the task after a firmware update; version() does it
 
     // How the downloads are going: nothing yet, fine, or the last attempt failed with nothing to show
@@ -191,8 +193,8 @@ class FootballTicker {
 
     std::mutex _lock;
     uint8_t _cacheSlot = 0;           // which of the two cache files holds the last saved results and fixtures
-    football::Snapshot _snapshot;     // published, guarded by _lock
-    football::Snapshot _staging;      // only used by the background task
+    football::Snapshot _snapshot{};     // published, guarded by _lock
+    std::unique_ptr<football::Snapshot> _staging;  // released while WLED owns the panel
     bool _standingsDirty = true;      // the tables changed: _staging gets them again
     uint32_t _version = 0;            // guarded by _lock
     std::atomic<bool> _fetching{false};

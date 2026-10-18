@@ -67,7 +67,7 @@ void F1Ticker::begin(ClockTime *dateTime) {
 
 // After an update check the task is gone (see task()): start it again once the update is over
 void F1Ticker::resume() {
-  if (!_started || _task || firmwareUpdating || f1Park) return;
+  if (!_started || _task || feedsHalted() || f1Park) return;
   if (createFeedTask(task, "f1", TASK_STACK, this, 1, &_task, 0) == pdPASS) return;
   static unsigned long loggedAt = 0;
   if (!loggedAt || millis() - loggedAt > 10000) {
@@ -183,7 +183,7 @@ void F1Ticker::task(void *self) {
   F1Ticker *ticker = static_cast<F1Ticker *>(self);
   f1TaskUp = true;
   for (;;) {
-    if (firmwareUpdating || f1Park) {  // the update, or the live feed's handshake, has the network and the heap to itself
+    if (feedsHalted() || f1Park) {  // the update, or the live feed's handshake, has the network and the heap to itself
       // The TLS handshake needs big free blocks: hand back the task stack.
       // The data stays in the ticker; resume() starts the task again after the update.
       ticker->_task = nullptr;
@@ -198,7 +198,7 @@ void F1Ticker::task(void *self) {
       memoryAllocationFailures.fetch_add(1, std::memory_order_relaxed);
       consoleLog("[F1] out of memory in a refresh (%s), keeping the last data\n", e.what());
     }
-    for (unsigned long left = wait; left > 0 && !firmwareUpdating && !f1Park;) {
+    for (unsigned long left = wait; left > 0 && !feedsHalted() && !f1Park;) {
       if (ticker->_feedPaced && !ticker->_live.fresh()) {  // the live feed went quiet: back to ESPN every 15 s
         ticker->_feedPaced = false;
         ticker->_weekendAt = millis();

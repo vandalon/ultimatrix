@@ -421,13 +421,52 @@ void FootballTicker::begin(ClockTime *dateTime, bool withRace, bool extras, uint
     }
   }
 #endif
+  feedTrimArg = this;
+  feedTrimFn = [](void *self) { static_cast<FootballTicker *>(self)->trim(); };
   // Core 0, so fetching never stalls the display loop on core 1
   resume();
 }
 
+void FootballTicker::trim() {
+  if (_task) return;  // only while the task is gone
+  // Keep only live-match baselines, so returning from WLED cannot replay old events.
+  auto liveKey = [&](const String &key) {
+    for (const auto &board : _boards)
+      for (const Match &m : board.second.matches) {
+        if (m.state != 'i') continue;
+        char live[64];
+        snprintf(live, sizeof(live), "%s-%s@%lu", m.home.c_str(), m.away.c_str(), (unsigned long)(uint32_t)m.kickoff);
+        if (key == live) return true;
+      }
+    return false;
+  };
+  for (auto it = _scores.begin(); it != _scores.end();)
+    it = liveKey(it->first) ? std::next(it) : _scores.erase(it);
+  for (auto it = _cardCount.begin(); it != _cardCount.end();)
+    it = liveKey(it->first) ? std::next(it) : _cardCount.erase(it);
+  for (auto it = _subCount.begin(); it != _subCount.end();)
+    it = liveKey(it->first) ? std::next(it) : _subCount.erase(it);
+  _subChecked.clear();
+  _boards.clear();
+  _tablesAt.clear();
+  _staging.reset();
+  _standingsDirty = true;
+  _footballNextAt = 0;
+  {
+    std::lock_guard<std::mutex> guard(_lock);
+    std::vector<Goal>().swap(_goals);
+    std::vector<Incident>().swap(_incidents);
+  }
+#ifndef UM_FOOTBALL_ONLY
+  std::lock_guard<std::mutex> guard(_lock);
+  _tables.clear();
+  std::vector<Race>().swap(_results);
+#endif
+}
+
 // After an update check the task is gone (see task()): start it again once the update is over
 void FootballTicker::resume() {
-  if (!_started || _task || firmwareUpdating) return;
+  if (!_started || _task || feedsHalted()) return;
   // No task when the heap has not recovered yet (the stack does not fit): try again at the next frame
   if (createFeedTask(task, "football", TASK_STACK_BYTES, this, 1, &_task, 0) != pdPASS) _task = nullptr;
 }
@@ -437,7 +476,7 @@ void FootballTicker::task(void *self) {
   waitForFeedRegistration();
   FootballTicker *ticker = static_cast<FootballTicker *>(self);
   for (;;) {
-    if (firmwareUpdating) {  // the update has the network and the heap to itself
+    if (feedsHalted()) {  // the update has the network and the heap to itself
       // The TLS handshake needs big free blocks: hand back the task stack.
       // The scores stay in the ticker; resume() starts the task again after the update.
       ticker->_fetching = false;
@@ -478,7 +517,7 @@ void FootballTicker::task(void *self) {
     }
     wait = std::min(wait, CONFIG_POLL_MS);  // a change on the settings page is picked up within seconds
     // in slices, so an update that starts meanwhile is seen within a second
-    for (unsigned long left = wait; left > 0 && !firmwareUpdating;) {
+    for (unsigned long left = wait; left > 0 && !feedsHalted();) {
       unsigned long slice = std::min(left, 1000UL);
       vTaskDelay(pdMS_TO_TICKS(slice));
       left -= slice;
@@ -1604,7 +1643,13 @@ void FootballTicker::fillStandings(football::Snapshot &out) {
 // buildOverview publishes it with the rest, under _lock.
 void FootballTicker::buildSnapshot(const std::vector<const Match *> &live, const std::vector<const Match *> &finished,
                                    const std::vector<const Match *> &next) {
-  football::Snapshot &s = _staging;
+  if (!_staging) {
+    _staging.reset(new football::Snapshot{});
+    // Standings can survive a refresh without being fetched again.
+    std::lock_guard<std::mutex> guard(_lock);
+    *_staging = _snapshot;
+  }
+  football::Snapshot &s = *_staging;
   s.liveCount = std::min(live.size(), (size_t)football::kLive);
   if (live.size() > football::kLive)
     logf("[Football] %u live matches, showing %u\n", (unsigned)live.size(), (unsigned)football::kLive);
@@ -1739,7 +1784,7 @@ void FootballTicker::buildOverview(const MatchList &matches, const std::vector<c
   buildSnapshot(live, finished, next);
 
   std::lock_guard<std::mutex> guard(_lock);
-  _snapshot = _staging;
+  _snapshot = *_staging;
   liveEventOn = _snapshot.liveCount > 0;
   liveFavouriteOn = favouriteLive(_snapshot);
 #ifndef UM_FOOTBALL_ONLY

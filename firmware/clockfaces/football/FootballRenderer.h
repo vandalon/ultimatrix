@@ -86,6 +86,8 @@ struct Overview {
 
 // View state: Clockface::update() keeps these, the drawing functions read them
 extern Overview overview;
+bool prepareSnapshot();
+void releaseSnapshot();
 football::Snapshot &snap();  // allocated on first use: an update-only boot never reserves its RAM
 extern uint32_t overviewRevision;
 extern bool resultsOnTop;

@@ -194,6 +194,8 @@ async function load() {
     const response = await fetch('/api/settings', { cache: 'no-store' });
     if (!response.ok) throw new Error('The clock could not load its settings. Reload this page to try again.');
     const data = await response.json();
+    if (!window.wledStarted) { window.wledStarted = true; initWled(); }
+    document.querySelector('#nvs-banner').hidden = !(data.nvsFree < 40);
     const racing = data.mode === 'F1' || data.mode === 'MotoGP', sporty = racing || data.mode === 'Football';
     const pacman = data.mode === 'Pac-Man';
     const homeFace = data.mode === 'Home'; document.querySelector('#homeassistant').hidden = !homeFace; document.querySelector('#nav-ha').hidden = !homeFace;
@@ -590,6 +592,25 @@ function haAutoRow(type, autoBox, entity, off, can, detect, notes, allowNone = f
 }
 // The three entities of the EV tile as "charge,charging,plugged": "-" for one left to detection, "off" for one that is not used, nothing at all when all three are
 function haEvEntity(ev) { const ids = ev.map(e => e.field.value.split(',')[0] || '-'); /* one entity per part */ while (ids.length && ids[ids.length - 1] === '-') ids.pop(); return ids.join(','); }
+// WLED overlay: switch and stream status
+async function initWled() {
+  const $ = (id) => document.querySelector('#wled-' + id);
+  const show = async () => {
+    try {
+      const o = await (await fetch('/api/wled', { cache: 'no-store' })).json();
+      $('enabled').checked = o.enabled; $('ignore').checked = o.ignoreLive; if (document.activeElement !== $('timeout')) $('timeout').value = o.timeoutMin;
+      $('status').textContent = !o.enabled ? 'Off.' : !o.listening ? 'On, but the pixel stream listeners are closed (not enough free memory right now).'
+        : o.live ? 'Receiving pixels over ' + o.source + '.' : o.on ? 'Showing an effect.' : 'On: showing the clock until content arrives. ' + o.packets + ' packets received.';
+    } catch (_) {}
+  };
+  const save = async () => {
+    const body = new URLSearchParams({ enabled: $('enabled').checked ? '1' : '0', timeoutMin: $('timeout').value || '0', ignoreLive: $('ignore').checked ? '1' : '0' });
+    try { const r = await fetch('/api/wled', { method: 'POST', body }); if (!r.ok) $('status').textContent = (await r.json()).message; else show(); } catch (_) {}
+  };
+  $('enabled').addEventListener('change', save); $('timeout').addEventListener('change', save); $('ignore').addEventListener('change', save);
+  show(); setInterval(show, 5000);
+}
+
 async function initHomeAssistant() {
   if (haStarted) return;
   haStarted = true;

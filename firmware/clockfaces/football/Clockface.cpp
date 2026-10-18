@@ -24,6 +24,10 @@
 #include <Console.h>
 #include <TimeService.h>
 #include <Locator.h>
+#ifdef ESP_PLATFORM
+#include <NetworkBudget.h>
+#include <esp_heap_caps.h>
+#endif
 #include <math.h>
 #include <functional>
 
@@ -48,6 +52,7 @@ static struct {
 } animation;
 static Frame lastFrame;  // what was drawn last, see update()
 static bool haveFrame = false;
+static bool snapshotReleased = false;
 
 static void showResultsLive(Overview &o, unsigned long now) {
   if (!o.live.empty() && o.live[0].live) {
@@ -94,6 +99,22 @@ void Clockface::setup(ClockTime *dateTime) {
   if (!footballTicker) { footballTicker = new FootballTicker; }
   (void)snap();  // allocated right behind the ticker, so the two sit together and the free space after them stays in one piece
   footballTicker->begin(dateTime, false, true, resultWindowSecs());  // goals, cards, tables, kick-offs
+
+#ifdef ESP_PLATFORM
+  feedTrimFn = [](void *self) {
+    const size_t before = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+    const size_t block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    static_cast<FootballTicker *>(self)->trim();
+    releaseSnapshot();
+    snapshotReleased = true;
+    animation.kind = animation.None;
+    haveFrame = false;
+    consoleLog("[Football] WLED trim: free %u -> %u, largest %u -> %u, snapshot %u bytes each\n",
+        (unsigned)before, (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+        (unsigned)block, (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+        (unsigned)sizeof(football::Snapshot));
+  };
+#endif
 }
 
 bool Clockface::animating() const { return animation.kind != animation.None; }
@@ -121,6 +142,14 @@ static bool stepAnimation(MatrixPanel_I2S_DMA *display, unsigned long now) {
 }
 
 void Clockface::update() {
+  if (snapshotReleased) {
+    if (!prepareSnapshot()) return;  // retry once WLED has returned enough heap
+    footballTicker->snapshot(snap());
+    snapshotReleased = false;
+    // Force the live rows and ranking page to be rebuilt even without a new feed version.
+    overviewVersion = snap().version - 1;
+    screens.resetRankingPage();
+  }
   unsigned long now = millis();
   if (stepAnimation(_display, now)) return;
   int hour = _dateTime->getHour(), minute = _dateTime->getMinute(), second = _dateTime->getSecond();

@@ -45,7 +45,7 @@ static void liveLog(const char *format, ...) {
 // The task, with its stack, only exists once a session has been wanted: a quiet week doesn't pay for it
 void F1Live::setWanted(bool wanted) {
   _wanted = wanted;
-  if (wanted && !firmwareUpdating && !_started.exchange(true)) {
+  if (wanted && !feedsHalted() && !_started.exchange(true)) {
     // Core 0, like the other downloads; a failed creation can be retried.
     if (createFeedTask(task, "f1live", TASK_STACK, this, 1, nullptr, 0) != pdPASS) _started = false;
   }
@@ -82,7 +82,7 @@ void F1Live::task(void *self) {
   waitForFeedRegistration();
   F1Live *live = static_cast<F1Live *>(self);
   for (;;) {
-    if (firmwareUpdating) {
+    if (feedsHalted()) {
       live->_started = false;
       stopFeedTask();
     }
@@ -95,7 +95,7 @@ void F1Live::task(void *self) {
       std::lock_guard<std::mutex> guard(live->_lock);
       live->_lastData = 0;
     }
-    for (unsigned long waited = 0; waited < RETRY_MS && !firmwareUpdating; waited += 250)
+    for (unsigned long waited = 0; waited < RETRY_MS && !feedsHalted(); waited += 250)
       vTaskDelay(pdMS_TO_TICKS(250));
   }
 }
@@ -185,7 +185,7 @@ struct WsStream {
   // The next byte off the socket, waiting for it
   int raw() {
     while (at >= have) {
-      if (failed || firmwareUpdating) { failed = true; return -1; }
+      if (failed || feedsHalted()) { failed = true; return -1; }
       int n = client.read(buffer, sizeof(buffer));
       if (n > 0) {
         at = 0;
@@ -285,7 +285,7 @@ void F1Live::run() {
       bool ok = false;
       {
         std::lock_guard<std::mutex> tls(f1TlsLock);
-        if (firmwareUpdating) return;
+        if (feedsHalted()) return;
         liveFeedReading = true;
         f1At("live negotiate");
         if (negotiate(token, sizeof(token), cookie, sizeof(cookie))) {
@@ -359,7 +359,7 @@ void F1Live::run() {
         liveLog("[F1 live] session clock: %d s left, %s\n", _state.clockSecs((long)ultime::now()), _state.clockRunning() ? "running" : "stopped");
       }
     }
-    if (firmwareUpdating) break;  // hand the connection's memory to the update
+    if (feedsHalted()) break;  // hand the connection's memory to the update
     if (dataFree() < LOW_HEAP) {  // the clock itself is running out of memory
       memoryAllocationFailures.fetch_add(1, std::memory_order_relaxed);  // tells main's guard to shed telnet and mDNS
       liveLog("[F1 live] dropped, heap free %u, largest block %u\n", (unsigned)dataFree(), (unsigned)dataBlock());

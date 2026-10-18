@@ -14,7 +14,7 @@
 #include "HaMedia.h"
 #include "HaDevices.h"
 
-extern std::atomic<bool> firmwareUpdating;
+#include <NetworkBudget.h>
 
 namespace {
 
@@ -58,7 +58,7 @@ struct Socket {
   int byte(uint32_t waitMs) {
     uint32_t start = millis();
     while (!client.available()) {
-      if (!client.connected() || firmwareUpdating) return -1;
+      if (!client.connected() || feedsHalted()) return -1;
       if (millis() - start >= waitMs) return -1;
       vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -73,7 +73,7 @@ struct Socket {
     size_t used = 0;
     bool overflow = false;
     int first = byte(waitMs);
-    if (first < 0) return client.connected() && !firmwareUpdating ? 0 : fail("the server closed the connection");
+    if (first < 0) return client.connected() && !feedsHalted() ? 0 : fail("the server closed the connection");
     int b0 = first;
     for (;;) {
       int b1 = byte(5000);
@@ -191,8 +191,8 @@ void HaClient::run() {
       set(IDLE, "Not set up");
     } else if (WiFi.status() != WL_CONNECTED) {
       set(IDLE, "Waiting for Wi-Fi");
-    } else if (firmwareUpdating) {
-      set(IDLE, "Paused for an update");
+    } else if (feedsHalted()) {
+      set(IDLE, firmwareUpdating ? "Paused for an update" : "Paused while WLED is on");
     } else if (!rejected) {
       const bool ended = session(version);
       ha::media::clear();  // the Now playing page must not outlive the connection that said something was playing
@@ -322,7 +322,7 @@ bool HaClient::session(uint32_t version) {
   };
   set(AUTHENTICATING, "Signing in");
   for (;;) {
-    if (firmwareUpdating || ha::version() != version) break;
+    if (feedsHalted() || ha::version() != version) break;
     int n = socket.message(message.get(), kMessageMax, 1000);
     if (n < 0 && n != -2) {
       consoleLog("[HA] connection ended after %u s (%s): %s\n", (unsigned)((millis() - began) / 1000), live ? "was live" : "never live", socket.why);

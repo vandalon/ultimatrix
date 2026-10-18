@@ -9,11 +9,22 @@
 #include <Console.h>
 #include <math.h>
 #include <functional>
+#include <new>
 
 namespace fbview {
 
 Overview overview;  // the live matches of the snapshot, or the result on top
-football::Snapshot &snap() { static football::Snapshot *s = new football::Snapshot(); return *s; }  // what the data task last published: finished, coming and tables are read from here
+static football::Snapshot *displaySnapshot = nullptr;
+bool prepareSnapshot() {
+  if (!displaySnapshot) displaySnapshot = new (std::nothrow) football::Snapshot{};
+  return displaySnapshot != nullptr;
+}
+void releaseSnapshot() { delete displaySnapshot; displaySnapshot = nullptr; }
+football::Snapshot &snap() {
+  if (!displaySnapshot) displaySnapshot = new football::Snapshot{};
+  return *displaySnapshot;
+}
+
 uint32_t overviewRevision = 0;
 RankingPage rankingPage, previousRankingPage;
 unsigned long rankingStartedAt = 0;

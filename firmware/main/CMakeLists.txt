@@ -58,6 +58,9 @@ elseif(ULTIMATRIX_MODE STREQUAL "home")
         "${root}/lib/${sport}/HaDevices.cpp"
         "${root}/clockfaces/home/HomeRenderer.cpp")
     set(mode_definitions UM_SIMPLE_FACE UM_HOME UM_MODE_NAME="Home")
+elseif(ULTIMATRIX_MODE STREQUAL "scanner")
+    set(sport "faces")
+    set(mode_definitions UM_SIMPLE_FACE UM_SCANNER UM_MODE_NAME="Scanner")
 elseif(ULTIMATRIX_MODE STREQUAL "bridge")
     # The stop-over image for old clocks: no feed and no face of its own
     set(sport "faces")
@@ -90,6 +93,19 @@ else()
         "${root}/clockfaces/f1/F1Screens.cpp")
     set(mode_definitions UM_F1 UM_MODE_NAME="F1")
 endif()
+# The WLED overlay (lib/wled) is compiled into every face except the bridge; ULTIMATRIX_WLED=OFF leaves it out (size comparisons).
+# It starts on by default only where the heap allows: the racing and football faces ship with it off until measured.
+option(ULTIMATRIX_WLED "Compile the WLED overlay into the face" ON)
+if(ULTIMATRIX_WLED AND NOT ULTIMATRIX_MODE STREQUAL "bridge" AND NOT ULTIMATRIX_MODE STREQUAL "scanner")
+    list(APPEND sources
+        "${root}/lib/wled/WledRealtime.cpp"
+        "${root}/lib/wled/WledState.cpp"
+        "${root}/lib/wled/WledEffects.cpp"
+        "${root}/lib/wled/WledCanvas.cpp"
+        "${root}/lib/wled/WledWs.cpp"
+        "${root}/lib/wled/WledApi.cpp")
+    list(APPEND mode_definitions UM_WLED_OVERLAY)
+endif()
 # The timezone table is generated on every build from tools/zones.csv
 set(tzdb "${CMAKE_CURRENT_BINARY_DIR}/generated/TzDb.h")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -102,7 +118,7 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)  # commands are not scriptable in IDF's requ
     add_custom_target(tzdb_header DEPENDS "${tzdb}")
 endif()
 idf_component_register(SRCS ${sources}
-    INCLUDE_DIRS "${root}/lib/core" "${CMAKE_CURRENT_BINARY_DIR}/generated" "${root}/lib/${sport}" "${root}/lib/faces" "${root}/lib/motogp-feed" "${root}/clockfaces/${face}"
+    INCLUDE_DIRS "${root}/lib/core" "${CMAKE_CURRENT_BINARY_DIR}/generated" "${root}/lib/${sport}" "${root}/lib/faces" "${root}/lib/motogp-feed" "${root}/lib/wled" "${root}/clockfaces/${face}"
     REQUIRES espressif__arduino-esp32 clock-libraries esp_wifi esp_netif esp_event espressif__network_provisioning nvs_flash esp_http_client esp-tls app_update json mqtt)
 if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     add_dependencies(${COMPONENT_LIB} tzdb_header)
@@ -114,6 +130,10 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
 foreach(asset settings.html theme.css settings.js)
     target_add_binary_data(${COMPONENT_LIB} "${root}/web/${asset}" TEXT)
 endforeach()
+if(ULTIMATRIX_WLED AND NOT ULTIMATRIX_MODE STREQUAL "bridge" AND NOT ULTIMATRIX_MODE STREQUAL "scanner")
+    target_add_binary_data(${COMPONENT_LIB} "${root}/web/wled.html" TEXT)
+    target_add_binary_data(${COMPONENT_LIB} "${root}/web/canvas.html" TEXT)  # the pixel editor  # the light page the WLED app opens
+endif()
 # Installable-app manifest and its LED-matrix U icons.
 target_add_binary_data(${COMPONENT_LIB} "${root}/web/manifest.webmanifest" TEXT)
 # Clock face thumbnails for the face picker (64x64, one frame of each face).

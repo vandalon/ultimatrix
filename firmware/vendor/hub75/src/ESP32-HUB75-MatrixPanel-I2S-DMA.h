@@ -746,8 +746,12 @@ public:
     uint32_t maxCycles;    // longest refill of one row, CPU cycles
     uint32_t meanCycles;   // average refill of one row
     uint32_t rowPeriodUs;  // time one row is on the wire
+    uint32_t flips, waits, waitUs, waitMaxUs; // flips; draws that waited for the back buffer; total and longest wait (us)
   };
   RingStats getRingStats() const;
+  // own: drawing waits until the ring no longer reads the back buffer. lag: the lower half switches to a new frame one sweep
+  // after the upper half, so the time the scan reaches adjacent rows is continuous across the middle of the panel.
+  void setRingMode(bool own, bool lag);
   bool ringActive() const { return ring_on; }
 #endif
 

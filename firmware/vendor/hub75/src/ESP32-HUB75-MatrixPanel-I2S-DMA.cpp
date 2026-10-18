@@ -37,10 +37,9 @@
  * compact framebuffer by the row-end interrupt. Each row's DMA descriptors point at ring slot (row % n), so the chain is
  * fixed and the only work per row is regenerating the slot that was just sent, n rows ahead.
  *
- * The compact framebuffer is already spread for the interrupt: per pixel column and row pair (top pixel y, bottom pixel
- * y + rows) two words, lo for colour bits 0-3 and hi for bits 4-7. Each holds one lane of 8 bits per colour bit:
- * lane p has the six channels R1 G1 B1 R2 G2 B2 of that bit at bits 0-5, which is exactly the RGB part of plane p.
- * Drawing does the spreading (a 16 entry table), so the interrupt only shifts and ORs.
+ * The compact framebuffer is already spread for the interrupt: six bytes per column/row pair hold two 24-bit
+ * groups (colour bits 0-3 and 4-7). Each colour-bit lane contains exactly R1 G1 B1 R2 G2 B2, with no padding.
+ * Drawing spreads the colours using a 16-entry table. The interrupt extracts six-bit lanes without RGB conversion.
  */
 namespace {
 constexpr uint32_t kRingMaxRows = 32;
@@ -49,58 +48,160 @@ constexpr uint32_t kRingMaxHeight = 64;
 struct RingState
 {
   uint16_t *slot[kRingMaxRows];         // the ring: width * depth words each, the layout of a rowBitStruct
-  uint32_t *crow[2][kRingMaxRows];      // compact framebuffers, one entry per pixel column and row pair: two words, see ringPut()
+  uint8_t *crow[2][kRingMaxRows];       // six bytes per column/row pair, two groups of four six-bit lanes
   const uint16_t *tmpl;                 // LAT and OE words per plane, in wire order (no row address, no pixel bits)
   uint32_t width, depth, rows, n, descPerRow;
   volatile uint32_t front, frontNext;   // framebuffer being sent, framebuffer to send from the next frame on
+  volatile uint32_t frontLower;         // framebuffer the lower panel half is sent from (lags front by one sweep when lag is on)
+  volatile uint32_t flips, waits, waitUs, waitMaxUs; // flips, draws that had to wait, total/longest wait
+  volatile uint32_t own, lag;           // draw calls wait for the back buffer to be released; lower half lags one sweep
+  volatile uint32_t pending;            // set by a flip, cleared once the drawing side has seen the back buffer released
   uint32_t nextFill;                    // next row to generate
   volatile uint32_t filled, missed, maxCycles, calls;
   volatile uint64_t sumCycles;
 };
 RingState g_ring;
 
-// A 4 bit value with bit p moved to bit 8p
-uint32_t DRAM_ATTR kSpread[16] = {
-    0x00000000, 0x00000001, 0x00000100, 0x00000101, 0x00010000, 0x00010001, 0x00010100, 0x00010101,
-    0x01000000, 0x01000001, 0x01000100, 0x01000101, 0x01010000, 0x01010001, 0x01010100, 0x01010101};
+typedef uint32_t __attribute__((may_alias)) u32a;
 
-// Set the pixel of one half (bottom: the lower half of the panel) of a column entry, levels at the colour depth
-inline void ringPut(uint32_t *q, bool bottom, uint8_t r, uint8_t g, uint8_t b)
+// After a flip, the buffer drawn into is free once neither panel half is still sent from it. Waiting happens at most once per flip.
+void __attribute__((noinline)) ringWait(uint32_t back)
 {
-  const uint32_t sh = bottom ? 3 : 0;
-  const uint32_t keep = ~(0x07070707u << sh);
-  q[0] = (q[0] & keep) | ((kSpread[r & 15] | (kSpread[g & 15] << 1) | (kSpread[b & 15] << 2)) << sh);
-  q[1] = (q[1] & keep) | ((kSpread[r >> 4] | (kSpread[g >> 4] << 1) | (kSpread[b >> 4] << 2)) << sh);
+  RingState &R = g_ring;
+  R.pending = 0;
+  if (!(R.front == back || R.frontLower == back))
+    return;
+  const uint32_t t0 = (uint32_t)esp_timer_get_time();
+  for (uint32_t i = 0; i < 400 && (R.front == back || R.frontLower == back); ++i)
+    esp_rom_delay_us(100);
+  const uint32_t us = (uint32_t)esp_timer_get_time() - t0;
+  R.waits = R.waits + 1;
+  R.waitUs = R.waitUs + us;
+  if (us > R.waitMaxUs)
+    R.waitMaxUs = us;
 }
 
-typedef uint32_t __attribute__((may_alias)) u32a;
+inline __attribute__((always_inline)) void ringAcquire(uint32_t back)
+{
+  if (__builtin_expect(g_ring.pending, 0))
+    ringWait(back);
+}
+
+// A four-bit value with bit p moved to bit 6p; each lane has exactly six output channels.
+uint32_t DRAM_ATTR kSpread[16] = {
+    0x000000, 0x000001, 0x000040, 0x000041, 0x001000, 0x001001, 0x001040, 0x001041, 0x040000, 0x040001, 0x040040, 0x040041, 0x041000, 0x041001, 0x041040, 0x041041};
+
+inline uint32_t ringLoad24(const uint8_t *q) {
+  return (uint32_t)q[0] | ((uint32_t)q[1] << 8) | ((uint32_t)q[2] << 16);
+}
+
+// A six-byte column starts at offset 0 or 2 within an aligned word. Update its two words while preserving
+// the neighboring column and the opposite panel half. The row width is even, so both words stay inside the row.
+inline __attribute__((always_inline)) void ringPut(uint8_t *q, bool bottom, uint8_t r, uint8_t g, uint8_t b)
+{
+  const uint32_t sh = bottom ? 3 : 0;
+  const uint32_t mask = 0x1C71C7u << sh;
+  const uint32_t lo = (kSpread[r & 15] | (kSpread[g & 15] << 1) | (kSpread[b & 15] << 2)) << sh;
+  const uint32_t hi = (kSpread[r >> 4] | (kSpread[g >> 4] << 1) | (kSpread[b >> 4] << 2)) << sh;
+  const uintptr_t address = (uintptr_t)q;
+  u32a *const words = (u32a *)(address & ~(uintptr_t)3);
+  if (address & 2)
+  {
+    words[0] = (words[0] & ~(mask << 16)) | (lo << 16);
+    words[1] = (words[1] & ~((mask >> 16) | (mask << 8))) | (lo >> 16) | (hi << 8);
+  }
+  else
+  {
+    words[0] = (words[0] & ~(mask | (mask << 24))) | lo | (hi << 24);
+    words[1] = (words[1] & ~(mask >> 8)) | (hi >> 8);
+  }
+}
+
+// Bits of the upper panel half (R1 G1 B1) in the three words of a column pair; the lower half holds the rest.
+constexpr uint32_t kUpper = 0x1C71C7u;
+constexpr uint32_t kMask0 = kUpper | (kUpper << 24), kMask1 = (kUpper >> 8) | (kUpper << 16), kMask2 = (kUpper >> 16) | (kUpper << 8);
+
+// With Mixed, the upper half is read from px and the lower half from pl (another framebuffer).
+template <uint32_t Depth, bool Mixed>
+inline __attribute__((always_inline)) void ringFillPixels(uint16_t *slot, const uint16_t *tm,
+                                                        const uint8_t *px, const uint8_t *pl, uint32_t width,
+                                                        uint32_t addrPrev, uint32_t addrRow)
+{
+  const uint32_t stride = width / 2;
+  u32a *const dst = (u32a *)slot;
+  const u32a *const control = (const u32a *)tm;
+  for (uint32_t x = 0; x < width; x += 2, px += 12, pl += 12)
+  {
+    // Keep both pixels' low/high lanes in registers across all planes, rather than rereading them per plane.
+    // Two columns occupy 12 bytes, so all three loads stay aligned.
+    const u32a *const words = (const u32a *)px;
+    uint32_t a = words[0], b = words[1], c = words[2];
+    if (Mixed)
+    {
+      const u32a *const lower = (const u32a *)pl;
+      a = (a & kMask0) | (lower[0] & ~kMask0);
+      b = (b & kMask1) | (lower[1] & ~kMask1);
+      c = (c & kMask2) | (lower[2] & ~kMask2);
+    }
+    const uint32_t lo0 = a, hi0 = (a >> 24) | (b << 8);
+    const uint32_t lo1 = (b >> 16) | (c << 16), hi1 = c >> 8;
+    const uint32_t column = x / 2;
+#pragma GCC unroll 8
+    for (uint32_t p = 0; p < Depth; ++p)
+    {
+      const uint32_t shift = (p & 3) * 6;
+      const uint32_t v0 = ((p < 4 ? lo0 : hi0) >> shift) & 0x3F;
+      const uint32_t v1 = ((p < 4 ? lo1 : hi1) >> shift) & 0x3F;
+      const uint32_t offset = p * stride + column;
+      // Original ESP32 FIFO order: pixel x goes to the upper word, x+1 to the lower word.
+      dst[offset] = control[offset] | (p ? addrRow : addrPrev) | v1 | (v0 << 16);
+    }
+  }
+}
 
 void IRAM_ATTR __attribute__((optimize("O3"))) ringFillRow(RingState &R, uint32_t row)
 {
   if (row == 0)
+  {
+    R.frontLower = R.lag ? R.front : R.frontNext;
     R.front = R.frontNext; // a new frame is taken over at its first row only, so a frame is never shown half and half
+  }
 
   uint16_t *const slot = R.slot[row % R.n];
   const uint16_t *const tm = R.tmpl;
-  const uint32_t *const px = R.crow[R.front][row];
+  const uint8_t *const px = R.crow[R.front][row];
+  const uint8_t *const pl = R.crow[R.frontLower][row];
   const uint32_t W = R.width, D = R.depth;
 
   // While a row is clocked in, the previous row is still shown: plane 0 carries the previous row's address
   const uint32_t addrPrev = (row ? row - 1 : R.rows - 1) << BITS_ADDR_OFFSET;
   const uint32_t addrRow = row << BITS_ADDR_OFFSET;
 
+  if (D == 8 || D == 7)
+  {
+    const bool mixed = R.front != R.frontLower;
+    if (D == 8)
+    {
+      if (mixed) ringFillPixels<8, true>(slot, tm, px, pl, W, addrPrev * 0x10001u, addrRow * 0x10001u);
+      else ringFillPixels<8, false>(slot, tm, px, pl, W, addrPrev * 0x10001u, addrRow * 0x10001u);
+    }
+    else if (mixed) ringFillPixels<7, true>(slot, tm, px, pl, W, addrPrev * 0x10001u, addrRow * 0x10001u);
+    else ringFillPixels<7, false>(slot, tm, px, pl, W, addrPrev * 0x10001u, addrRow * 0x10001u);
+    return;
+  }
+
   // Plane by plane, two pixels per 32 bit store. The words of a pair are swapped on the wire (ESP32_TX_FIFO_POSITION_ADJUST)
   for (uint32_t p = 0; p < D; p++)
   {
-    const uint32_t *src = px + (p >> 2); // lo lanes (bits 0-3) then hi lanes (bits 4-7), interleaved per column
-    const uint32_t sh = (p & 3) * 8;
+    const uint8_t *src = px + (p >> 2) * 3; // low/high 24-bit group, interleaved per column
+    const uint32_t sh = (p & 3) * 6;
     const uint32_t a = (p ? addrRow : addrPrev) * 0x10001u;
     u32a *w = (u32a *)(slot + p * W);
     const u32a *t = (const u32a *)(tm + p * W);
-    for (uint32_t x = 0; x < W; x += 2, src += 4)
+    for (uint32_t x = 0; x < W; x += 2, src += 12)
     {
-      const uint32_t v0 = (src[0] >> sh) & 0x3F; // pixel x goes to the odd word
-      const uint32_t v1 = (src[2] >> sh) & 0x3F; // pixel x + 1 goes to the even word
+      const uint32_t v0 = (ringLoad24(src) >> sh) & 0x3F; // pixel x goes to the odd word
+      const uint32_t v1 = (ringLoad24(src + 6) >> sh) & 0x3F; // pixel x + 1 goes to the even word
       *w++ = *t++ | a | v1 | (v0 << 16);
     }
   }
@@ -568,8 +669,10 @@ void IRAM_ATTR MatrixPanel_I2S_DMA::updateMatrixDMABuffer(uint16_t x_coord, uint
 #ifdef HUB75_RING_STREAM
   if (ring_on)
   {
+    const uint32_t back = back_buffer_id; // volatile: read once
+    ringAcquire(back);
     const bool bottom = y_coord >= ROWS_PER_FRAME;
-    ringPut(g_ring.crow[m_cfg.double_buff ? back_buffer_id : 0][bottom ? y_coord - ROWS_PER_FRAME : y_coord] + x_coord * 2, bottom,
+    ringPut(g_ring.crow[m_cfg.double_buff ? back : 0][bottom ? y_coord - ROWS_PER_FRAME : y_coord] + x_coord * 6, bottom,
             red_val, green_val, blue_val);
     return;
   }
@@ -644,18 +747,22 @@ void MatrixPanel_I2S_DMA::updateMatrixDMABuffer(uint8_t red, uint8_t green, uint
 #ifdef HUB75_RING_STREAM
   if (ring_on)
   {
-    uint32_t *seed = g_ring.crow[m_cfg.double_buff ? back_buffer_id : 0][0];
-    ringPut(seed, false, red_val, green_val, blue_val);
-    ringPut(seed, true, red_val, green_val, blue_val);
-    const uint32_t lo = seed[0], hi = seed[1];
-    for (int y = 0; y < ROWS_PER_FRAME; y++)
+    ringAcquire(back_buffer_id);
+    uint8_t *const data = g_ring.crow[m_cfg.double_buff ? back_buffer_id : 0][0];
+    if (!(red_val | green_val | blue_val))
     {
-      uint32_t *q = g_ring.crow[m_cfg.double_buff ? back_buffer_id : 0][y];
-      for (int x = 0; x < PIXELS_PER_ROW; x++, q += 2)
-      {
-        q[0] = lo;
-        q[1] = hi;
-      }
+      memset(data, 0, ROWS_PER_FRAME * PIXELS_PER_ROW * 6);
+      return;
+    }
+    ringPut(data, false, red_val, green_val, blue_val);
+    ringPut(data, true, red_val, green_val, blue_val);
+    const uint32_t lo = ringLoad24(data), hi = ringLoad24(data + 3);
+    const uint32_t a = lo | (hi << 24), b = (hi >> 8) | (lo << 16), c = (lo >> 16) | (hi << 8);
+    u32a *q = (u32a *)data;
+    // Two six-byte columns fit three aligned stores; the complete frame allocation is contiguous.
+    for (uint32_t pair = 0; pair < (uint32_t)ROWS_PER_FRAME * PIXELS_PER_ROW / 2; ++pair, q += 3)
+    {
+      q[0] = a; q[1] = b; q[2] = c;
     }
     return;
   }
@@ -725,8 +832,9 @@ void MatrixPanel_I2S_DMA::clearFrameBuffer(bool _buff_id)
 #ifdef HUB75_RING_STREAM
   if (ring_on)
   {
+    ringAcquire(back_buffer_id);
     for (int y = 0; y < ROWS_PER_FRAME; y++)
-      memset(g_ring.crow[_buff_id][y], 0, PIXELS_PER_ROW * 8);
+      memset(g_ring.crow[_buff_id][y], 0, PIXELS_PER_ROW * 6);
     return;
   }
 #endif
@@ -1013,11 +1121,14 @@ bool MatrixPanel_I2S_DMA::ringAllocate()
   const int bufs = m_cfg.double_buff ? 2 : 1;
   bool ok = true;
   for (int b = 0; b < bufs && ok; b++)
-    for (int y = 0; y < ROWS_PER_FRAME && ok; y++)
-    {
-      R.crow[b][y] = (uint32_t *)heap_caps_calloc(1, PIXELS_PER_ROW * 8, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-      ok = R.crow[b][y] != nullptr;
-    }
+  {
+    // Allocate each frame once; retain row pointers so drawing/refill needs no extra address calculation.
+    uint8_t *const data = (uint8_t *)heap_caps_calloc(ROWS_PER_FRAME, PIXELS_PER_ROW * 6,
+                                                    MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!data) { ok = false; break; }
+    for (int y = 0; y < ROWS_PER_FRAME; y++)
+      R.crow[b][y] = data + y * PIXELS_PER_ROW * 6;
+  }
   if (ok)
   {
     ring_tmpl = (uint16_t *)heap_caps_malloc(R.depth * R.width * sizeof(uint16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -1026,11 +1137,10 @@ bool MatrixPanel_I2S_DMA::ringAllocate()
   if (!ok)
   {
     for (int b = 0; b < 2; b++)
-      for (int y = 0; y < (int)kRingMaxRows; y++)
-      {
-        heap_caps_free(R.crow[b][y]);
-        R.crow[b][y] = nullptr;
-      }
+    {
+      heap_caps_free(R.crow[b][0]);
+      memset(R.crow[b], 0, sizeof(R.crow[b]));
+    }
     heap_caps_free(ring_tmpl);
     ring_tmpl = nullptr;
     ring_on = false;
@@ -1082,6 +1192,9 @@ void MatrixPanel_I2S_DMA::ringPrefill()
   for (uint32_t r = 0; r < R.n; r++)
     ringFillRow(R, r);
   R.nextFill = R.n;
+  // Default: the lower half switches one sweep after the upper half (no seam), and drawing waits for the buffer to be free.
+  R.lag = (R.depth >= 7);
+  R.own = R.lag;
 }
 
 bool MatrixPanel_I2S_DMA::ringStart()
@@ -1089,9 +1202,19 @@ bool MatrixPanel_I2S_DMA::ringStart()
   return dma_bus.start_row_interrupt(ringEof, nullptr);
 }
 
+void MatrixPanel_I2S_DMA::setRingMode(bool own, bool lag)
+{
+  if (!ring_on || g_ring.depth < 7)
+    return;
+  g_ring.lag = lag;
+  g_ring.own = own || lag; // a lagging lower half keeps the old buffer in use for a sweep longer
+}
+
 void MatrixPanel_I2S_DMA::ringFlip()
 {
   g_ring.frontNext = back_buffer_id;
+  g_ring.flips = g_ring.flips + 1;
+  g_ring.pending = g_ring.own;
   back_buffer_id = back_buffer_id ^ 1;
 }
 
@@ -1102,6 +1225,10 @@ MatrixPanel_I2S_DMA::RingStats MatrixPanel_I2S_DMA::getRingStats() const
   if (ring_on)
   {
     s.rows = g_ring.filled;
+    s.flips = g_ring.flips;
+    s.waits = g_ring.waits;
+    s.waitUs = g_ring.waitUs;
+    s.waitMaxUs = g_ring.waitMaxUs;
     s.missed = g_ring.missed;
     s.maxCycles = g_ring.maxCycles;
     s.meanCycles = g_ring.calls ? (uint32_t)(g_ring.sumCycles / g_ring.calls) : 0;
@@ -1205,9 +1332,10 @@ DO_BRIGHTNESS_COMPENSATION()
 #ifdef HUB75_RING_STREAM
   if (ring_on)
   {
+    ringAcquire(back_buffer_id);
     const bool bottom = y_coord >= ROWS_PER_FRAME;
-    uint32_t *q = g_ring.crow[m_cfg.double_buff ? back_buffer_id : 0][bottom ? y_coord - ROWS_PER_FRAME : y_coord] + x_coord * 2;
-    for (int16_t i = 0; i < l; i++, q += 2)
+    uint8_t *q = g_ring.crow[m_cfg.double_buff ? back_buffer_id : 0][bottom ? y_coord - ROWS_PER_FRAME : y_coord] + x_coord * 6;
+    for (int16_t i = 0; i < l; i++, q += 6)
       ringPut(q, bottom, red_val, green_val, blue_val);
     return;
   }
@@ -1299,12 +1427,13 @@ void MatrixPanel_I2S_DMA::vlineDMA(int16_t x_coord, int16_t y_coord, int16_t l, 
 #ifdef HUB75_RING_STREAM
   if (ring_on)
   {
-    uint32_t **rows = g_ring.crow[m_cfg.double_buff ? back_buffer_id : 0];
+    ringAcquire(back_buffer_id);
+    uint8_t **rows = g_ring.crow[m_cfg.double_buff ? back_buffer_id : 0];
     for (int16_t i = 0; i < l; i++)
     {
       const int y = y_coord + i;
       const bool bottom = y >= ROWS_PER_FRAME;
-      ringPut(rows[bottom ? y - ROWS_PER_FRAME : y] + x_coord * 2, bottom, red_val, green_val, blue_val);
+      ringPut(rows[bottom ? y - ROWS_PER_FRAME : y] + x_coord * 6, bottom, red_val, green_val, blue_val);
     }
     return;
   }

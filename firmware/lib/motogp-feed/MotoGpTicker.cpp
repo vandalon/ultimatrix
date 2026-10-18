@@ -48,7 +48,7 @@ void F1Ticker::begin(ClockTime *dateTime) {
 }
 
 void F1Ticker::resume() {
-  if (!_started || _task || firmwareUpdating) return;
+  if (!_started || _task || feedsHalted()) return;
   createFeedTask(task, "motogp", kTaskStack, this, 1, &_task, 0);
 }
 
@@ -377,11 +377,11 @@ void F1Ticker::task(void *self) {
   waitForFeedRegistration();
   F1Ticker *ticker = static_cast<F1Ticker *>(self);
   for (;;) {
-    if (firmwareUpdating) {  // the update has the network and the heap to itself: hand back the stack
+    if (feedsHalted()) {  // the update has the network and the heap to itself: hand back the stack
       ticker->_task = nullptr;
       stopFeedTask();
     }
-    for (unsigned long left = ticker->refresh(); left > 0 && !firmwareUpdating;) {
+    for (unsigned long left = ticker->refresh(); left > 0 && !feedsHalted();) {
       const unsigned long slice = std::min(left, 1000UL);
       vTaskDelay(pdMS_TO_TICKS(slice));
       left -= slice;

@@ -23,6 +23,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - HANDOFF.txt: older firmware-local notes; root HANDOFF.txt holds current state
 
 ### clockfaces/<name>/ (each: Clockface.cpp/.h, library.json)
+- scanner/: standalone moving white bar, no WLED; drawing benchmark + refill telemetry, normal quality and 8-row ring
 - bridge/: migration image showing where to choose a face, rather than a time display
 - mario/, luigi/: scrolling worlds, pipe/plant jumps, separate minute/hour hits, exit/swipe/entry; shared sprites/course in lib/faces/
 - pacman/: self-playing maze clock; Maze.h generates/stores the maze; palette in lib/core/PacmanColors.h
@@ -30,7 +31,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - tetris/: falling-digit clock; TetrisRenderer draws, TetrisScreens controls timing/frame state
 - home/: Home Assistant face; Clockface.cpp fills a Frame (pages, alerts, hourly bars) from HaClient, HomeRenderer.cpp draws the configurable tiles (including weather and the EV car with its bolt/plug badge), the dimmed album-art backdrop and the Now playing page, configurable status counts, plain background and breathing colon (shared with the native preview)
 - f1/: shared F1/MotoGP face; F1Renderer draws, F1Screens controls pages/timing, LoadingTyre.h holds the loading tyre bitmap
-- football/: sports face; FootballRenderer draws, FootballScreens controls pages/timing (feed: lib/football-feed)
+- football/: sports face; FootballRenderer draws, FootballScreens controls pages/timing; releases display snapshot during WLED and restores it on return (feed: lib/football-feed)
 - MotoGP has no separate clockface directory: reuses f1/ with UM_MOTOGP and lib/motogp-feed
 
 ### lib/core/ (shared services)
@@ -52,9 +53,14 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - FootballCatalog.h, F1Drivers.h, PacmanColors.h: competition/team catalog, driver metadata and Pac-Man palettes
 - qrcodegen.c/.h: QR code (Nayuki)
 
+- WledCanvas.cpp and web/canvas.html: canvas editor and RAM animations; GIF imports use a shared 32-colour RGB888 palette (no dithering), adjustable import contrast and packed/RLE/delta/LZ/XOR-LZ indexes and bounded upload chunks; playback reuses the canvas buffer; import budget follows available data heap with reserved headroom; abandoned imports are reaped independently of the visible effect.
+
+### lib/wled/ (optional WLED overlay, compiled into every face but the bridge; main.cpp UM_WLED_OVERLAY blocks)
+- Wled.h: API (state, options, effects, overlay poll/wanted/draw/hidden, realtime, JSON API). WledState.cpp: state, presets/playlists, timers, nightlight, fades (NVS wledS/P/T). WledEffects.cpp: 36 effects + palettes (draw into the back buffer). WledRealtime.cpp: DDP/WLED UDP/Art-Net/E1.31 listeners (non-blocking, drop when not on the panel), panel lock, overlay glue. WledApi.cpp: WLED JSON API, /win, /api/wled options, mDNS _wled._tcp. WledPaint.cpp: 8 KB Paint buffer for the "i" pixel array
+
 ### lib/ feeds and face kits
 - f1-feed/: F1Live (SignalR/WebSocket live timing), F1LiveState (message/state parser), F1Ticker (calendar/results/snapshots)
-- football-feed/: FootballTicker collects ESPN data; EspnParse parses it; FootballSnapshot.h defines display snapshots; GoalAnimation, TeamColors, TeamKit.h handle goal visuals and kits
+- football-feed/: FootballTicker collects ESPN data; EspnParse parses it; FootballSnapshot.h defines display snapshots; staging is allocated on demand and trimmed with disposable caches during WLED; GoalAnimation, TeamColors, TeamKit.h handle goal visuals and kits
 - motogp-feed/: MotoGpTicker.cpp collects results/live timing into F1Ticker snapshots; MotoGpScan.h parses streams; MotoGpRiders.h maps riders/bikes
 - tetris/: TetrisDigits, TetrisLayout, TetrisShapes (digit animation, layout and block shapes)
 - ha-feed/: HaConfig (slot settings in one NVS blob, separate fourth-tile/legacy-weather/washer-alert keys, token write-only), HaDefaults (defaults and entity rules), HaTemplate (builds the Jinja template, parses the result line), HaClient (WebSocket task: auth, render_template subscriptions, reconnect), HaMedia (Now playing: players template/parser, album-art fetch + ROM JPEG decode to 36x36)
@@ -82,3 +88,4 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 
 ### vendor/
 - gfx/, busio/, hub75/, wifi-manager/: vendored graphics, bus I/O, HUB75 driver and Wi-Fi provisioning dependencies; inspect only when the task needs them
+- hub75/src/ESP32-HUB75-MatrixPanel-I2S-DMA.cpp: row streaming from packed six-bit lanes; full-precision color buffers allocated per frame, optimized 7/8-bit refill and aligned pixel writes; dense 6-byte column buffers; lower panel half switches one sweep after the upper (seam fix, setRingMode) with the draw side waiting once per flip (RingStats flips/waits). Published as vandalon/ESP32-HUB75-DMA-Memory-Optimized (MIT): keep both copies in step

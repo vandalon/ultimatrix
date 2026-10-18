@@ -7,6 +7,12 @@ extern std::atomic<bool> liveEventOn;
 // A football match of a favourite team is live, or any F1/MotoGP session is: what the birthday screen gives way to
 extern std::atomic<bool> liveFavouriteOn;
 inline std::atomic<bool> liveFeedReading{false};
+// WLED has the panel: the feeds park and give back their stacks (like for an update), and resume when it lets go
+inline std::atomic<bool> feedsPaused{false};
+// Set by a feed that can give back heap data (the football boards) while WLED is on and memory is low; the data is downloaded again afterwards
+inline void (*feedTrimFn)(void *) = nullptr;
+inline void *feedTrimArg = nullptr;
+inline bool feedsHalted() { return firmwareUpdating.load() || feedsPaused.load(); }
 inline bool liveDataActive() { return liveEventOn.load() || liveFeedReading.load(); }
 
 // Short-lived downloads and live-feed handshakes share a turn. A connected

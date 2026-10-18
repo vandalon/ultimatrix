@@ -23,12 +23,12 @@ struct YieldingReader {
   YieldingReader(Stream &s, unsigned long timeout) : stream(s), timeoutMs(timeout) {}
 
   int read() {
-    if (firmwareUpdating) { dry = true; return -1; }
+    if (feedsHalted()) { dry = true; return -1; }  // an update or WLED has the heap: the download stops
     if (count >= limits::responseBytes) { oversized = true; return -1; }
     if (++count % 1024 == 0) vTaskDelay(1);
     unsigned long start = millis();
     do {
-      if (firmwareUpdating) { dry = true; return -1; }
+      if (feedsHalted()) { dry = true; return -1; }  // an update or WLED has the heap: the download stops
       int c = stream.read();
       if (c >= 0) return c;
       vTaskDelay(1);
