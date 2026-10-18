@@ -11,6 +11,8 @@ Ultimatrix is an LED matrix clock for an ESP32 and a 64×64 HUB75 panel. It can 
 
 Ultimatrix is inspired by the original [Clockwise](https://github.com/jnthas/clockwise) project by Jonathan Thas. Thank you for the idea and the groundwork.
 
+New to the hardware? Start with the [hardware setup guide](docs/HARDWARE.md), then [install from your browser](https://vandalon.github.io/ultimatrix/) (Chrome or Edge, USB cable that carries data). Details: [Install](#install).
+
 There are eight clock faces. Each has its own firmware image, so the clock runs one face at a time. You can switch faces from the local settings page by installing another signed image over Wi-Fi.
 
 ## Clock faces
@@ -49,6 +51,8 @@ The clock opens one WebSocket to `/api/websocket`, signs in with the token and s
 
 ## Hardware
 
+Wiring, board pin maps (including the Wemos D1 R32), power and troubleshooting: see the [hardware setup guide](docs/HARDWARE.md).
+
 The current target is a classic ESP32 Dev Module with 4 MiB of flash and one 64×64 HUB75 panel. The default wiring is:
 
 | HUB75 signals | ESP32 GPIOs, in the same order |
@@ -62,7 +66,21 @@ You can change the display orientation and swap blue and green in settings. Auto
 
 64×32 panels and other ESP32 variants are not current build targets.
 
-## Build and install
+## Install
+
+### Install from your browser
+
+The easiest way to flash a clock is the browser installer at **[vandalon.github.io/ultimatrix](https://vandalon.github.io/ultimatrix/)**. No tools are needed.
+
+1. Wire the panel first: see the [hardware setup guide](docs/HARDWARE.md).
+2. Connect the ESP32 to your computer with a USB cable that carries data.
+3. Open the installer in Chrome or Edge on a desktop (they support Web Serial), choose a face and click Install.
+4. Leave the erase option off to keep Wi-Fi credentials and settings; turn it on for a fresh start.
+5. Follow [First setup](#first-setup) once it restarts.
+
+Signed update files are mirrored under [/updates/](https://vandalon.github.io/ultimatrix/updates/). After the first install you can update and switch faces over Wi-Fi.
+
+### Build from source
 
 The firmware uses ESP-IDF 5.5.5 with Arduino ESP32 3.3.12 as a component. Install Git, Python, CMake and Ninja, then run these commands from the repository root:
 
@@ -85,9 +103,9 @@ Serial output runs at 115200 baud. If the clock already has the Ultimatrix bootl
 
 To change SDK settings, run `./tools/idf.sh football menuconfig`. `sdkconfig.defaults` supplies defaults for new builds; it does not overwrite a mode's saved `build/<mode>/sdkconfig`.
 
-### Browser install
+### Host the browser flasher yourself
 
-A USB browser flasher is included in [web-flasher/](web-flasher/index.html). Build the faces you want, then generate its images from `firmware/`:
+The installer above is the page in [web-flasher/](web-flasher/index.html). To run it locally with your own builds, generate its images from `firmware/`:
 
 ```sh
 ./tools/build-webflasher.sh football f1
@@ -99,11 +117,7 @@ This writes a full flash image and a manifest for each built face into `web-flas
 python3 -m http.server 8000 --directory web-flasher
 ```
 
-Open [localhost:8000](http://localhost:8000/) in a desktop browser with Web Serial support, such as Chrome or Edge. A hosted flasher needs HTTPS. Use a USB cable that carries data.
-
-The flasher offers to erase the device on a fresh install. Erasing removes Wi-Fi credentials and settings; leave that option off if you want to keep them.
-
-The hosted flasher is at [vandalon.github.io/ultimatrix](https://vandalon.github.io/ultimatrix/) once a release has been published; signed update files are mirrored under [/updates/](https://vandalon.github.io/ultimatrix/updates/).
+Open [localhost:8000](http://localhost:8000/) in Chrome or Edge on a desktop. A flasher hosted elsewhere needs HTTPS.
 
 ## First setup
 
