@@ -5,6 +5,7 @@ firmware/managed_components/
 firmware/sdkconfig
 firmware/sdkconfig.old
 firmware/local_config.h
+firmware/lib/wled/klipy_key.h
 dist/
 firmware/tools/publish-firmware.sh
 web-flasher/firmware/

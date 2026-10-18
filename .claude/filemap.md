@@ -53,7 +53,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - FootballCatalog.h, F1Drivers.h, PacmanColors.h: competition/team catalog, driver metadata and Pac-Man palettes
 - qrcodegen.c/.h: QR code (Nayuki)
 
-- WledCanvas.cpp and web/canvas.html: canvas editor and RAM animations; GIF imports use a shared 32-colour RGB888 palette (no dithering), adjustable import contrast and packed/RLE/delta/LZ/XOR-LZ indexes and bounded upload chunks; playback reuses the canvas buffer; import budget follows available data heap with reserved headroom; abandoned imports are reaped independently of the visible effect.
+- WledCanvas.cpp and web/canvas.html: canvas editor (GIF search is done by the clock: /api/canvas/search, key in gitignored lib/wled/klipy_key.h) and RAM animations; GIF imports use a shared 32-colour RGB888 palette (no dithering), adjustable import contrast and packed/RLE/delta/LZ/XOR-LZ indexes and bounded upload chunks; playback reuses the canvas buffer; import budget follows available data heap with reserved headroom; abandoned imports are reaped independently of the visible effect.
 
 ### lib/wled/ (optional WLED overlay, compiled into every face but the bridge; main.cpp UM_WLED_OVERLAY blocks)
 - Wled.h: API (state, options, effects, overlay poll/wanted/draw/hidden, realtime, JSON API). WledState.cpp: state, presets/playlists, timers, nightlight, fades (NVS wledS/P/T). WledEffects.cpp: 36 effects + palettes (draw into the back buffer). WledRealtime.cpp: DDP/WLED UDP/Art-Net/E1.31 listeners (non-blocking, drop when not on the panel), panel lock, overlay glue. WledApi.cpp: WLED JSON API, /win, /api/wled options, mDNS _wled._tcp. WledPaint.cpp: 8 KB Paint buffer for the "i" pixel array
@@ -76,6 +76,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - build-webflasher.sh: merges full-flash images and ESP Web Tools manifests into web-flasher/firmware/ (generated)
 - package-firmware.py: packages application images and signed OTA manifests into dist/ (generated)
 - check-static-ram.py: post-build check that fails a face above the 60 KB static RAM budget (hooked in firmware/CMakeLists.txt)
+
 - gen_icons.py: renders BootScreen's U logo into web app icons
 - gen_tzdb.py, zones.csv: generate the build-time timezone table from zone rules
 - preview/faces.cpp, preview/faces.py, preview/faces-scenarios.h: native pixel-art face runner, GIF generation and scenarios

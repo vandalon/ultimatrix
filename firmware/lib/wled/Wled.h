@@ -119,7 +119,8 @@ bool indexedFrame(const uint8_t *&indexes, const uint8_t *&palette);  // RGB888 
 uint16_t *buffer(bool create);                 // nullptr when not allocated (create = false) or no memory
 void release();
 void maintain(uint32_t now);  // reclaim abandoned uploads even when another effect is showing
-bool importing(int &have, int &total);  // an import is uploading: fxPaint shows a progress bar
+bool importing(int &have, int &total);  // an import is uploading
+bool holdsPanel();  // an import is uploading over the Paint effect: draw() leaves the panel as it is
 void shrink();  // memory is short: gives back the last-frame copy first, then the import in memory
 void clearImports();  // deletes the drawings the page imported (named "Import") from flash; saved drawings stay
 void setPixel(int index, uint8_t r, uint8_t g, uint8_t b);   // also marks the drawing as edited

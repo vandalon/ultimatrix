@@ -940,17 +940,8 @@ static void rebootForFirmwareUpdate() {
 static void reportCpu() {
   static int64_t lastUs = 0;
   static uint32_t lastIdle[2] = {0, 0}, lastRows = 0;
-  UBaseType_t n = uxTaskGetNumberOfTasks();
-  TaskStatus_t *st = (TaskStatus_t *)malloc(n * sizeof(TaskStatus_t));
-  if (!st) return;
-  uint32_t total = 0;
-  n = uxTaskGetSystemState(st, n, &total);
-  uint32_t idle[2] = {0, 0};
-  for (UBaseType_t i = 0; i < n; i++) {
-    if (!strcmp(st[i].pcTaskName, "IDLE0")) idle[0] = st[i].ulRunTimeCounter;
-    else if (!strcmp(st[i].pcTaskName, "IDLE1")) idle[1] = st[i].ulRunTimeCounter;
-  }
-  free(st);
+  // Read the two idle counters directly: uxTaskGetSystemState walks every task with interrupts off for about 2.5 ms, which made the panel flicker once a minute
+  uint32_t idle[2] = {ulTaskGetIdleRunTimeCounterForCore(0), ulTaskGetIdleRunTimeCounterForCore(1)};
   int64_t now = esp_timer_get_time();
   if (lastUs) {
     uint32_t wall = (uint32_t)(now - lastUs);
@@ -976,12 +967,15 @@ static void reportMemory() {
   if (reportedAt && now - reportedAt < 60000 && failures == lastFailures) return;
   reportedAt = now ? now : 1;
   lastFailures = failures;
-  consoleLog("[Memory] free=%u min=%u largest=%u dma=%u stack_free=%u failures=%u\n",
+  const uint32_t walkAt = micros();
+  const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  const uint32_t walkUs = micros() - walkAt;  // walks every free block with the heap lock held: interrupts on this core wait that long
+  consoleLog("[Memory] free=%u min=%u largest=%u dma=%u stack_free=%u failures=%u (largest-block walk %u us) at=%u ms\n",
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
       (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT),
-      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+      (unsigned)largest,
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
-      (unsigned)uxTaskGetStackHighWaterMark(nullptr), (unsigned)failures);
+      (unsigned)uxTaskGetStackHighWaterMark(nullptr), (unsigned)failures, (unsigned)walkUs, (unsigned)millis());
   if (displayReady) reportCpu();
   if (displayReady) {
     MatrixPanel_I2S_DMA::RingStats rs = display->getRingStats();
@@ -991,6 +985,13 @@ static void reportMemory() {
     if (rs.active)
       consoleLog("[Ring] flips=%u waits=%u wait total=%u ms longest=%u us\n", (unsigned)rs.flips, (unsigned)rs.waits,
           (unsigned)(rs.waitUs / 1000), (unsigned)rs.waitMaxUs);
+    if (rs.active)
+      consoleLog("[Ring] interrupt gap: longest=%u us, over 1/2/5/10 ms: %u/%u/%u/%u\n", (unsigned)rs.gapMaxUs,
+          (unsigned)rs.late[0], (unsigned)rs.late[1], (unsigned)rs.late[2], (unsigned)rs.late[3]);
+    static uint32_t lateSeen = 0;
+    uint32_t gapUs, pc, at; char task[9];
+    while (rs.active && display->nextLateEvent(lateSeen, gapUs, pc, task, &at))
+      consoleLog("[Ring] late: at=%u ms gap=%u us pc=0x%08x task=%s\n", (unsigned)at, (unsigned)gapUs, (unsigned)pc, task);
   }
 }
 

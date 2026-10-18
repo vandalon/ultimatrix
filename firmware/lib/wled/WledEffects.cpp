@@ -491,15 +491,6 @@ void fxDigital(Ctx &c) {
 // The drawing buffer (editor, "i" array, saved drawings); RGB565 as stored
 void fxPaint(Ctx &c) {
   canvas::tick(c.real);
-  int have = 0, total = 0;
-  if (canvas::importing(have, total)) {  // an import is uploading: a dark panel with a progress bar, not the pictures as they are built
-    fill(c, {0, 0, 0});
-    const int w = total > 0 ? (have * kWidth / total > kWidth ? kWidth : have * kWidth / total) : 8;
-    const int x0 = total > 0 ? 0 : (int)((c.real / 40) % (kWidth - 8));
-    for (int y = 30; y < 34; ++y)
-      for (int x = x0; x < x0 + w; ++x) put(c, x, y, {40, 200, 80});
-    return;
-  }
   const uint8_t *indexes = nullptr, *palette = nullptr;
   if (canvas::indexedFrame(indexes, palette)) {
     for (int y = 0; y < kHeight; ++y)

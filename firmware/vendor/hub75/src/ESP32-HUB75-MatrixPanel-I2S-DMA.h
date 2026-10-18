@@ -746,12 +746,16 @@ public:
     uint32_t maxCycles;    // longest refill of one row, CPU cycles
     uint32_t meanCycles;   // average refill of one row
     uint32_t rowPeriodUs;  // time one row is on the wire
+    uint32_t gapMaxUs, late[4]; // longest gap between two row interrupts; gaps over 1, 2, 5 and 10 ms
     uint32_t flips, waits, waitUs, waitMaxUs; // flips; draws that waited for the back buffer; total and longest wait (us)
   };
   RingStats getRingStats() const;
   // own: drawing waits until the ring no longer reads the back buffer. lag: the lower half switches to a new frame one sweep
   // after the upper half, so the time the scan reaches adjacent rows is continuous across the middle of the panel.
   void setRingMode(bool own, bool lag);
+  // Diagnostics: the next gap over 1 ms between row interrupts that was not read yet (seen starts at 0): its length, the program counter
+  // of the interrupted code, the task name (9 bytes) and optionally the time since boot in ms.
+  bool nextLateEvent(uint32_t &seen, uint32_t &gapUs, uint32_t &pc, char *task, uint32_t *ms = nullptr) const;
   bool ringActive() const { return ring_on; }
 #endif
 

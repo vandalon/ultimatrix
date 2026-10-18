@@ -323,6 +323,7 @@ void draw(MatrixPanel_I2S_DMA &display, uint32_t now) {
   }
   if (live) { live = false; restartEffect(); }
   owns = true;
+  if (canvas::holdsPanel()) return;  // an import is uploading: no new frame, the panel keeps showing the last one
   render(display, now, lastScale);
   display.flipDMABuffer();
 }

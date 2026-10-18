@@ -3,11 +3,22 @@
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #include "Wled.h"
 #include <DiskCache.h>
+#include <NetworkBudget.h>
+#include <errno.h>
+#include <esp_crt_bundle.h>
+#include <esp_random.h>
+#include <lwip/netdb.h>
+#include <lwip/sockets.h>
+#include <mbedtls/ssl.h>
 #include <esp_heap_caps.h>
 #include <mbedtls/base64.h>
 #include <memory>
 #include <new>
 #include <stdlib.h>
+#if __has_include("klipy_key.h")
+#include "klipy_key.h"
+#define UM_KLIPY_KEY 1
+#endif
 
 // The canvas: a 64x64 RGB565 buffer that the pixel editor (/canvas), the segment's "i" array and saved drawings write to,
 // shown by the Paint effect. Its own small API (/api/canvas/...), independent of WLED's JSON protocol. Drawings are
@@ -662,38 +673,169 @@ void slot() {
   info();
 }
 
-// The GIF search keys (KLIPY, GIPHY), kept on the clock so every phone and browser has them: /api/canvas/key?src=klipy
-bool keyPath(char *out) {
-  const String src = srv->arg("src");
-  if (src != "klipy" && src != "giphy") { message(400, "Unknown source."); return false; }
-  if (!mount()) { message(503, "The flash file system is not available."); return false; }
-  snprintf(out, 24, "/key_%s", src.c_str());
-  return true;
-}
+// A small TLS client for the GIF search. The Arduino one cannot ask the server for small records (max_fragment_length), which saves most of the
+// 16 KB receive buffer; a server that ignores the request just sends full records, so nothing breaks.
+struct Tls {
+  int sock = -1;
+  bool up = false;
+  mbedtls_ssl_context ssl;
+  mbedtls_ssl_config conf;
+  Tls() { mbedtls_ssl_init(&ssl); mbedtls_ssl_config_init(&conf); }
+  ~Tls() { if (up) mbedtls_ssl_close_notify(&ssl); if (sock >= 0) ::close(sock); mbedtls_ssl_free(&ssl); mbedtls_ssl_config_free(&conf); }
+  static int sendBytes(void *ctx, const unsigned char *b, size_t n) {
+    const int r = ::send(*(int *)ctx, b, n, 0);
+    return r >= 0 ? r : (errno == EAGAIN || errno == EWOULDBLOCK ? MBEDTLS_ERR_SSL_WANT_WRITE : MBEDTLS_ERR_SSL_INTERNAL_ERROR);
+  }
+  static int recvBytes(void *ctx, unsigned char *b, size_t n) {
+    const int r = ::recv(*(int *)ctx, b, n, 0);
+    return r >= 0 ? r : (errno == EAGAIN || errno == EWOULDBLOCK ? MBEDTLS_ERR_SSL_WANT_READ : MBEDTLS_ERR_SSL_INTERNAL_ERROR);
+  }
+  static int random(void *, unsigned char *b, size_t n) { esp_fill_random(b, n); return 0; }
+  // frag: 0 = no request, else 1..4 = 512, 1024, 2048, 4096 byte records
+  bool open(const char *host, uint16_t port, int frag, uint32_t timeoutMs) {
+    addrinfo hints = {}, *res = nullptr;
+    hints.ai_socktype = SOCK_STREAM;
+    char portText[8];
+    snprintf(portText, sizeof(portText), "%u", port);
+    if (getaddrinfo(host, portText, &hints, &res) != 0 || !res) return false;
+    sock = ::socket(res->ai_family, res->ai_socktype, 0);
+    if (sock < 0) { freeaddrinfo(res); return false; }
+    timeval tv = {(time_t)(timeoutMs / 1000), (suseconds_t)(timeoutMs % 1000 * 1000)};
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    const bool connected = ::connect(sock, res->ai_addr, res->ai_addrlen) == 0;
+    freeaddrinfo(res);
+    if (!connected) return false;
+    if (mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT)) return false;
+    mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED);  // the key travels in the request: the certificate must check out
+    if (esp_crt_bundle_attach(&conf)) return false;
+    mbedtls_ssl_conf_rng(&conf, random, nullptr);
+    if (frag) mbedtls_ssl_conf_max_frag_len(&conf, (unsigned char)frag);
+    if (mbedtls_ssl_setup(&ssl, &conf) || mbedtls_ssl_set_hostname(&ssl, host)) return false;
+    mbedtls_ssl_set_bio(&ssl, &sock, sendBytes, recvBytes, nullptr);
+    const uint32_t end = millis() + timeoutMs;
+    int r;
+    while ((r = mbedtls_ssl_handshake(&ssl)) != 0)
+      if ((r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) || millis() > end) return false;
+    return up = true;
+  }
+  bool write(const char *text) {
+    size_t left = strlen(text);
+    const uint32_t end = millis() + 8000;
+    while (left) {
+      const int r = mbedtls_ssl_write(&ssl, (const unsigned char *)text, left);
+      if (r > 0) { text += r; left -= r; } else if ((r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) || millis() > end) return false;
+    }
+    return true;
+  }
+  int read(unsigned char *b, size_t n) {  // bytes, 0 = the server closed, -1 = error or nothing for 8 s
+    const uint32_t end = millis() + 8000;
+    for (;;) {
+      const int r = mbedtls_ssl_read(&ssl, b, n);
+      if (r >= 0) return r;
+      if (r == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) return 0;
+      if ((r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) || millis() > end) return -1;
+    }
+  }
+};
 
-void keyGet() {
-  char file[24];
-  if (!keyPath(file)) return;
-  String key;
-  File f = LittleFS.open(file, "r");
-  if (f) { key = f.readString(); f.close(); }
-  json(200, String("{\"key\":\"") + key + "\"}");
-}
-
-void keyPut() {
-  char file[24];
-  if (!keyPath(file)) return;
-  String key = srv->arg("plain");
-  key.trim();
-  if (key.length() > 80) { message(400, "That key is too long."); return; }
-  for (size_t i = 0; i < key.length(); ++i)
-    if (!isalnum((unsigned char)key[i]) && key[i] != '-' && key[i] != '_') { message(400, "A key has only letters, digits, - and _."); return; }
-  if (key.isEmpty()) { LittleFS.remove(file); json(200, "{}"); return; }
-  File f = LittleFS.open(file, "w");
-  const bool ok = f && f.print(key) == key.length();
-  if (f) f.close();
-  if (!ok) { LittleFS.remove(file); message(500, "Could not store the key."); return; }
-  json(200, "{}");
+// GIF search: the clock asks KLIPY with the key kept in firmware and hands the browser only the GIF addresses, /api/canvas/search?q=...&page=...
+// The answer is read as a stream (one page runs to about 90 KB): every string that is a .gif address is kept under the size name seen last.
+// &dbg=1 (&frag=0..4) answers with heap numbers and the record size the server agreed to, for tuning the TLS buffers.
+void search() {
+#ifndef UM_KLIPY_KEY
+  message(501, "This firmware has no KLIPY key.");
+#else
+  const String q = srv->arg("q");
+  if (q.isEmpty() || q.length() > 60) { message(400, "Type something to search for."); return; }
+  if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 32000) {
+    // a loaded GIF holds the memory: the page asks first, and a repeat with &free=1 removes it from the clock (the same call as deleting an import)
+    if (ram.frames && !srv->hasArg("free")) { json(503, "{\"message\":\"A loaded GIF is using the memory the search needs.\",\"needsFree\":true}"); return; }
+    if (ram.frames) { freeRam(); freeLast(); }
+    if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 32000) { message(503, "Not enough memory to search right now."); return; }
+  }
+  const bool dbg = srv->hasArg("dbg");
+  const int frag = srv->hasArg("frag") ? constrain(srv->arg("frag").toInt(), 0, 4) : 4;
+  auto freeNow = [] { return (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT); };
+  auto bigNow = [] { return (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT); };
+  const unsigned free0 = freeNow(), big0 = bigNow();
+  unsigned freeMin = free0, bigMin = big0;
+  char key[sizeof(kKlipyKey) + 1];
+  for (size_t i = 0; i < sizeof(kKlipyKey); ++i) key[i] = kKlipyKey[i] ^ "ultimatrix"[i % 10];
+  key[sizeof(kKlipyKey)] = 0;
+  String request = String("GET /api/v1/") + key + "/gifs/search?per_page=24&customer_id=clock&page=" + constrain(srv->arg("page").toInt(), 1, 50) + "&q=";
+  memset(key, 0, sizeof(key));
+  for (size_t i = 0; i < q.length(); ++i) {
+    char c = q[i], hex[4];
+    if (isalnum((unsigned char)c)) request += c; else { snprintf(hex, sizeof(hex), "%%%02X", (unsigned char)c); request += hex; }
+  }
+  request += " HTTP/1.0\r\nHost: api.klipy.com\r\nUser-Agent: ultimatrix\r\nConnection: close\r\n\r\n";
+  static const char *const sizes[] = {"xs", "sm", "md", "hd"};
+  constexpr int kMax = 24;
+  String found[4];
+  int counts[4] = {0, 0, 0, 0}, size = 3, status = 0;
+  unsigned negotiated = 0, bytes = 0;
+  {
+    std::unique_ptr<Tls> tls(new (std::nothrow) Tls);
+    if (!tls) { message(503, "Not enough memory to search right now."); return; }
+    if (!tls->open("api.klipy.com", 443, frag, 8000)) { message(502, "Could not reach KLIPY."); return; }
+    negotiated = mbedtls_ssl_get_max_in_record_payload(&tls->ssl);
+    freeMin = min(freeMin, freeNow()); bigMin = min(bigMin, bigNow());
+    const bool sent = tls->write(request.c_str());
+    request = String();
+    if (!sent) { message(502, "Could not reach KLIPY."); return; }
+    std::unique_ptr<unsigned char[]> chunk(new (std::nothrow) unsigned char[512]);
+    if (!chunk) { message(503, "Not enough memory to search right now."); return; }
+    String token;
+    bool inString = false, escape = false, afterString = false, body = false;
+    char head[16] = {0};
+    int headLen = 0;
+    uint32_t tail = 0;  // the last four header bytes
+    for (int n; bytes < 600000 && !firmwareUpdating.load() && (n = tls->read(chunk.get(), 512)) > 0;) {
+      bytes += n;
+      freeMin = min(freeMin, freeNow()); bigMin = min(bigMin, bigNow());
+      vTaskDelay(1);
+      for (int i = 0; i < n; ++i) {
+        const char c = chunk[i];
+        if (!body) {  // the status line, then the headers up to the empty line
+          if (headLen < 12) head[headLen++] = c;
+          tail = tail << 8 | (uint8_t)c;
+          if (tail == 0x0D0A0D0A) { body = true; status = atoi(head + 9); if (status != 200) break; }
+          continue;
+        }
+        if (inString) {
+          if (escape) { escape = false; if (c != '/') token += '\\'; token += c; }  // \/ is a plain slash, other escapes stay as they are
+          else if (c == '\\') escape = true;
+          else if (c == '"') { inString = false; afterString = true; }
+          else if (token.length() < 300) token += c;
+          continue;
+        }
+        if (afterString) {
+          if (c == ' ' || c == '\n' || c == '\r') continue;
+          afterString = false;
+          if (c == ':') {
+            for (int k = 0; k < 4; ++k) if (token == sizes[k]) size = k;
+          } else if (token.startsWith("https://") && token.endsWith(".gif") && token.indexOf(' ') < 0 && counts[size] < kMax) {
+            if (counts[size]) found[size] += ',';
+            found[size] += '"'; found[size] += token; found[size] += '"';
+            counts[size]++;
+          }
+        }
+        if (c == '"') { inString = true; token = ""; }
+      }
+      if (body && status != 200) break;
+    }
+  }
+  if (status != 200) { message(status == 429 ? 429 : 502, status == 429 ? "KLIPY rate limit: try again later." : status ? "KLIPY refused the search." : "Could not reach KLIPY."); return; }
+  int best = 3;  // the smallest size that has results: the clock panel is 64x64
+  for (int i = 3; i >= 0; --i) if (counts[i]) best = i;
+  if (dbg) {
+    json(200, String("{\"frag\":") + frag + ",\"record\":" + negotiated + ",\"bytes\":" + bytes + ",\"gifs\":" + counts[best] + ",\"free_before\":" + free0 + ",\"free_min\":" + freeMin +
+         ",\"free_after\":" + freeNow() + ",\"big_before\":" + big0 + ",\"big_min\":" + bigMin + ",\"big_after\":" + bigNow() + "}");
+    return;
+  }
+  json(200, String("{\"gifs\":[") + found[best] + "]}");
+#endif
 }
 
 void cycle() {
@@ -788,6 +930,9 @@ void maintain(uint32_t now) {
   }
 }
 
+// While an import uploads over the Paint effect the panel keeps its last picture: the import reuses the canvas buffer, so it cannot be drawn
+bool holdsPanel() { return importingNow && state().fx == kPaintEffect; }
+
 bool importing(int &have, int &total) {
   have = ram.frames; total = importTotal;
   return importingNow;
@@ -836,9 +981,8 @@ void attach(WebServer &server, void (*postRoute)(const char *, WebServer::THandl
   postRoute("/api/canvas/save", save);
   postRoute("/api/canvas/frame", frameChunk);
   postRoute("/api/canvas/slot", slot);
+  server.on("/api/canvas/search", HTTP_GET, search);
   postRoute("/api/canvas/cycle", cycle);
-  server.on("/api/canvas/key", HTTP_GET, keyGet);
-  postRoute("/api/canvas/key", keyPut);
 }
 
 }  // namespace canvas

@@ -42,6 +42,7 @@
  * Drawing spreads the colours using a 16-entry table. The interrupt extracts six-bit lanes without RGB conversion.
  */
 namespace {
+#define ESP_CPU_FREQ_MHZ_FOR_DIAG 240u // the clock runs at 240 MHz
 constexpr uint32_t kRingMaxRows = 32;
 constexpr uint32_t kRingMaxHeight = 64;
 
@@ -54,6 +55,11 @@ struct RingState
   volatile uint32_t front, frontNext;   // framebuffer being sent, framebuffer to send from the next frame on
   volatile uint32_t frontLower;         // framebuffer the lower panel half is sent from (lags front by one sweep when lag is on)
   volatile uint32_t flips, waits, waitUs, waitMaxUs; // flips, draws that had to wait, total/longest wait
+  uint32_t lastEntry;                   // cycle count at the previous row interrupt
+  struct LateEvent { uint32_t gapUs, pc, ms; char task[9]; };
+  LateEvent lateLog[8];                 // the last gaps over 1 ms: how long, where the CPU was when the interrupt finally ran, and in which task
+  volatile uint32_t lateSeq;            // number of events recorded so far
+  volatile uint32_t gapMax, late[4];    // longest time between two row interrupts (cycles); counts over 1, 2, 5 and 10 ms
   volatile uint32_t own, lag;           // draw calls wait for the back buffer to be released; lower half lags one sweep
   volatile uint32_t pending;            // set by a flip, cleared once the drawing side has seen the back buffer released
   uint32_t nextFill;                    // next row to generate
@@ -213,6 +219,27 @@ void IRAM_ATTR ringEof(void *, uint32_t descIndex)
 {
   RingState &R = g_ring;
   const uint32_t t0 = esp_cpu_get_cycle_count();
+  const uint32_t gap = t0 - R.lastEntry; // normally one row time (228 us); more means interrupts were held off
+  R.lastEntry = t0;
+  if (gap > R.gapMax && R.calls > 8)
+    R.gapMax = gap;
+  const uint32_t mhz = ESP_CPU_FREQ_MHZ_FOR_DIAG;
+  if (gap > 1000 * mhz && R.calls > 8)
+  {
+    // EPC2 is where the interrupted code stood: the first instruction after interrupts were switched back on, so inside or right after what held them off.
+    uint32_t pc;
+    __asm__ __volatile__("rsr %0, epc2" : "=a"(pc));
+    RingState::LateEvent &e = R.lateLog[R.lateSeq & 7];
+    e.gapUs = gap / mhz;
+    e.pc = pc;
+    e.ms = (uint32_t)(esp_timer_get_time() / 1000);
+    const char *name = pcTaskGetName(nullptr);
+    for (int i = 0; i < 8; i++)
+      e.task[i] = name ? name[i] : 0;
+    e.task[8] = 0;
+    R.lateSeq = R.lateSeq + 1;
+  }
+  if (gap > 1000 * mhz) { R.late[0] = R.late[0] + 1; if (gap > 2000 * mhz) { R.late[1] = R.late[1] + 1; if (gap > 5000 * mhz) { R.late[2] = R.late[2] + 1; if (gap > 10000 * mhz) R.late[3] = R.late[3] + 1; } } }
   const uint32_t cur = descIndex / R.descPerRow;
   if (cur >= R.rows)
     return;
@@ -1202,6 +1229,23 @@ bool MatrixPanel_I2S_DMA::ringStart()
   return dma_bus.start_row_interrupt(ringEof, nullptr);
 }
 
+bool MatrixPanel_I2S_DMA::nextLateEvent(uint32_t &seen, uint32_t &gapUs, uint32_t &pc, char *task, uint32_t *ms) const
+{
+  const RingState &R = g_ring;
+  if (!ring_on || seen >= R.lateSeq)
+    return false;
+  if (R.lateSeq - seen > 8)
+    seen = R.lateSeq - 8; // older events were overwritten
+  const RingState::LateEvent &e = R.lateLog[seen & 7];
+  gapUs = e.gapUs;
+  pc = e.pc;
+  if (ms)
+    *ms = e.ms;
+  memcpy(task, e.task, 9);
+  ++seen;
+  return true;
+}
+
 void MatrixPanel_I2S_DMA::setRingMode(bool own, bool lag)
 {
   if (!ring_on || g_ring.depth < 7)
@@ -1226,6 +1270,9 @@ MatrixPanel_I2S_DMA::RingStats MatrixPanel_I2S_DMA::getRingStats() const
   {
     s.rows = g_ring.filled;
     s.flips = g_ring.flips;
+    s.gapMaxUs = g_ring.gapMax / ESP_CPU_FREQ_MHZ_FOR_DIAG;
+    for (int i = 0; i < 4; i++)
+      s.late[i] = g_ring.late[i];
     s.waits = g_ring.waits;
     s.waitUs = g_ring.waitUs;
     s.waitMaxUs = g_ring.waitMaxUs;
