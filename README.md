@@ -1,5 +1,12 @@
 # Ultimatrix
 
+<p>
+  <img src="docs/photos/home-assistant-connecting.jpg" alt="The Home face connecting to Home Assistant" width="24%">
+  <img src="docs/photos/home-assistant-home.jpg" alt="Home Assistant Home page on the LED matrix clock" width="24%">
+  <img src="docs/photos/home-assistant-energy.jpg" alt="Home Assistant Energy page on the LED matrix clock" width="24%">
+  <img src="docs/photos/home-assistant-now-playing.jpg" alt="Home Assistant Now playing page on the LED matrix clock" width="24%">
+</p>
+
 Ultimatrix is an LED matrix clock for an ESP32 and a 64×64 HUB75 panel. It can show live sports, build the time from falling Tetris blocks, spell it out in words, or run an animated Mario, Luigi or Pac-Man scene.
 
 Ultimatrix is inspired by the original [Clockwise](https://github.com/jnthas/clockwise) project by Jonathan Thas. Thank you for the idea and the groundwork.
@@ -23,13 +30,6 @@ There are eight clock faces. Each has its own firmware image, so the clock runs 
 Football starts with Eredivisie and KNVB Cup selected, and the Dutch national team as a favourite. Competitions are grouped by country, and favourite teams have a searchable picker.
 
 ## Home Assistant
-
-<p>
-  <img src="docs/photos/home-assistant-home.jpg" alt="Home Assistant Home page on the LED matrix clock" width="48%">
-  <img src="docs/photos/home-assistant-energy.jpg" alt="Home Assistant Energy page on the LED matrix clock" width="48%">
-</p>
-
-Home and Energy pages on a real panel.
 
 The `home` face needs Home Assistant on the same network (or reachable from it).
 
