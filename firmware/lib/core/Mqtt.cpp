@@ -2,10 +2,13 @@
 // Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #include "Mqtt.h"
+#include "ScreenPng.h"
 #include <Preferences.h>
 #include <WiFi.h>
 #include <cJSON.h>
 #include <esp_mac.h>
+#include <esp_heap_caps.h>
+#include <esp_log.h>
 #include <stdarg.h>
 #include <memory>
 #include <new>
@@ -43,7 +46,7 @@ int8_t onOff(const char *text) {
 enum EntityId : uint8_t {
   E_BRIGHTNESS, E_AUTO_BRIGHTNESS, E_NIGHT_CLOCK, E_NOTIFY, E_MIN_BRIGHTNESS, E_NIGHT_MODE, E_NIGHT_SUN, E_NIGHT_START, E_NIGHT_END,
   E_ROTATION, E_TIME_24H, E_AUTO_TIMEZONE, E_TIMEZONE, E_NTP_SERVER, E_LDR_DARK, E_LDR_LIGHT, E_SWAP, E_AUTO_UPDATE, E_TELNET,
-  E_RESTART, E_CHECK_UPDATE, E_UPDATE, E_LIGHT, E_WIFI, E_MEMORY, E_COUNT
+  E_RESTART, E_CHECK_UPDATE, E_UPDATE, E_LIGHT, E_WIFI, E_MEMORY, E_SCREEN, E_CPU, E_DISPLAY_CPU, E_COUNT
 };
 enum Flag : uint8_t { STATE = 1, COMMAND = 2, CONFIG = 4, DIAGNOSTIC = 8, CUSTOM = 16 };  // CUSTOM: its extra part brings its own state topic
 struct Entity { const char *component, *key, *name; uint8_t flags; const char *extra; };
@@ -75,6 +78,9 @@ const Entity kEntities[E_COUNT] = {
     {"sensor", "light_level", "Light level", STATE, "\"stat_cla\":\"measurement\",\"icon\":\"mdi:brightness-5\""},
     {"sensor", "wifi_signal", "Wi-Fi signal", STATE | DIAGNOSTIC, "\"dev_cla\":\"signal_strength\",\"unit_of_meas\":\"dBm\",\"stat_cla\":\"measurement\""},
     {"sensor", "free_memory", "Free memory", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"kB\",\"stat_cla\":\"measurement\""},
+    {"camera", "screen", "Screen", CUSTOM, "\"topic\":\"~/screen\",\"encoding\":\"\""},
+    {"sensor", "cpu_usage", "CPU usage", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"icon\":\"mdi:chip\""},
+    {"sensor", "display_cpu", "Display refill CPU", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"icon\":\"mdi:led-on\""},
 };
 
 // Appends formatted text to a buffer, stopping quietly when it is full
@@ -183,6 +189,7 @@ void Mqtt::handle(int32_t id, esp_mqtt_event_handle_t event) {
       snprintf(filter, sizeof(filter), "%s/+/set", _base);
       esp_mqtt_client_subscribe_single(_client, filter, 0);
       _error[0] = 0;
+      _screenSent = false;
       _step = 1;  // 0 is idle; the discovery messages follow from poll()
       _connected = true;
       break;
@@ -207,6 +214,10 @@ void Mqtt::handle(int32_t id, esp_mqtt_event_handle_t event) {
       const int keyLen = event->topic_len - (int)baseLen - 1;
       if (keyLen < 5 || strncmp(key + keyLen - 4, "/set", 4) != 0) break;
       const int nameLen = keyLen - 4;
+      if (nameLen == 6 && strncmp(key, "screen", 6) == 0) {
+        _screenSent = false;  // a viewer requests the current frame, even if unchanged
+        break;
+      }
       int entity = -1;
       for (int i = 0; i < E_COUNT; i++)
         if ((kEntities[i].flags & COMMAND) && (int)strlen(kEntities[i].key) == nameLen && strncmp(kEntities[i].key, key, nameLen) == 0) { entity = i; break; }
@@ -425,7 +436,7 @@ void Mqtt::publishState(uint32_t now) {
   const uint32_t sig = signature(s);
   const int light = _hooks.lightLevel ? _hooks.lightLevel() : -1;
   // A moving light reading goes out every 10 s, so the sensor levels can be tuned from Home Assistant
-  const uint32_t every = light >= 0 ? kLightEveryMs : kStateEveryMs;
+  const uint32_t every = light >= 0 || _hooks.cpuUsage ? kLightEveryMs : kStateEveryMs;
   if (_stateDue || sig != _stateSignature || (int32_t)(now - _stateAt) >= (int32_t)every) {
     std::unique_ptr<char[]> json(new (std::nothrow) char[kPayload]);
     if (!json) return;
@@ -441,6 +452,12 @@ void Mqtt::publishState(uint32_t now) {
             (unsigned)s.ldrLight, onoff(s.swapBlueGreen), onoff(s.autoUpdate), onoff(s.telnet));
     if (light >= 0) out.add("\"light_level\":%d,", light);
     else out.add("\"light_level\":null,");
+    CpuInfo cpu;
+    if (_hooks.cpuUsage) _hooks.cpuUsage(cpu);
+    if (cpu.load >= 0) out.add("\"cpu_usage\":%d,", cpu.load);
+    else out.add("\"cpu_usage\":null,");
+    if (cpu.display >= 0) out.add("\"display_cpu\":%d,", cpu.display);
+    else out.add("\"display_cpu\":null,");
     out.add("\"wifi_signal\":%d,\"free_memory\":%u}", (int)WiFi.RSSI(), (unsigned)(ESP.getFreeHeap() / 1024));
     snprintf(topic, sizeof(topic), "%s/state", _base);
     if (publish(topic, json.get(), true)) { _stateDue = false; _stateAt = now; _stateSignature = sig; }
@@ -461,6 +478,80 @@ void Mqtt::publishState(uint32_t now) {
   }
 }
 
+// One indexed RGB332 image per MQTT message (512x512 PNG, bounded BMP fallback).
+// No permanent framebuffer, no retained image,
+// and no image backlog: leave space for commands, notices and GIF uploads.
+void Mqtt::publishScreen(uint32_t now) {
+  if (!_hooks.screenRow || now - _screenAt < 1000) return;
+  _screenAt = now;
+  constexpr size_t headerSize = 54 + 256 * 4;  // header plus BGR0 palette
+  constexpr size_t rowSize = 64;  // already aligned to four bytes
+  constexpr size_t size = headerSize + 64 * rowSize;
+  if (esp_mqtt_client_get_outbox_size(_client) != 0) return;
+  const size_t free = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  // Allow the image and MQTT queue copy, keeping 16 KiB for other work.
+  // Each image needs its own block; neither needs the old RGB888-sized block.
+  static uint32_t memoryLogAt = 0;
+  if (free < 2 * size + 16384 || largest < size + 1024) {
+    if (!memoryLogAt || now - memoryLogAt >= 30000) {
+      ESP_LOGW("MQTT camera", "Waiting for memory: free=%u largest=%u", (unsigned)free, (unsigned)largest);
+      memoryLogAt = now;
+    }
+    return;
+  }
+  memoryLogAt = 0;
+  uint8_t row[64 * 3];
+  const auto index = [](const uint8_t *rgb) -> uint8_t {
+    return (rgb[0] & 0xE0) | ((rgb[1] >> 3) & 0x1C) | (rgb[2] >> 6);
+  };
+  uint32_t hash = 2166136261u;
+  for (int y = 63; y >= 0; --y) {
+    if (!_hooks.screenRow(y, row)) return;
+    for (int x = 0; x < 64; ++x) hash = mix(hash, index(row + x * 3));
+  }
+  if (_screenSent && hash == _screenSignature) return;
+  // Count compressed output first, so the only allocation is its exact size.
+  // Cap PNG at 8 KiB; detailed frames or a tight heap keep the 64x64 BMP path.
+  const size_t pngSize = screenpng::encode(_hooks.screenRow, nullptr, 0);
+  const bool png = pngSize && pngSize <= 8192 && free >= 2 * pngSize + 16384 && largest >= pngSize + 1024;
+  size_t imageSize = png ? pngSize : size;
+  std::unique_ptr<uint8_t[]> image(new (std::nothrow) uint8_t[imageSize]);
+  if (!image) return;
+  if (png) {
+    imageSize = screenpng::encode(_hooks.screenRow, image.get(), imageSize);
+    if (!imageSize) return;
+  } else {
+    memset(image.get(), 0, headerSize);
+    image[0] = 'B'; image[1] = 'M';
+    auto put32 = [&](int at, uint32_t value) {
+      for (int i = 0; i < 4; ++i) image[at + i] = value >> (i * 8);
+    };
+    put32(2, size); put32(10, headerSize); put32(14, 40);
+    put32(18, 64); put32(22, 64); image[26] = 1; image[28] = 8;
+    put32(34, 64 * rowSize);
+    put32(46, 256);
+    for (unsigned i = 0; i < 256; ++i) {
+      image[54 + i * 4] = (i & 3) * 255 / 3;
+      image[54 + i * 4 + 1] = ((i >> 2) & 7) * 255 / 7;
+      image[54 + i * 4 + 2] = (i >> 5) * 255 / 7;
+    }
+    for (int y = 63; y >= 0; --y) {
+      if (!_hooks.screenRow(y, row)) return;
+      uint8_t *dst = image.get() + headerSize + (63 - y) * rowSize;
+      for (int x = 0; x < 64; ++x) {
+        dst[x] = index(row + x * 3);
+      }
+    }
+  }
+  char topic[40];
+  snprintf(topic, sizeof(topic), "%s/screen", _base);
+  if (esp_mqtt_client_enqueue(_client, topic, reinterpret_cast<const char *>(image.get()), imageSize, 0, false, true) >= 0) {
+    _screenSignature = hash;
+    _screenSent = true;
+  }
+}
+
 void Mqtt::poll(uint32_t now, bool online) {
   if (!_cfg.enabled || !online || !_cfg.host[0]) {
     if (_client) stop();
@@ -470,5 +561,8 @@ void Mqtt::poll(uint32_t now, bool online) {
   if (_restart) { stop(); _restart = false; }
   if (!_client) { start(); return; }
   applyCommands(now);
-  if (_connected.load() && _step.load() > 0) publishNext(now);
+  if (_connected.load() && _step.load() > 0) {
+    publishNext(now);
+    if (_step.load() > E_COUNT + 1) publishScreen(now);
+  }
 }

@@ -212,6 +212,8 @@ private:
 };
 }  // namespace
 
+void inputActivity() { idleSince = millis(); }
+
 bool enabled() { return options().enabled != 0; }
 bool realtimeListening() { return listening; }
 
@@ -291,7 +293,7 @@ void poll(int hour, int minute, int second, bool h24, int weekday, uint32_t now)
     feedTrimFn(feedTrimArg);
   }
   const uint32_t timeout = (uint32_t)options().timeoutMin * 60000UL;
-  if (!s.on || s.pl >= 0 || realtimeActive(now) || !timeout) idleSince = now;       // the timeout counts from the last command
+  if (!s.on || realtimeActive(now) || !timeout) idleSince = now;       // playback and playlist steps do not count as input
   else if (now - idleSince >= timeout) { s.on = false; lookChanged(); }
 }
 

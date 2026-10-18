@@ -11,7 +11,7 @@
 
 // Optional link to Home Assistant over MQTT, off until it is switched on. Home Assistant finds the clock by its
 // discovery messages: the standard settings (brightness, night mode, display, time, light sensor, updates), a
-// notification, restart and update buttons, an update entity for installing new firmware, and two diagnostics.
+// notification, restart and update buttons, an update entity for installing new firmware, diagnostic sensors, and a screen camera.
 // The client runs in the esp-mqtt task and only queues what arrives; poll() applies it on the clock task, so the
 // settings are touched from one task only.
 class Mqtt {
@@ -24,6 +24,7 @@ public:
     char pass[65] = "";
   };
   struct UpdateInfo { char installed[32], latest[32]; bool busy; int percent; };  // percent < 0: not known
+  struct CpuInfo { int load = -1, display = -1; };  // percentages; -1 until a sampling interval is available
   // What the clock does for Home Assistant, supplied by main.cpp (it owns the display, the time and the updater)
   struct Hooks {
     void (*changed)(const Settings &previous);  // settings were changed from outside the settings page: apply the follow-ups
@@ -31,6 +32,8 @@ public:
     void (*checkUpdate)();
     void (*installUpdate)();
     void (*updateInfo)(UpdateInfo &out);
+    bool (*screenRow)(int16_t y, uint8_t *rgb);  // optional RGB888 readback, called between frames
+    void (*cpuUsage)(CpuInfo &out);  // average task load across both cores, display refill separately
     int (*lightLevel)();  // the averaged light sensor reading, or -1 while the sensor is not read
   };
   static Mqtt &instance();
@@ -54,6 +57,7 @@ private:
   void applyCommand(const Command &command, Settings &s);
   void publishNext(uint32_t now);
   void publishState(uint32_t now);
+  void publishScreen(uint32_t now);
   bool publish(const char *topic, const char *payload, bool retain);
   Config _cfg;
   Hooks _hooks = {};
@@ -67,5 +71,7 @@ private:
   bool _hasNotice = false;
   char _noticeText[notice::kPayloadMax] = "";
   bool _restart = false, _stateDue = true, _updateDue = true;
+  uint32_t _screenAt = 0, _screenSignature = 0;
+  std::atomic<bool> _screenSent{false};
   uint32_t _saveAt = 0, _stateAt = 0, _updateAt = 0, _stateSignature = 0, _updateSignature = 0;
 };

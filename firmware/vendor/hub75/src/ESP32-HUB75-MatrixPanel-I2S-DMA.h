@@ -525,6 +525,10 @@ public:
   bool begin(int r1, int g1 = G1_PIN_DEFAULT, int b1 = B1_PIN_DEFAULT, int r2 = R2_PIN_DEFAULT, int g2 = G2_PIN_DEFAULT, int b2 = B2_PIN_DEFAULT, int a = A_PIN_DEFAULT, int b = B_PIN_DEFAULT, int c = C_PIN_DEFAULT, int d = D_PIN_DEFAULT, int e = E_PIN_DEFAULT, int lat = LAT_PIN_DEFAULT, int oe = OE_PIN_DEFAULT, int clk = CLK_PIN_DEFAULT);
   bool begin(const HUB75_I2S_CFG &cfg);
 
+  // Read the last submitted frame (2-8 bit depth) in logical screen coordinates as RGB888.
+  // Call from the drawing task between frames; no allocation or display changes.
+  bool readDisplayRow(int16_t y, uint8_t *rgb);
+
   // Adafruit's BASIC DRAW API (565 colour format)
   virtual void drawPixel(int16_t x, int16_t y, uint16_t color); // overwrite adafruit implementation
   virtual void fillScreen(uint16_t color);                      // overwrite adafruit implementation

@@ -850,6 +850,9 @@ static void mqttSettingsChanged(const Settings &previous) {
   if (previous.swapBlueGreen != s.swapBlueGreen && s.save()) restartAt = millis() + 1000;  // the panel colours are set up at start
 }
 
+static bool mqttScreenRow(int16_t y, uint8_t *rgb) {
+  return display && display->width() == 64 && display->height() == 64 && display->readDisplayRow(y, rgb);
+}
 static int mqttLightLevel() { return displayControl.lightReading(); }
 static void mqttRestart() { restartAt = millis() + 500; }
 static void mqttCheckUpdate() { firmwareUpdate.checkNow(false); }
@@ -957,6 +960,27 @@ static void reportCpu() {
   lastUs = now;
   lastIdle[0] = idle[0];
   lastIdle[1] = idle[1];
+}
+
+// Independent deltas keep MQTT's 10-second samples separate from console reporting.
+static void mqttCpuUsage(Mqtt::CpuInfo &out) {
+  static int64_t lastUs = 0;
+  static uint32_t lastIdle[2] = {0, 0}, lastRows = 0;
+  const uint32_t idle[2] = {ulTaskGetIdleRunTimeCounterForCore(0), ulTaskGetIdleRunTimeCounterForCore(1)};
+  const int64_t now = esp_timer_get_time();
+  const auto rs = display->getRingStats();
+  if (lastUs && now > lastUs) {
+    const uint64_t wall = now - lastUs;
+    unsigned total = 0;
+    for (int core = 0; core < 2; ++core)
+      total += 100 - std::min(100u, (unsigned)(100ull * (uint32_t)(idle[core] - lastIdle[core]) / wall));
+    out.load = (total + 1) / 2;
+    // Approximate duty of one core, from the driver's lifetime mean refill cost.
+    out.display = rs.active ? std::min(100u, (unsigned)(100ull * (uint32_t)(rs.rows - lastRows) * rs.meanCycles /
+        ((uint64_t)getCpuFrequencyMhz() * wall))) : 0;
+  }
+  lastUs = now;
+  lastIdle[0] = idle[0]; lastIdle[1] = idle[1]; lastRows = rs.rows;
 }
 
 static void reportMemory() {
@@ -1303,6 +1327,34 @@ private:
 
 static void postRoute(const char *uri, WebServer::THandlerFunction fn) { server.addHandler(new BoundedPost(uri, fn)); }
 
+// Web requests run on the drawing task, so a submitted frame stays stable while streamed.
+static void screenPreview() {
+  if (!display || display->width() != 64 || display->height() != 64) {
+    server.send(503, "text/plain", "Display preview is not ready."); return;
+  }
+  uint8_t row[64 * 3];
+  if (!display->readDisplayRow(63, row)) {
+    server.send(503, "text/plain", "Display preview is not ready."); return;
+  }
+  // Uncompressed 24-bit BMP: 54-byte header followed by bottom-up BGR rows.
+  uint8_t header[54] = {'B', 'M'};
+  auto put32 = [&](int at, uint32_t value) { for (int i = 0; i < 4; ++i) header[at + i] = value >> (i * 8); };
+  put32(2, sizeof(header) + 64 * 64 * 3); put32(10, sizeof(header)); put32(14, 40);
+  put32(18, 64); put32(22, 64); header[26] = 1; header[28] = 24; put32(34, 64 * 64 * 3);
+  server.sendHeader("Cache-Control", "no-store");
+  server.setContentLength(sizeof(header) + 64 * 64 * 3);
+  server.send(200, "image/bmp", "");
+  server.sendContent(reinterpret_cast<const char *>(header), sizeof(header));
+  uint8_t batch[64 * 3 * 4]; size_t used = 0;
+  for (int y = 63; y >= 0 && server.client().connected(); --y) {
+    if (y != 63) display->readDisplayRow(y, row);
+    for (int x = 0; x < 64; ++x) std::swap(row[x * 3], row[x * 3 + 2]);
+    memcpy(batch + used, row, sizeof(row)); used += sizeof(row);
+    if (used == sizeof(batch)) { server.sendContent(reinterpret_cast<const char *>(batch), used); used = 0; }
+  }
+}
+
+
 // The startup diagnostic a new OTA image must pass: display up, heap left, and either Wi-Fi setup running or
 // the settings server up with the face drawing after its first time sync.
 static bool startupHealthy() {
@@ -1479,7 +1531,7 @@ void setup() {
   ha::load();
 #endif
   firmwareUpdate.begin();  // the cached "update available" result, so the boot screen can mention it
-  Mqtt::instance().begin(firmwareUpdate.version(), {mqttSettingsChanged, mqttRestart, mqttCheckUpdate, mqttInstallUpdate, mqttUpdateInfo, mqttLightLevel});
+  Mqtt::instance().begin(firmwareUpdate.version(), {mqttSettingsChanged, mqttRestart, mqttCheckUpdate, mqttInstallUpdate, mqttUpdateInfo, mqttScreenRow, mqttCpuUsage, mqttLightLevel});
   {  // The fast display is only for the Wi-Fi setup QR: when setup was asked for. A start that needs the setup late restarts into it (setupRefresh flag)
     Preferences refreshPrefs;
     bool asked = false;
@@ -1657,6 +1709,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/faces/luigi.png", HTTP_GET, []() { sendIcon(luigiStart, luigiEnd); });
   server.on("/faces/pacman.png", HTTP_GET, []() { sendIcon(pacmanStart, pacmanEnd); });
   server.on("/faces/home.png", HTTP_GET, []() { sendIcon(homeStart, homeEnd); });
+  server.on("/api/screen", HTTP_GET, screenPreview);
   server.on("/api/settings", HTTP_GET, settingsState);
   postRoute("/api/settings", saveSettings);
   server.on("/api/catalog", HTTP_GET, selectionCatalog);

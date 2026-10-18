@@ -19,7 +19,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - main/CMakeLists.txt: mode/source selection, generated timezone table, embedded web assets; MotoGP selects the F1 face
 - components/clock-libraries/CMakeLists.txt: vendored display/Wi-Fi libraries and shared panel colour-depth setting
 - partitions.csv, sdkconfig.defaults, dependencies.lock: partition table, IDF config, deps
-- src/main.cpp: app entry (setup/loop), service wiring, boot/geo-IP/update flow and web/API routes
+- src/main.cpp: app entry (setup/loop), service wiring, boot/geo-IP/update flow and web/API routes, read-only /api/screen BMP preview
 - HANDOFF.txt: older firmware-local notes; root HANDOFF.txt holds current state
 
 ### clockfaces/<name>/ (each: Clockface.cpp/.h, library.json)
@@ -43,7 +43,8 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - PanelTier.h: panel colour quality levels (depth, I2S clock, refresh), the NVS state and the retry rule
 - DisplayControl, PanelLayout, BootScreen, ScreenTimer, FlipDigits, NumericFont, LapFonts: display/panel helpers, fonts
 - TelnetConsole.cpp/.h, Console.h: remote logging console
-- Mqtt.cpp/.h: optional MQTT link to Home Assistant (default off): config in NVS, discovery entities, commands queued by the esp-mqtt task and applied by poll(), state publishing
+- ScreenPng.h: bounded 512x512 indexed PNG encoder from 64x64 display rows; fixed DEFLATE runs/repeated rows, no large framebuffer or zlib window
+- Mqtt.cpp/.h: optional MQTT link to Home Assistant (default off): config in NVS, discovery entities, commands queued by the esp-mqtt task and applied by poll(), state publishing, 10-second CPU task/refill diagnostics and changed-screen MQTT camera snapshots
 - Notice.cpp/.h: full-panel text message (wrapped, paged) sent from Home Assistant, drawn over any face by main.cpp
 - DiskCache.h: mounts LittleFS; formats only genuinely erased cache flash
 - CacheBlob.h: versioned NVS POD blobs with size/CRC validation
@@ -53,7 +54,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - FootballCatalog.h, F1Drivers.h, PacmanColors.h: competition/team catalog, driver metadata and Pac-Man palettes
 - qrcodegen.c/.h: QR code (Nayuki)
 
-- WledCanvas.cpp and web/canvas.html: canvas editor (GIF search is done by the clock: /api/canvas/search, key in gitignored lib/wled/klipy_key.h) and RAM animations; GIF imports use a shared 32-colour RGB888 palette (no dithering), adjustable import contrast and packed/RLE/delta/LZ/XOR-LZ indexes and bounded upload chunks; playback reuses the canvas buffer; import budget follows available data heap with reserved headroom; abandoned imports are reaped independently of the visible effect.
+- WledCanvas.cpp and web/canvas.html: canvas editor (/canvas) and dedicated GIF loader (/gifs; same embedded asset, separate views); GIF search is done by the clock: /api/canvas/search, key in gitignored lib/wled/klipy_key.h, with RAM animations; GIF imports use a shared 32-colour RGB888 palette (no dithering), adjustable import contrast and packed/RLE/delta/LZ/XOR-LZ indexes and bounded upload chunks; playback reuses the canvas buffer; import budget follows available data heap with reserved headroom; abandoned imports are reaped independently of the visible effect.
 
 ### lib/wled/ (optional WLED overlay, compiled into every face but the bridge; main.cpp UM_WLED_OVERLAY blocks)
 - Wled.h: API (state, options, effects, overlay poll/wanted/draw/hidden, realtime, JSON API). WledState.cpp: state, presets/playlists, timers, nightlight, fades (NVS wledS/P/T). WledEffects.cpp: 36 effects + palettes (draw into the back buffer). WledRealtime.cpp: DDP/WLED UDP/Art-Net/E1.31 listeners (non-blocking, drop when not on the panel), panel lock, overlay glue. WledApi.cpp: WLED JSON API, /win, /api/wled options, mDNS _wled._tcp. WledPaint.cpp: 8 KB Paint buffer for the "i" pixel array
@@ -69,8 +70,11 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 
 ### web/ (settings UI served by device)
 - settings.html, settings.js, theme.css, manifest.webmanifest, icons/, faces/ (face thumbnails .png)
+- wled.html: effects/presets controls and navigation; canvas.html: canvas and GIF views, visible-only live screen in the drawing editor, LED dot styling and pause-on-edit; opening a page does not take over the panel
 
 ### tools/
+- mqtt-broker.py: standalone anonymous LAN MQTT test broker on port 1883 (amqtt), without camera/HTTP viewer
+- mqtt-camera.py: standalone MQTT test broker/subscriber, saves BMP/PNG captures and serves a localhost browser preview (amqtt/paho-mqtt/Pillow)
 - idf.sh, setup-idf.sh: per-mode IDF command wrapper and SDK setup
 - build-bridge.sh: builds/packages the migration bridge image
 - build-webflasher.sh: merges full-flash images and ESP Web Tools manifests into web-flasher/firmware/ (generated)
@@ -89,4 +93,4 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 
 ### vendor/
 - gfx/, busio/, hub75/, wifi-manager/: vendored graphics, bus I/O, HUB75 driver and Wi-Fi provisioning dependencies; inspect only when the task needs them
-- hub75/src/ESP32-HUB75-MatrixPanel-I2S-DMA.cpp: row streaming from packed six-bit lanes; full-precision color buffers allocated per frame, optimized 7/8-bit refill and aligned pixel writes; dense 6-byte column buffers; lower panel half switches one sweep after the upper (seam fix, setRingMode) with the draw side waiting once per flip (RingStats flips/waits). Published as vandalon/ESP32-HUB75-DMA-Memory-Optimized (MIT): keep both copies in step
+- hub75/src/ESP32-HUB75-MatrixPanel-I2S-DMA.cpp: row streaming from packed six-bit lanes; full-precision color buffers allocated per frame, optimized 7/8-bit refill and aligned pixel writes; dense 6-byte column buffers and allocation-free displayed-row readback; lower panel half switches one sweep after the upper (seam fix, setRingMode) with the draw side waiting once per flip (RingStats flips/waits). Published as vandalon/ESP32-HUB75-DMA-Memory-Optimized (MIT): keep both copies in step

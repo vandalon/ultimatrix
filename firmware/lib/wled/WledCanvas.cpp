@@ -404,11 +404,14 @@ void info() {
 }
 
 void open() {
+  inputActivity();
+  const bool fresh = !buf;
   State &s = state();
   s.on = true;
   s.fx = kPaintEffect;
   lookChanged();
   if (!buffer(true)) { message(503, "The clock is still busy with its data feeds or short of memory: try again in a moment."); return; }
+  if (fresh) { memset(buf, 0, kBufferBytes); indexedCanvas = false; shown = -1; anim.frames = 0; }
   info();
 }
 
@@ -416,8 +419,7 @@ void open() {
 void pixels() {
   Serial.printf("[Canvas] readback start: free=%u block=%u\n",
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-  uint16_t *b = buffer(true);
-  if (!b) { message(503, "Not enough memory for the canvas."); return; }
+  uint16_t *b = buffer(false);
   srv->setContentLength(CONTENT_LENGTH_UNKNOWN);
   srv->sendHeader("Cache-Control", "no-store");
   srv->send(200, "text/plain", "");
@@ -426,8 +428,8 @@ void pixels() {
     const size_t count = kBufferBytes - at < sizeof(raw) ? kBufferBytes - at : sizeof(raw);
     for (size_t i = 0; i < count; i += 2) {
       const size_t pixel = (at + i) / 2;
-      uint16_t color = b[pixel];
-      if (indexedCanvas) {
+      uint16_t color = b ? b[pixel] : 0;
+      if (b && indexedCanvas) {
         const uint8_t *c = rgbPalette + reinterpret_cast<uint8_t *>(b)[pixel] * 3;
         color = (c[0] & 0xF8) << 8 | (c[1] & 0xFC) << 3 | c[2] >> 3;
       }
@@ -443,6 +445,7 @@ void pixels() {
 
 // Deltas: "index:rrggbb;index:rrggbb;..."
 void deltas() {
+  inputActivity();
   if (lowMemory()) return;
   if (playing()) { noteWriter("blocked pixels"); message(409, "An animation is playing: press Clear before drawing."); return; }
   noteWriter("pixels");
@@ -462,8 +465,9 @@ void deltas() {
   json(200, String("{\"pixels\":") + count + "}");
 }
 
-// Whole rows: ?y=first row, body = base64 of the rows' RGB565 (up to 8 rows)
+// Whole rows: ?y=first row, body = base64 of the rows' RGB565 (up to 16 rows)
 void rows() {
+  inputActivity();
   if (lowMemory()) return;
   if (playing()) { noteWriter("blocked rows"); message(409, "An animation is playing: press Clear before drawing."); return; }
   noteWriter("rows");
@@ -471,10 +475,10 @@ void rows() {
   if (!b) { message(503, "Not enough memory for the canvas."); return; }
   const int y = srv->arg("y").toInt();
   const String &body = srv->arg("plain");
-  uint8_t raw[8 * kWidth * 2 + 4];
+  uint8_t raw[16 * kWidth * 2 + 4];
   size_t written = 0;
   if (y < 0 || y >= kHeight || mbedtls_base64_decode(raw, sizeof(raw), &written, (const uint8_t *)body.c_str(), body.length()) != 0 || written == 0 || written % (kWidth * 2) || y + (int)(written / (kWidth * 2)) > kHeight) {
-    message(400, "Send 1 to 8 whole rows.");
+    message(400, "Send 1 to 16 whole rows.");
     return;
   }
   materializeCanvas();
@@ -484,6 +488,7 @@ void rows() {
 }
 
 void clear() {
+  inputActivity();
   noteWriter("!clear");
   uint16_t *b = buffer(true);
   if (!b) { message(503, "Not enough memory for the canvas."); return; }
@@ -591,13 +596,14 @@ void saveRam() {
 
 // Browser-compressed frames arrive in small chunks to bound WebServer body allocations.
 void frameChunk() {
+  inputActivity();
   if (lowMemory()) return;
   if (playing() || !importingNow || !buf) { message(409, "Start an import first."); return; }
   const int offset = srv->arg("offset").toInt(), size = srv->arg("size").toInt();
   if (size < 3 || size > (int)kBufferBytes + 2 || offset < 0) { message(400, "Invalid frame size."); return; }
   const String &body = srv->arg("plain");
-  uint8_t chunk[768]; size_t count = 0;
-  if (body.length() > 1024 || mbedtls_base64_decode(chunk, sizeof(chunk), &count, (const uint8_t *)body.c_str(), body.length()) != 0 || !count || offset + count > (size_t)size) {
+  uint8_t chunk[1536]; size_t count = 0;
+  if (body.length() > 2048 || mbedtls_base64_decode(chunk, sizeof(chunk), &count, (const uint8_t *)body.c_str(), body.length()) != 0 || !count || offset + count > (size_t)size) {
     message(400, "Invalid frame chunk."); return;
   }
   if (!offset) {
@@ -651,6 +657,7 @@ bool loadRam() {
 }
 
 void slot() {
+  inputActivity();
   const int id = srv->arg("slot").toInt();
   noteWriter(srv->arg("op") == "delete" ? "!delete slot" : "!load slot");
   if (id == kRamSlot) {
@@ -956,6 +963,7 @@ void tick(uint32_t now) {
 void attach(WebServer &server, void (*postRoute)(const char *, WebServer::THandlerFunction)) {
   srv = &server;
   clearImports();  // an import lasts until WLED lets go of the panel or the clock restarts
+  server.on("/gifs", HTTP_GET, []() { srv->send_P(200, "text/html; charset=utf-8", canvasHtml); });
   server.on("/canvas", HTTP_GET, []() { srv->send_P(200, "text/html; charset=utf-8", canvasHtml); });
   server.on("/api/canvas", HTTP_GET, info);
   server.on("/api/canvas/pixels", HTTP_GET, pixels);

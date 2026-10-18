@@ -1,30 +1,44 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#050809"><title>Ultimatrix · Light</title><link rel="stylesheet" href="/theme.css">
-<style>body{padding:18px;max-width:560px;margin:0 auto}.card{padding:20px 22px}.row{display:flex;gap:10px;align-items:center}.row>*{flex:1}.row button{flex:0 0 auto}input[type=color]{height:44px;padding:3px}h1{font-size:24px;margin:6px 0 16px}.presets{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.presets button{padding:10px 14px}#power.on{background:var(--accent);color:#03181f}.foot{text-align:center;font-size:12px;margin:18px 0}</style></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#050809"><title>Ultimatrix · WLED</title><link rel="stylesheet" href="/theme.css">
+<style>
+body{max-width:760px;margin:0 auto;padding:24px 18px;padding-bottom:calc(24px + env(safe-area-inset-bottom));background:var(--paper);color:var(--ink);-webkit-text-size-adjust:100%}
+header{padding:0 4px 18px}header .eyebrow{margin-bottom:8px}h1{font-size:32px;margin:0 0 8px}.intro{font-size:13px}
+nav{position:sticky;top:0;z-index:5;display:flex;gap:6px;overflow-x:auto;padding:10px 0;margin:0 0 16px;background:var(--paper);padding-top:calc(10px + env(safe-area-inset-top));-webkit-overflow-scrolling:touch}
+nav a{flex:none;display:flex;align-items:center;justify-content:center;min-height:44px;padding:10px 13px;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:12px;text-decoration:none;font-size:12px;font-weight:650;white-space:nowrap}nav a:hover{background:#eaf2f5}
+section{scroll-margin-top:calc(84px + env(safe-area-inset-top));margin-bottom:20px;min-width:0}.card{padding:22px;margin-bottom:20px}h2{font-size:18px;margin-bottom:16px}
+.row{display:flex;gap:14px;align-items:center}.row>*{flex:1;min-width:0}.row button{flex:0 0 auto;min-width:90px;min-height:46px}
+.field{margin-top:18px}.field label{font-size:13px}.control-label{display:flex;align-items:center;justify-content:space-between;gap:10px}.control-label label{margin-bottom:0}.control-label output{font-size:12px;padding:3px 9px;border-radius:7px;background:#e8f4f9;min-width:42px;text-align:center}
+input[type=range]{height:44px;margin:4px 0 0;touch-action:pan-y}input[type=color]{height:48px;padding:4px;border-radius:12px}select{font-size:16px;min-height:48px}
+.presets{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.presets button{min-height:44px;padding:10px 14px}
+#power.on{background:var(--accent);color:#03181f}#power{border-radius:24px}#status{font-size:12px;line-height:1.5;margin:0}
+#images>h2,#drawing>h2{margin:0 4px 10px}iframe{display:block;width:100%;border:0;min-height:200px;border-radius:16px}
+.foot{text-align:center;font-size:12px;margin:24px 0}.foot a{display:inline-block;padding:12px;color:#1f6a85}
+@media(max-width:400px){body{padding-left:12px;padding-right:12px}.card{padding:18px}nav a{padding:10px 11px}}
+</style></head>
 <body>
-<h1>Ultimatrix light</h1>
-<section class="card">
+<header><p class="eyebrow">ULTIMATRIX</p><h1>WLED</h1><p class="intro">Effects, animations and drawing for your panel.</p></header>
+<nav aria-label="Light navigation"><a href="#effects">Effects</a><a href="#presetCard">Presets</a><a href="#images">Animations</a><a href="#drawing">Drawing</a><a href="/?settings">Settings</a></nav>
+<section class="card" id="effects"><h2>Effects</h2>
 <div class="row"><button id="power" type="button">Off</button><span id="status" class="hint"></span></div>
-<div class="field"><label for="bri">Brightness</label><input type="range" id="bri" min="1" max="255"></div>
+<div class="field"><div class="control-label"><label for="bri">Brightness</label><output id="briValue" for="bri"></output></div><input type="range" id="bri" min="1" max="255"></div>
 <div class="field"><label for="fx">Effect</label><select id="fx"></select></div>
 <div class="field"><label for="pal">Palette</label><select id="pal"></select></div>
-<div class="field"><label for="sx">Speed</label><input type="range" id="sx" min="0" max="255"></div>
-<div class="field"><label for="ix">Intensity</label><input type="range" id="ix" min="0" max="255"></div>
+<div class="field"><div class="control-label"><label for="sx">Speed</label><output id="sxValue" for="sx"></output></div><input type="range" id="sx" min="0" max="255"></div>
+<div class="field"><div class="control-label"><label for="ix">Intensity</label><output id="ixValue" for="ix"></output></div><input type="range" id="ix" min="0" max="255"></div>
 <div class="field row"><div><label for="c0">Colour</label><input type="color" id="c0"></div><div><label for="c1">Second colour</label><input type="color" id="c1"></div></div>
 </section>
-<section class="card" id="presetCard" hidden><label>Presets</label><div class="presets" id="presets"></div></section>
-<section class="card" style="padding:12px"><iframe id="editorFrame" title="Pixel editor" src="/canvas?embed" scrolling="no" style="width:100%;height:900px;border:0;display:block"></iframe></section>
+<section class="card" id="presetCard" hidden><h2>Presets</h2><div class="presets" id="presets"></div></section>
+
+<section id="images"><h2>Animations</h2><iframe src="/gifs?embed" title="Image and GIF loading"></iframe></section>
+<section id="drawing"><h2>Drawing</h2><iframe src="/canvas?embed" title="Drawing canvas"></iframe></section>
 <p class="foot"><a href="/?settings">Clock settings</a></p>
 <script>
 const $=id=>document.getElementById(id);
 const post=body=>fetch('/json/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(()=>load(true));
 const hex=c=>'#'+c.map(v=>v.toString(16).padStart(2,'0')).join('');
 const rgb=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));
-let busy=0,canvasBusy=false,effectRunning=false,loading=false,refreshPending=false;
-window.addEventListener('message',e=>{
-  if(e.origin===location.origin&&e.source===$('editorFrame').contentWindow&&e.data?.type==='canvas-busy')canvasBusy=!!e.data.active;
-});
+let busy=0,effectRunning=false,loading=false,refreshPending=false;
 async function load(force=false){
   if(!force&&busy>Date.now())return;
   if(loading){if(force)refreshPending=true;return}
@@ -35,6 +49,7 @@ async function load(force=false){
     $('power').textContent=st.on?'On':'Off';$('power').className=st.on?'on':'';
     $('status').textContent=s.info.live?'Receiving a pixel stream':st.on?'Showing on the panel':'The clock face is showing';
     $('bri').value=st.bri;$('fx').value=g.fx;$('pal').value=g.pal;$('sx').value=g.sx;$('ix').value=g.ix;$('c0').value=hex(g.col[0]);$('c1').value=hex(g.col[1]);
+    updateValues();
   }catch(_){}finally{
     loading=false;
     if(refreshPending){refreshPending=false;load(true)}
@@ -49,15 +64,20 @@ async function init(){
   try{const p=await(await fetch('/presets.json')).json();let any=false;
     for(const[id,v]of Object.entries(p)){if(id==='0'||!v.n)continue;any=true;const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=v.n;b.onclick=()=>post({ps:+id});$('presets').append(b)}
     $('presetCard').hidden=!any}catch(_){}
-  load();setInterval(()=>{if(!canvasBusy&&!effectRunning&&!document.hidden)load()},3000);
+  load();setInterval(()=>{if(!effectRunning&&!document.hidden)load()},3000);
 }
+function updateValues(){for(const k of ['bri','sx','ix']) $(k+'Value').textContent=Math.round(+$(k).value/255*100)+'%'}
+for(const k of ['bri','sx','ix']) $(k).addEventListener('input',updateValues);
 $('power').onclick=()=>post({on:$('power').textContent==='Off'});
-$('bri').oninput=()=>{busy=Date.now()+1500};$('bri').onchange=()=>post({bri:+$('bri').value});
+$('bri').oninput=()=>{busy=Date.now()+1500};$('bri').onchange=()=>post({on:true,bri:+$('bri').value});
 $('fx').onchange=()=>post({on:true,seg:[{fx:+$('fx').value}]});
-$('pal').onchange=()=>post({seg:[{pal:+$('pal').value}]});
-for(const k of['sx','ix']){$(k).oninput=()=>{busy=Date.now()+1500};$(k).onchange=()=>post({seg:[{[k]:+$(k).value}]})}
+$('pal').onchange=()=>post({on:true,seg:[{pal:+$('pal').value}]});
+for(const k of['sx','ix']){$(k).oninput=()=>{busy=Date.now()+1500};$(k).onchange=()=>post({on:true,seg:[{[k]:+$(k).value}]})}
 for(const k of['c0','c1'])$(k).onchange=()=>post({on:true,seg:[{col:[rgb($('c0').value),rgb($('c1').value)]}]});
-const fit=()=>{try{const d=$('editorFrame').contentDocument;$('editorFrame').style.height=d.documentElement.scrollHeight+'px'}catch(_){}};
-$('editorFrame').addEventListener('load',()=>{fit();try{new ResizeObserver(fit).observe($('editorFrame').contentDocument.body)}catch(_){}});
+document.querySelectorAll('iframe').forEach(frame=>frame.addEventListener('load',()=>{
+  const doc=frame.contentDocument;
+  const fit=()=>{frame.style.height=doc.body.scrollHeight+'px'};
+  new ResizeObserver(fit).observe(doc.body);fit();
+}));
 init();
 </script></body></html>

@@ -255,6 +255,9 @@ void applySegment(const cJSON *seg, bool &changed) {
 
 // Returns true when the request asked for the state back ("v")
 bool applyJson(const cJSON *root) {
+  for (const cJSON *item = root->child; item; item = item->next) {
+    if (item->string && strcmp(item->string, "v")) { inputActivity(); break; }
+  }
   State &s = state();
   bool changed = false, presetGiven = false;
   engage = false;
@@ -368,6 +371,7 @@ void postJson() {
 
 // The query API: /win?A=128&FX=9&SX=100&R=255&G=0&B=0&T=1 ...
 void win() {
+  if (srv->args()) inputActivity();
   if (!enabled()) { srv->send(404, "text/plain", "WLED is off in the settings"); return; }
   State &s = state();
   bool changed = false, fxGiven = false;

@@ -62,7 +62,7 @@ struct State {
 // Settings of the overlay (settings page card)
 struct Options {
   uint8_t enabled = UM_WLED_DEFAULT_ON;  // the listeners, the mDNS record and the buffers exist only while this is 1
-  uint8_t timeoutMin = 0;                // the light switches itself off after this many minutes; 0 = never
+  uint8_t timeoutMin = 0;                // idle minutes before switching the light off; 0 = never
   uint8_t bootEffect = 255;              // effect after a restart; 255 = the one in use before
   uint8_t ignoreLive = 0;                // 1 = WLED commands and streams are ignored while a favourite match or an F1/MotoGP session is live
   uint8_t paintSlot = 255;               // saved drawing shown by Paint after a restart; 255 = none
@@ -73,6 +73,7 @@ struct Options {
 State &state();
 Options &options();
 void load();                  // from NVS; call before the first request
+void inputActivity();         // reset the idle timer for incoming commands, not playback
 void touched();               // schedules a save after the settings settle
 void saveIfDue(uint32_t now);
 void markChanged();           // an input changed the look: forgets the applied preset
