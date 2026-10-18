@@ -33,15 +33,16 @@ struct Sink {
     for (unsigned i = 0; i < count; ++i) { reversed = (reversed << 1) | (code & 1); code >>= 1; }
     put(reversed, count);
   }
-  void match(unsigned length, bool previousRow) {
+  void match(unsigned length, unsigned distance) {
     static constexpr uint16_t base[] = {3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258};
     static constexpr uint8_t extra[] = {0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0};
     unsigned code = 28;
     while (length < base[code]) --code;
     huffman(257 + code); put(length - base[code], extra[code]);
-    // Distance 1 for a horizontal run; 513 for an identical preceding PNG row.
-    put(previousRow ? 9 : 0, 5);  // fixed distance code 18, bit-reversed
-    if (previousRow) put(0, 8);   // distance base 513 + zero extra bits
+    // Only distances 1 (run), 8 (repeated LED cell), and 513 (row) are used.
+    if (distance == 513) { put(9, 5); put(0, 8); } // code18, base513
+    else if (distance == 8) { put(20, 5); put(1, 1); } // code5, base7
+    else put(0, 5); // code0, distance1
   }
   void crc(size_t start) {
     uint32_t value = 0xFFFFFFFF;
@@ -62,7 +63,7 @@ struct Sink {
 };
 
 // No zlib window or enlarged framebuffer: the only matches refer to a known
-// horizontal run or one of the seven repeated rows. PNG filter is always None.
+// horizontal run or a repeated row. PNG filter is always None.
 // Returns required size for a count pass, zero for a failed read/overflow.
 inline size_t encode(bool (*readRow)(int16_t, uint8_t *), uint8_t *output, size_t capacity) {
   Sink out{output, capacity};
@@ -85,33 +86,49 @@ inline size_t encode(bool (*readRow)(int16_t, uint8_t *), uint8_t *output, size_
   out.byte(0x78); out.byte(0x01); // zlib header; no dictionary
   out.put(3, 3); // final block, fixed Huffman codes
   uint32_t a = 1, b = 0;
-  auto adlerRun = [&](unsigned value, unsigned n) {
-    b = (b + n * a + value * (n * (n + 1) / 2)) % 65521;
-    a = (a + n * value) % 65521;
-  };
-  uint8_t rgb[64 * 3], row[64];
-  for (int y = 0; y < 64; ++y) {
-    if (!readRow(y, rgb)) return 0;
-    for (int x = 0; x < 64; ++x) row[x] = index(rgb + x * 3);
+  uint8_t rgb[64 * 3], row[512];
+  auto writeRow = [&](bool blank) {
     out.huffman(0); // filter byte
-    for (int x = 0; x < 64;) {
-      int end = x + 1;
-      while (end < 64 && row[end] == row[x]) ++end;
-      out.huffman(row[x]);
-      unsigned remaining = (end - x) * 8 - 1;
-      while (remaining >= 3) {
-        unsigned n = remaining > 258 ? 258 : remaining;
-        out.match(n, false); remaining -= n;
+    for (int x = 0; x < 512;) {
+      if (!blank && x >= 8) {
+        unsigned length = 0;
+        while (length < 258 && x + length < 512 && row[x + length] == row[x + length - 8]) ++length;
+        if (length >= 3) { out.match(length, 8); x += length; continue; }
       }
-      while (remaining > 0) { out.huffman(row[x]); --remaining; }
+      const uint8_t value = blank ? 0 : row[x];
+      int end = x + 1;
+      while (end < 512 && (blank ? 0 : row[end]) == value) ++end;
+      out.huffman(value);
+      unsigned remaining = end - x - 1;
+      while (remaining >= 3) {
+        const unsigned n = remaining > 258 ? 258 : remaining;
+        out.match(n, 1); remaining -= n;
+      }
+      while (remaining > 0) { out.huffman(value); --remaining; }
       x = end;
     }
-    for (int repeat = 1; repeat < 8; ++repeat) {
-      out.match(258, true); out.match(255, true);  // 513-byte filtered row
+  };
+  for (int y = 0; y < 64; ++y) {
+    if (!readRow(y, rgb)) return 0;
+    uint32_t sum = 0, weighted = 0;
+    // Each logical LED is a 6x6 square in an 8x8 cell, with black gaps.
+    // Only one expanded row exists at a time, never a 512x512 framebuffer.
+    for (int x = 0; x < 512; ++x) {
+      const unsigned cellX = x & 7;
+      row[x] = cellX == 0 || cellX == 7 ? 0 : index(rgb + (x / 8) * 3);
+      sum += row[x]; weighted += (512 - x) * row[x];
     }
     for (int repeat = 0; repeat < 8; ++repeat) {
-      adlerRun(0, 1);
-      for (uint8_t value : row) adlerRun(value, 8);
+      const bool blank = repeat == 0 || repeat == 7;
+      if ((repeat >= 2 && repeat <= 6) || (repeat == 0 && y > 0)) {
+        out.match(258, 513); out.match(255, 513); // identical preceding filtered row
+      } else {
+        writeRow(blank);
+      }
+      // Adler-32 for this entire 513-byte row, using its byte sum and
+      // weighted sum rather than visiting the same pixels six times.
+      b = (b + 513 * a + (blank ? 0 : weighted)) % 65521;
+      a = (a + (blank ? 0 : sum)) % 65521;
     }
   }
   out.huffman(256); out.flush();

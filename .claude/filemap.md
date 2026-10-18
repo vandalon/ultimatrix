@@ -43,7 +43,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - PanelTier.h: panel colour quality levels (depth, I2S clock, refresh), the NVS state and the retry rule
 - DisplayControl, PanelLayout, BootScreen, ScreenTimer, FlipDigits, NumericFont, LapFonts: display/panel helpers, fonts
 - TelnetConsole.cpp/.h, Console.h: remote logging console
-- ScreenPng.h: bounded 512x512 indexed PNG encoder from 64x64 display rows; fixed DEFLATE runs/repeated rows, no large framebuffer or zlib window
+- ScreenPng.h: bounded 512x512 indexed PNG encoder from 64x64 display rows; square LED gaps, fixed DEFLATE runs/repeated cells/rows, no large framebuffer or zlib window
 - Mqtt.cpp/.h: optional MQTT link to Home Assistant (default off): config in NVS, discovery entities, commands queued by the esp-mqtt task and applied by poll(), state publishing, 10-second CPU task/refill diagnostics and changed-screen MQTT camera snapshots
 - Notice.cpp/.h: full-panel text message (wrapped, paged) sent from Home Assistant, drawn over any face by main.cpp
 - DiskCache.h: mounts LittleFS; formats only genuinely erased cache flash
