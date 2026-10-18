@@ -691,7 +691,7 @@ struct Tls {
     return r >= 0 ? r : (errno == EAGAIN || errno == EWOULDBLOCK ? MBEDTLS_ERR_SSL_WANT_READ : MBEDTLS_ERR_SSL_INTERNAL_ERROR);
   }
   static int random(void *, unsigned char *b, size_t n) { esp_fill_random(b, n); return 0; }
-  // frag: 0 = no request, else 1..4 = 512, 1024, 2048, 4096 byte records
+  // frag: MBEDTLS_SSL_MAX_FRAG_LEN_*: the record size asked of the server
   bool open(const char *host, uint16_t port, int frag, uint32_t timeoutMs) {
     addrinfo hints = {}, *res = nullptr;
     hints.ai_socktype = SOCK_STREAM;
@@ -741,7 +741,6 @@ struct Tls {
 
 // GIF search: the clock asks KLIPY with the key kept in firmware and hands the browser only the GIF addresses, /api/canvas/search?q=...&page=...
 // The answer is read as a stream (one page runs to about 90 KB): every string that is a .gif address is kept under the size name seen last.
-// &dbg=1 (&frag=0..4) answers with heap numbers and the record size the server agreed to, for tuning the TLS buffers.
 void search() {
 #ifndef UM_KLIPY_KEY
   message(501, "This firmware has no KLIPY key.");
@@ -749,17 +748,11 @@ void search() {
   const String q = srv->arg("q");
   if (q.isEmpty() || q.length() > 60) { message(400, "Type something to search for."); return; }
   if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 32000) {
-    // a loaded GIF holds the memory: the page asks first, and a repeat with &free=1 removes it from the clock (the same call as deleting an import)
+    // a loaded GIF holds the memory: the page repeats the search with &free=1, which removes it from the clock (the same call as deleting an import)
     if (ram.frames && !srv->hasArg("free")) { json(503, "{\"message\":\"A loaded GIF is using the memory the search needs.\",\"needsFree\":true}"); return; }
     if (ram.frames) { freeRam(); freeLast(); }
     if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 32000) { message(503, "Not enough memory to search right now."); return; }
   }
-  const bool dbg = srv->hasArg("dbg");
-  const int frag = srv->hasArg("frag") ? constrain(srv->arg("frag").toInt(), 0, 4) : 4;
-  auto freeNow = [] { return (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT); };
-  auto bigNow = [] { return (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT); };
-  const unsigned free0 = freeNow(), big0 = bigNow();
-  unsigned freeMin = free0, bigMin = big0;
   char key[sizeof(kKlipyKey) + 1];
   for (size_t i = 0; i < sizeof(kKlipyKey); ++i) key[i] = kKlipyKey[i] ^ "ultimatrix"[i % 10];
   key[sizeof(kKlipyKey)] = 0;
@@ -774,13 +767,11 @@ void search() {
   constexpr int kMax = 24;
   String found[4];
   int counts[4] = {0, 0, 0, 0}, size = 3, status = 0;
-  unsigned negotiated = 0, bytes = 0;
+  unsigned bytes = 0;
   {
     std::unique_ptr<Tls> tls(new (std::nothrow) Tls);
     if (!tls) { message(503, "Not enough memory to search right now."); return; }
-    if (!tls->open("api.klipy.com", 443, frag, 8000)) { message(502, "Could not reach KLIPY."); return; }
-    negotiated = mbedtls_ssl_get_max_in_record_payload(&tls->ssl);
-    freeMin = min(freeMin, freeNow()); bigMin = min(bigMin, bigNow());
+    if (!tls->open("api.klipy.com", 443, MBEDTLS_SSL_MAX_FRAG_LEN_4096, 8000)) { message(502, "Could not reach KLIPY."); return; }
     const bool sent = tls->write(request.c_str());
     request = String();
     if (!sent) { message(502, "Could not reach KLIPY."); return; }
@@ -793,7 +784,6 @@ void search() {
     uint32_t tail = 0;  // the last four header bytes
     for (int n; bytes < 600000 && !firmwareUpdating.load() && (n = tls->read(chunk.get(), 512)) > 0;) {
       bytes += n;
-      freeMin = min(freeMin, freeNow()); bigMin = min(bigMin, bigNow());
       vTaskDelay(1);
       for (int i = 0; i < n; ++i) {
         const char c = chunk[i];
@@ -829,11 +819,6 @@ void search() {
   if (status != 200) { message(status == 429 ? 429 : 502, status == 429 ? "KLIPY rate limit: try again later." : status ? "KLIPY refused the search." : "Could not reach KLIPY."); return; }
   int best = 3;  // the smallest size that has results: the clock panel is 64x64
   for (int i = 3; i >= 0; --i) if (counts[i]) best = i;
-  if (dbg) {
-    json(200, String("{\"frag\":") + frag + ",\"record\":" + negotiated + ",\"bytes\":" + bytes + ",\"gifs\":" + counts[best] + ",\"free_before\":" + free0 + ",\"free_min\":" + freeMin +
-         ",\"free_after\":" + freeNow() + ",\"big_before\":" + big0 + ",\"big_min\":" + bigMin + ",\"big_after\":" + bigNow() + "}");
-    return;
-  }
   json(200, String("{\"gifs\":[") + found[best] + "]}");
 #endif
 }
