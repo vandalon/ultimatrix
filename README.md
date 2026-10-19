@@ -134,6 +134,8 @@ Your settings stay saved across restarts.
 
 ## Settings
 
+Set **Network → Clock name** to identify each clock in MQTT and WLED, for example “Living room clock”. The name is saved across restarts and face changes and defaults to “Ultimatrix”. Renaming updates MQTT discovery and the WLED API immediately; device IDs and MQTT topics stay the same. **Use clock name for network address** is off by default. When enabled, “Living room clock” becomes `living-room-clock.local` (lowercase letters/numbers with separators replaced by hyphens; a name with no usable letters/numbers falls back to `ultimatrix`). With it off, a lone clock uses `ultimatrix.local`. When clocks detect another Ultimatrix on the network, each adds the last three MAC bytes, for example `ultimatrix-abff01.local` or `living-room-clock-abff01.local`. The suffix stays until restart. Peer detection needs this firmware on the clocks and working multicast on the LAN. The current address is shown under Network; a page opened by its old `.local` name moves to the IP address after a rename.
+
 Open the clock's address from a phone or computer on the same network. Most changes save automatically and apply while the clock runs. Swapping blue and green needs **Save & restart**. Changing Wi-Fi or installing a face also restarts the clock.
 
 The page has controls for brightness, rotation, time format, timezone, time server and the current face. Sports faces add page timing and favourites. Words adds language and transition choices. Mario and Luigi add the world picker. Pac-Man adds its colour controls; the default clock colour keeps off-white hours and green minutes.
@@ -182,7 +184,7 @@ Every face can be controlled from Home Assistant over MQTT. It is off until you 
     payload: '{"title": "Front door", "message": "Someone is at the door", "priority": "high", "color": "red", "seconds": 20}'
   ```
 
-  JSON fields: `message` (up to 200 characters), `title`, `color` (a name such as `red` or `#rrggbb`), `seconds` (2 to 300) and `priority` (`normal` or `high`). Text that does not fit scrolls, and the message stays up long enough to scroll through. A **normal** message shows as plain text for 10 seconds, waits while night mode is on, with or without the night clock (up to an hour) and does not replace an urgent one. A **high** priority message shows at once at full brightness, whatever the hour, blinks like the doorbell on the Home face with a warning sign, and stays 30 seconds. An empty message dismisses what is showing.
+  JSON fields: `message` (up to 200 characters), `title`, `color` (a name such as `red` or `#rrggbb`), `seconds` (2 to 300) and `priority` (`normal` or `high`). Each line of message text is centred horizontally; short messages are also centred vertically below the header. Text that does not fit scrolls, and the message stays up long enough to scroll through. A **normal** message shows as plain text for 10 seconds, waits while night mode is on, with or without the night clock (up to an hour) and does not replace an urgent one. A **high** priority message shows at once at full brightness, whatever the hour, blinks like the doorbell on the Home face with a warning sign, and stays 30 seconds. An empty message dismisses what is showing.
   Static JPEG and PNG pictures use the same Notification entity: send a JSON string in its message field. For example, put a baseline JPEG at `/config/www/clock-picture.jpg` on Home Assistant, then send:
 
   ```yaml
@@ -244,6 +246,10 @@ Canvas has a **Download picture** button for the current editor image. It export
 - **Wi-Fi signal** and **Free memory**, as diagnostics.
 
 The link is plain MQTT on your local network, without encryption, and costs the clock roughly 10 KB of memory while it is on.
+
+### MQTT pixels and display capture
+
+Automations can draw individual pixels or send a complete 64×64 image over MQTT. The **Display** sensor reports the current display mode; **Capture display** puts a replayable image in that sensor's `image` attribute. Copy that JSON into an automation to show the same still image later, with an optional duration. See [MQTT pixel commands and capture](docs/MQTT_PIXELS.md) for topics, limits and Home Assistant examples.
 
 ### Birthdays
 

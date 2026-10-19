@@ -3,6 +3,7 @@
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #include "Wled.h"
 #include "GzipAsset.h"
+#include "Settings.h"
 #include <esp_heap_caps.h>
 #include <ESPmDNS.h>
 #include <mdns.h>
@@ -109,7 +110,9 @@ void writeInfo(Out &o) {
   o.addf("{\"ver\":\"%s\",\"vid\":%u,\"cn\":\"Ultimatrix\",\"um\":", kReportedVersion, (unsigned)kBuild);
   o.text(esp_app_get_description()->version);
   o.add(",\"leds\":{\"count\":4096,\"pwr\":0,\"fps\":30,\"maxpwr\":0,\"maxseg\":1,\"seglc\":[1],\"lc\":1,\"rgbw\":false,\"wv\":false,\"cct\":0,\"matrix\":{\"w\":64,\"h\":64}},");
-  o.addf("\"str\":false,\"name\":\"Ultimatrix\",\"udpport\":21324,\"simple\":false,\"live\":%s,\"liveseg\":-1,\"lm\":", live ? "true" : "false");
+  o.add("\"str\":false,\"name\":");
+  o.text(Settings::getInstance()->clockName.c_str());
+  o.addf(",\"udpport\":21324,\"simple\":false,\"live\":%s,\"liveseg\":-1,\"lm\":", live ? "true" : "false");
   o.text(live ? realtimeSource() : "");
   o.add(",\"lip\":\"\",");
   o.addf("\"fxcount\":%d,\"palcount\":%d,\"cpalcount\":0,", effectSlots(), paletteSlots());
@@ -348,7 +351,12 @@ void sendPalettes() { Out o; writePalettes(o); o.done(); }
 void sendEffectData() { Out o; writeEffectData(o); o.done(); }
 void sendPresets() { Out o; writePresets(o); o.done(); }
 void sendNodes() { srv->sendHeader("Access-Control-Allow-Origin", "*"); srv->send(200, "application/json", "{\"nodes\":[]}"); }
-void sendConfig() { srv->sendHeader("Access-Control-Allow-Origin", "*"); srv->send(200, "application/json", "{\"id\":{\"name\":\"Ultimatrix\"}}"); }
+void sendConfig() {
+  Out o;
+  o.add("{\"id\":{\"name\":");
+  o.text(Settings::getInstance()->clockName.c_str());
+  o.add("}}"); o.done();
+}
 
 void postState() {
   if (!enabled()) { srv->send(404, "application/json", "{\"error\":\"WLED is off in the settings\"}"); return; }

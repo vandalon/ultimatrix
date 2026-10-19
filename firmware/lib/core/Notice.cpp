@@ -194,7 +194,7 @@ void draw(MatrixPanel_I2S_DMA &gfx, uint32_t now) {
   for (int i = 0; i < n.bodyCount; i++) {
     const int y = top + i * 8 - offset;
     if (y + 8 <= n.headerHeight || y >= layout::height) continue;
-    gfx.setCursor(2, y);
+    gfx.setCursor((layout::width - (int)strlen(n.body[i]) * 6) / 2, y);
     gfx.print(n.body[i]);
   }
   if (n.headerHeight) gfx.fillRect(0, 0, layout::width, n.headerHeight, background);  // the text scrolls away under the header

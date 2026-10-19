@@ -23,7 +23,7 @@ constexpr const char *kDiscovery = "homeassistant";
 constexpr uint32_t kSaveDelayMs = 30000;   // commands from automations change settings often: store them once they settle
 constexpr uint32_t kStateEveryMs = 60000;
 constexpr uint32_t kLightEveryMs = 10000;  // the diagnostics move all the time, so state goes out at most this often
-constexpr size_t kPayload = 800;
+constexpr size_t kPayload = 1024;
 
 struct Color { const char *name; uint16_t rgb; };
 constexpr Color kColors[] = {{"white", 0xFFFF}, {"red", 0xF800}, {"green", 0x07E0}, {"blue", 0x041F}, {"yellow", 0xFFE0},
@@ -50,7 +50,7 @@ int8_t onOff(const char *text) {
 enum EntityId : uint8_t {
   E_BRIGHTNESS, E_AUTO_BRIGHTNESS, E_NIGHT_CLOCK, E_NOTIFY, E_MIN_BRIGHTNESS, E_NIGHT_MODE, E_NIGHT_SUN, E_NIGHT_START, E_NIGHT_END,
   E_ROTATION, E_TIME_24H, E_AUTO_TIMEZONE, E_TIMEZONE, E_NTP_SERVER, E_LDR_DARK, E_LDR_LIGHT, E_SWAP, E_AUTO_UPDATE, E_TELNET,
-  E_RESTART, E_CHECK_UPDATE, E_UPDATE, E_LIGHT, E_WIFI, E_MEMORY, E_SCREEN, E_CPU, E_DISPLAY_CPU, E_FACE,
+  E_RESTART, E_CHECK_UPDATE, E_UPDATE, E_LIGHT, E_WIFI, E_MEMORY, E_SCREEN, E_CPU, E_DISPLAY_CPU, E_FACE, E_DISPLAY, E_SNAPSHOT,
 #ifdef UM_WLED_OVERLAY
   E_CANVAS,
 #endif
@@ -90,6 +90,8 @@ const Entity kEntities[E_COUNT] = {
     {"sensor", "cpu_usage", "CPU usage", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"icon\":\"mdi:chip\""},
     {"sensor", "display_cpu", "Display refill CPU", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"icon\":\"mdi:led-on\""},
     {"select", "face", "Face", STATE | COMMAND | CONFIG, "\"options\":[\"Home\",\"Football\",\"F1\",\"MotoGP\",\"Tetris\",\"Words\",\"Mario\",\"Luigi\",\"Pac-Man\"],\"icon\":\"mdi:swap-horizontal\""},
+    {"sensor", "display", "Display", CUSTOM, "\"stat_t\":\"~/display\",\"json_attr_t\":\"~/display/image\",\"icon\":\"mdi:led-on\""},
+    {"button", "snapshot", "Capture display", COMMAND, "\"icon\":\"mdi:camera\""},
 #ifdef UM_WLED_OVERLAY
     {"select", "canvas", "Saved picture", COMMAND | CUSTOM, "\"stat_t\":\"~/canvas\",\"icon\":\"mdi:image\""},
 #endif
@@ -201,6 +203,7 @@ void Mqtt::handle(int32_t id, esp_mqtt_event_handle_t event) {
       snprintf(filter, sizeof(filter), "%s/+/set", _base);
       esp_mqtt_client_subscribe_single(_client, filter, 0);
       _error[0] = 0;
+      _displayDue = true;
       _screenSent = false;
       _canvasRefresh = true;
       _step = 1;  // 0 is idle; the discovery messages follow from poll()
@@ -208,6 +211,7 @@ void Mqtt::handle(int32_t id, esp_mqtt_event_handle_t event) {
       break;
     }
     case MQTT_EVENT_DISCONNECTED:
+      _pixels.cancelReceive();
       _connected = false;
       break;
     case MQTT_EVENT_ERROR:
@@ -220,7 +224,14 @@ void Mqtt::handle(int32_t id, esp_mqtt_event_handle_t event) {
       }
       break;
     case MQTT_EVENT_DATA: {
-      if (!event->topic || event->current_data_offset != 0 || event->data_len != event->total_data_len) break;  // one piece only
+      if (event->current_data_offset != 0) { _pixels.receive(event, false); break; }
+      if (!event->topic) break;
+      char pixelTopic[48]; snprintf(pixelTopic, sizeof(pixelTopic), "%s/pixels/set", _base);
+      if (event->topic_len == (int)strlen(pixelTopic) && !memcmp(event->topic, pixelTopic, event->topic_len)) {
+        _pixels.receive(event, true); break;
+      }
+      _pixels.cancelReceive();
+      if (event->data_len != event->total_data_len) break;  // small settings commands must fit in one piece
       const size_t baseLen = strlen(_base);
       if (event->topic_len <= (int)baseLen + 1 || strncmp(event->topic, _base, baseLen) != 0 || event->topic[baseLen] != '/') break;
       const char *key = event->topic + baseLen + 1;
@@ -234,7 +245,7 @@ void Mqtt::handle(int32_t id, esp_mqtt_event_handle_t event) {
       int entity = -1;
       for (int i = 0; i < E_COUNT; i++)
         if ((kEntities[i].flags & COMMAND) && (int)strlen(kEntities[i].key) == nameLen && strncmp(kEntities[i].key, key, nameLen) == 0) { entity = i; break; }
-      if (entity < 0) break;
+      if (entity < 0 || (entity == E_SNAPSHOT && event->retain)) break;
       char value[sizeof(_noticeText)];
       if (entity == E_NOTIFY && event->data_len >= (int)sizeof(value)) break;  // never treat truncated JSON as a text notice
       const int n = min(event->data_len, (int)sizeof(value) - 1);
@@ -333,10 +344,26 @@ void Mqtt::applyCommand(const Command &command, Settings &s) {
       return;
     }
 #endif
-    case E_FACE:  // an explicit choice only: the face now running is ignored, anything unknown is dropped
-      if (!_hooks.switchFace || !strcmp(value, UM_MODE_NAME)) return;
-      for (const FaceChoice &face : kFaces) if (!strcmp(value, face.label)) { _hooks.switchFace(face.mode); return; }
+    case E_FACE:
+      for (const FaceChoice &face : kFaces) if (!strcmp(value, face.label)) {
+        if (strcmp(face.mode, UM_MODE_NAME) && _hooks.switchFace) _hooks.switchFace(face.mode);
+        return;
+      }
       return;
+    case E_SNAPSHOT: {
+      if (!strcmp(value, "PRESS")) _snapshotWanted = true;
+      else if (!strcmp(value, "OFF")) { _snapshotEveryMs = 0; _snapshotWanted = false; }
+      else {
+        char *end = nullptr;
+        unsigned long seconds = strtoul(value, &end, 10);
+        if (value[0] >= '0' && value[0] <= '9' && *end == 0 && seconds >= 10 && seconds <= 3600) {
+          _snapshotEveryMs = seconds * 1000;
+          _nextSnapshotAt = millis() + _snapshotEveryMs;
+          _snapshotWanted = true;
+        }
+      }
+      return;
+    }
     case E_BRIGHTNESS: s.brightness = constrain(number, 1, 255); break;
     case E_MIN_BRIGHTNESS: s.minimumBrightness = constrain(number, 1, 255); break;
     case E_AUTO_BRIGHTNESS: if (on >= 0) s.autoBrightness = on; break;
@@ -452,6 +479,14 @@ void Mqtt::publishNext(uint32_t now) {
   }
   std::unique_ptr<char[]> payload(new (std::nothrow) char[kPayload]);
   if (!payload) return;
+  if (step - 1 == E_BRIGHTNESS) {
+    // Remove the MQTT light announced by earlier builds, including its retained state.
+    char old[96];
+    snprintf(old, sizeof(old), "%s/light/%s/power/config", kDiscovery, _id);
+    if (esp_mqtt_client_publish(_client, old, "", 0, 0, 1) < 0) return;
+    snprintf(old, sizeof(old), "%s/light", _base);
+    if (esp_mqtt_client_publish(_client, old, "", 0, 0, 1) < 0) return;
+  }
   const Entity &e = kEntities[step - 1];
   const IPAddress ip = WiFi.localIP();
   Out out{payload.get(), kPayload};
@@ -472,7 +507,13 @@ void Mqtt::publishNext(uint32_t now) {
   if (e.flags & CONFIG) out.add(",\"ent_cat\":\"config\"");
   if (e.flags & DIAGNOSTIC) out.add(",\"ent_cat\":\"diagnostic\"");
   out.add(",\"~\":\"%s\",\"avty_t\":\"~/status\",\"uniq_id\":\"ultimatrix_%s_%s\",", _base, _id, e.key);
-  out.add("\"dev\":{\"ids\":[\"ultimatrix_%s\"],\"name\":\"Ultimatrix\",\"mf\":\"Ultimatrix\",\"mdl\":\"%s\",\"sw\":\"%s\",", _id, UM_MODE_NAME, _version);
+  out.add("\"dev\":{\"ids\":[\"ultimatrix_%s\"],\"name\":", _id);
+  out.add("\"");
+  for (const char *c = Settings::getInstance()->clockName.c_str(); *c; ++c) {
+    if (*c == '"' || *c == '\\') out.add("\\%c", *c);
+    else out.add("%c", *c);
+  }
+  out.add("\",\"mf\":\"Ultimatrix\",\"mdl\":\"%s\",\"sw\":\"%s\",", UM_MODE_NAME, _version);
   out.add("\"cu\":\"http://%u.%u.%u.%u/\"}}", ip[0], ip[1], ip[2], ip[3]);
   snprintf(topic, sizeof(topic), "%s/%s/%s/%s/config", kDiscovery, e.component, _id, e.key);
   if (step - 1 == E_NOTIFY) {  // earlier builds announced the notification as a text entity: clear that
@@ -520,7 +561,9 @@ void Mqtt::publishState(uint32_t now) {
     else out.add("\"cpu_usage\":null,");
     if (cpu.display >= 0) out.add("\"display_cpu\":%d,", cpu.display);
     else out.add("\"display_cpu\":null,");
-    out.add("\"face\":\"%s\",\"wifi_signal\":%d,\"free_memory\":%u}", UM_MODE_NAME, (int)WiFi.RSSI(), (unsigned)(ESP.getFreeHeap() / 1024));
+    const char *effect = UM_MODE_NAME;
+    for (const FaceChoice &face : kFaces) if (!strcmp(face.mode, UM_MODE_NAME)) { effect = face.label; break; }
+    out.add("\"face\":\"%s\",\"wifi_signal\":%d,\"free_memory\":%u}", effect, (int)WiFi.RSSI(), (unsigned)(ESP.getFreeHeap() / 1024));
     snprintf(topic, sizeof(topic), "%s/state", _base);
     if (publish(topic, json.get(), true)) { _stateDue = false; _stateAt = now; _stateSignature = sig; }
     return;
@@ -614,7 +657,66 @@ void Mqtt::publishScreen(uint32_t now) {
   }
 }
 
+// Called after drawing: every row belongs to the same front buffer, including overlays.
+void Mqtt::afterFrame(const char *mode, uint32_t now) {
+  if (strcmp(_displayMode, mode)) { strlcpy(_displayMode, mode, sizeof(_displayMode)); _displayDue = true; }
+  if (!_client || !_connected.load() || _step.load() <= E_COUNT + 1) return;
+  if (_displayDue.exchange(false)) {
+    char topic[48]; snprintf(topic, sizeof(topic), "%s/display", _base);
+    if (!publish(topic, _displayMode, true)) _displayDue = true;
+  }
+  if (_snapshotEveryMs && (int32_t)(now - _nextSnapshotAt) >= 0) {
+    _snapshotWanted = true;
+    _nextSnapshotAt = now + _snapshotEveryMs;
+  }
+  if (_snapshotWanted.load() && (!_snapshotAt || now - _snapshotAt >= 2000)) publishSnapshot(now);
+}
+
+void Mqtt::publishSnapshot(uint32_t now) {
+  if (!_hooks.screenRow || esp_mqtt_client_get_outbox_size(_client)) return;
+  constexpr size_t capacity = 11200;  // 10924 base64 characters plus JSON metadata
+  _snapshotWanted = false;
+  _snapshotAt = now | 1;
+  char topic[48];
+  auto failed = [&](const char *reason) {
+    snprintf(topic, sizeof(topic), "%s/pixels/status", _base);
+    publish(topic, reason, false);
+  };
+  if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < 2 * capacity + 12288 ||
+      heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < capacity + 1024) {
+    failed("Not enough memory for display snapshot; try again when feeds are idle"); return;
+  }
+  std::unique_ptr<char[]> json(new (std::nothrow) char[capacity]);
+  if (!json) { failed("Not enough memory for display snapshot"); return; }
+  size_t used = snprintf(json.get(), capacity,
+      "{\"image\":{\"width\":64,\"height\":64,\"format\":\"rgb565_base64\",\"clear\":true,\"duration\":30,\"data\":\"");
+  const size_t dataStart = used;
+  constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  uint32_t bits = 0; unsigned count = 0;
+  auto byte = [&](uint8_t value) {
+    bits = (bits << 8) | value; count += 8;
+    while (count >= 6) { count -= 6; json[used++] = alphabet[(bits >> count) & 63]; }
+  };
+  uint8_t row[64 * 3];
+  for (int y = 0; y < 64; ++y) {
+    if (!_hooks.screenRow(y, row)) { failed("Display readback unavailable"); return; }
+    for (int x = 0; x < 64; ++x) {
+      const uint8_t *rgb = row + x * 3;
+      uint16_t value = ((rgb[0] & 0xF8) << 8) | ((rgb[1] & 0xFC) << 3) | (rgb[2] >> 3);
+      byte(value & 255); byte(value >> 8);
+    }
+  }
+  if (count) json[used++] = alphabet[(bits << (6 - count)) & 63];
+  while ((used - dataStart) % 4) json[used++] = '=';
+  used += snprintf(json.get() + used, capacity - used, "\"},\"captured_uptime_ms\":%u,\"source\":\"%s\"}", (unsigned)now, _displayMode);
+  snprintf(topic, sizeof(topic), "%s/display/image", _base);
+  if (esp_mqtt_client_enqueue(_client, topic, json.get(), used, 0, true, true) < 0) {
+    failed("Display snapshot could not be queued");
+  }
+}
+
 void Mqtt::poll(uint32_t now, bool online) {
+  _pixels.poll(now, _cfg.enabled);
   if (!_cfg.enabled || !online || !_cfg.host[0]) {
     if (_client) stop();
     _restart = false;
@@ -623,6 +725,16 @@ void Mqtt::poll(uint32_t now, bool online) {
   if (_restart) { stop(); _restart = false; }
   if (!_client) { start(); return; }
   applyCommands(now);
+  char pixelStatus[96];
+  if (_connected.load() && _pixels.takeStatus(pixelStatus, sizeof(pixelStatus))) {
+    char topic[48]; snprintf(topic, sizeof(topic), "%s/pixels/status", _base);
+    publish(topic, pixelStatus, false);
+  }
+  const char *name = Settings::getInstance()->clockName.c_str();
+  if (_connected.load() && strcmp(_discoveryName, name)) {
+    strlcpy(_discoveryName, name, sizeof(_discoveryName));
+    _step = 1;  // replace retained discovery with the new name; keep IDs and topics stable
+  }
 #ifdef UM_WLED_OVERLAY
   if (_canvasWanted >= 0) {
     if (!wled::state().on || !wled::enabled()) _canvasWanted = -1;
@@ -648,6 +760,6 @@ void Mqtt::poll(uint32_t now, bool online) {
 #endif
   if (_connected.load() && _step.load() > 0) {
     publishNext(now);
-    if (_step.load() > E_COUNT + 1) publishScreen(now);
+    if (_step.load() > E_COUNT + 1 && !_snapshotWanted.load()) publishScreen(now);
   }
 }

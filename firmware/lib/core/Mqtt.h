@@ -8,6 +8,7 @@
 #include <mqtt_client.h>
 #include "Notice.h"
 #include "Settings.h"
+#include "MqttPixels.h"
 
 // Optional link to Home Assistant over MQTT, off until it is switched on. Home Assistant finds the clock by its
 // discovery messages: the standard settings (brightness, night mode, display, time, light sensor, updates), a
@@ -45,6 +46,9 @@ public:
   // Call every frame: starts and stops the client, applies commands, publishes changes. Cheap while off.
   void poll(uint32_t now, bool online);
   void status(char *out, size_t size) const;  // for the settings page
+  bool drawPixels(MatrixPanel_I2S_DMA &display) { return _pixels.draw(display); }
+  bool pixelsActive() const { return _pixels.active(); }
+  void afterFrame(const char *mode, uint32_t now);  // capture the visible front buffer between frames
   bool connected() const { return _connected.load(); }
 private:
   struct Command { uint8_t entity; char value[48]; };
@@ -59,9 +63,16 @@ private:
   void publishNext(uint32_t now);
   void publishState(uint32_t now);
   void publishScreen(uint32_t now);
+  void publishSnapshot(uint32_t now);
   bool publish(const char *topic, const char *payload, bool retain);
+  MqttPixels _pixels;
+  std::atomic<bool> _snapshotWanted{false};
+  char _displayMode[16] = "boot";
+  std::atomic<bool> _displayDue{true};
+  uint32_t _snapshotAt = 0, _snapshotEveryMs = 0, _nextSnapshotAt = 0;
   Config _cfg;
   Hooks _hooks = {};
+  char _discoveryName[49] = "";
   char _id[8] = "", _base[24] = "", _version[32] = "", _error[48] = "";
   esp_mqtt_client_handle_t _client = nullptr;
   std::atomic<bool> _connected{false};

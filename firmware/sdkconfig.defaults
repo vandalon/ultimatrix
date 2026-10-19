@@ -81,3 +81,6 @@ CONFIG_LOG_DEFAULT_LEVEL_WARN=y
 # Size optimisation instead of the debug default: about 175 KB smaller on football. For a debugging session, switch back to
 # CONFIG_COMPILER_OPTIMIZATION_DEBUG=y (delete build/<face>/sdkconfig first: an existing one keeps its old values)
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# Detect other Ultimatrix clocks without blocking the display task.
+CONFIG_MDNS_ENABLE_BROWSE=y

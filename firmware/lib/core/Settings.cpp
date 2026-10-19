@@ -64,6 +64,9 @@ static bool lightSensorReadable(uint8_t pin) {
 void Settings::load() {
   Preferences p;
   if (!p.begin("ultimatrix", false)) return;
+  mdnsUseName = p.getBool("mdnsUseName", false);
+  clockName = p.getString("clockName", "Ultimatrix");
+  if (!validClockName(clockName)) clockName = "Ultimatrix";
   autoUpdate = p.getBool("autoUpdate", true);
   nightClock = p.getBool("nightClock", true);
   birthdays = p.getString("birthdays", "");
@@ -153,6 +156,7 @@ void Settings::load() {
 }
 
 bool Settings::save() {
+  if (!validClockName(clockName)) return false;
   if (timezone.length() > 80 || ntpServer.isEmpty() || ntpServer.length() > 128 ||
       footballLeagues.length() > 400 || footballTeams.length() > 400 || f1Drivers.length() > 400 || birthdays.length() > 260) return false;
   if (color >= pacmancolors::WALL_COUNT || dotColor >= pacmancolors::COLOR_COUNT || pacmanClockColor >= pacmancolors::COLOR_COUNT) return false;
@@ -180,6 +184,8 @@ bool Settings::save() {
   Preferences p;
   if (!p.begin("ultimatrix", false)) return false;
   bool saved = p.putBytes("settingsV2", &record, sizeof(record)) == sizeof(record);  // one write commits everything
+  if (saved) saved = p.putString("clockName", clockName) == clockName.length();
+  if (saved) saved = p.putBool("mdnsUseName", mdnsUseName) == 1;
   if (saved) p.putBool("nightClock", nightClock);  // own key too: the record stays as it is
   if (saved) p.putBool("autoUpdate", autoUpdate);  // own key, so records saved before this setting keep it on
   if (saved) p.putString("birthdays", birthdays);  // own key as well: the record stays as it is

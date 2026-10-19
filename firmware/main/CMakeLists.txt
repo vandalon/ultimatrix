@@ -16,6 +16,7 @@ set(sources
     "${root}/lib/core/BootScreen.cpp"
     "${root}/lib/core/TelnetConsole.cpp"
     "${root}/lib/core/Mqtt.cpp"
+    "${root}/lib/core/MqttPixels.cpp"
     "${root}/lib/core/Notice.cpp"
     "${root}/lib/core/NoticeImage.cpp"
     "${root}/lib/core/NoticePng.cpp"

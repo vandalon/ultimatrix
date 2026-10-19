@@ -19,7 +19,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - main/CMakeLists.txt: mode/source selection, generated timezone table, embedded web assets; MotoGP selects the F1 face
 - components/clock-libraries/CMakeLists.txt: vendored display/Wi-Fi libraries and shared panel colour-depth setting
 - partitions.csv, sdkconfig.defaults, dependencies.lock: partition table, IDF config, deps
-- src/main.cpp: app entry (setup/loop), service wiring, boot/geo-IP/update flow and web/API routes, read-only /api/screen BMP preview
+- src/main.cpp: app entry (setup/loop), service wiring, mDNS peer detection with MAC-suffixed hostnames for multiple clocks, boot/geo-IP/update flow and web/API routes, read-only /api/screen BMP preview
 - HANDOFF.txt: older firmware-local notes; root HANDOFF.txt holds current state
 
 ### clockfaces/<name>/ (each: Clockface.cpp/.h, library.json)
@@ -36,7 +36,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 
 ### lib/core/ (shared services)
 - IClockface.h: face interface. Locator.h: service locator
-- Settings.cpp/.h: persisted settings (NVS). JsonScan: lightweight JSON scanning
+- Settings.cpp/.h: persisted settings (NVS), including the shared clock name used by MQTT/WLED/mDNS and an optional name-derived mDNS hostname (default off). JsonScan: lightweight JSON scanning
 - Birthdays.h: birthday setting parse/clean/lookup. BirthdayCanvas.h: 3 KB band renderer + fonts; BirthdayParty.h: the birthday screen (24 s story loop)
 - FirmwareUpdate.cpp/.h, UpdateTrust.h: OTA update + trust/verification
 - TimeService, ClockTime, NightClock, SunTimes: time, timezone, night mode, sunrise/sunset
@@ -44,7 +44,8 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - DisplayControl, PanelLayout, BootScreen, ScreenTimer, FlipDigits, NumericFont, LapFonts: display/panel helpers, fonts
 - TelnetConsole.cpp/.h, Console.h: remote logging console
 - ScreenPng.h: bounded 192x192 indexed PNG encoder (kScale 3) from 64x64 display rows; square LED gaps, fixed DEFLATE runs/repeated cells/rows, no large framebuffer or zlib window
-- Mqtt.cpp/.h: optional MQTT link to Home Assistant (default off): config in NVS, discovery entities, commands queued by the esp-mqtt task and applied by poll(), state publishing, 10-second CPU task/refill diagnostics, changed-screen MQTT camera snapshots, a dynamic Saved picture dropdown for Canvas slots and a Face select (signed face install)
+- MqttPixels.cpp/.h: bounded fragmented MQTT pixel uploads, validated coordinate/RGB565 commands and temporary frame overlay. docs/MQTT_PIXELS.md documents HA drawing, capture and replay.
+- Mqtt.cpp/.h: optional MQTT link to Home Assistant (default off): config in NVS, discovery entities, commands queued by the esp-mqtt task and applied by poll(), state publishing, 10-second CPU task/refill diagnostics, changed-screen MQTT camera snapshots, a dynamic Saved picture dropdown for Canvas slots, a Face select (signed face install), Display mode/image sensor and on-demand Capture display button
 - DlnaRenderer.cpp/.h, DlnaDescriptions.h: DLNA media renderer (HA Browse media/Play/Stop of pictures; SSDP + SOAP, polling only) and UPnP service descriptions; wired in main.cpp, untested on device
 - Notice.cpp/.h: full-panel text/image notifications from Home Assistant, drawn over any face by main.cpp. NoticeImage.cpp/.h: bounded asynchronous HTTP(S) UMIMG/JPEG/PNG downloads and 64x64 fit/fill; NoticePng.cpp/.h decodes PNG with image-sized history and alpha over black; normal-priority images alternate with optional text
 - DiskCache.h: mounts LittleFS; formats only genuinely erased cache flash

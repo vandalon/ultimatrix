@@ -267,23 +267,52 @@ static bool wledBusy(uint32_t) { return false; }
 static bool telnetLow = false;  // telnet is off for now because memory is short
 static bool telnetStarted = false;  // telnet comes up after the face starts, like mDNS
 static bool updateChecking = false;  // mDNS is left off while an update check runs: its RAM goes to the TLS session
-static char mdnsHost[24] = "ultimatrix";  // the WLED record needs a name of its own: a second clock on the network would take ultimatrix.local first
+static char mdnsHost[64] = "ultimatrix";
+static char mdnsIdentity[24] = "";  // unique service instance; never the user-editable name
+static std::atomic<bool> mdnsPeerSeen{false};
+static bool mdnsMultiple = false;  // once detected, keep the suffix until restart to avoid changing bookmarks again
+static uint32_t mdnsInspectAt = 0;
+
+static void mdnsPeer(mdns_result_t *result) {
+  // Runs on the mDNS task: do not call mDNS APIs or touch settings here.
+  for (; result; result = result->next)
+    if (result->instance_name && strcmp(result->instance_name, mdnsIdentity)) mdnsPeerSeen = true;
+}
+
+static void mdnsBaseName(char *out, size_t size) {
+  const auto &s = *Settings::getInstance();
+  if (!s.mdnsUseName) { strlcpy(out, "ultimatrix", size); return; }
+  size_t used = 0;
+  bool separator = false;
+  for (const uint8_t *c = reinterpret_cast<const uint8_t *>(s.clockName.c_str()); *c && used + 1 < size; ++c) {
+    if ((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9')) {
+      if (separator && used && used + 2 < size) out[used++] = '-';
+      out[used++] = *c >= 'A' && *c <= 'Z' ? *c + ('a' - 'A') : *c;
+      separator = false;
+    } else separator = true;
+  }
+  out[used] = 0;
+  if (!used) strlcpy(out, "ultimatrix", size);
+}
 static uint32_t mdnsStartedAt = 0;  // for the telnet "mdns" command
 static char mdnsServices[48] = "";  // which services registered, for the telnet "mdns" command
 static void startMdns() {
   if (memoryShed || updateChecking || !(face || welcomeMode)) return;  // after the face: what can be stopped again (mDNS, telnet) sits above the permanent allocations, so stopping it leaves one big free block
   mdnsRetryAt = millis() + 15000;
   if (mdnsStarted) MDNS.end();
-#ifdef UM_WLED_OVERLAY
-  if (wled::enabled()) {  // like WLED's own wled-xxxxxx: the last three MAC bytes
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    snprintf(mdnsHost, sizeof(mdnsHost), "ultimatrix-%02x%02x%02x", mac[3], mac[4], mac[5]);
-  } else strcpy(mdnsHost, "ultimatrix");
-#endif
+  char base[49];
+  mdnsBaseName(base, sizeof(base));
+  uint8_t mac[6]; WiFi.macAddress(mac);
+  snprintf(mdnsIdentity, sizeof(mdnsIdentity), "um-%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  if (mdnsMultiple) snprintf(mdnsHost, sizeof(mdnsHost), "%s-%02x%02x%02x", base, mac[3], mac[4], mac[5]);
+  else strlcpy(mdnsHost, base, sizeof(mdnsHost));
   mdnsStarted = MDNS.begin(mdnsHost);
   if (mdnsStarted) {
-    MDNS.setInstanceName("Ultimatrix " UM_MODE_NAME);
+    MDNS.setInstanceName(Settings::getInstance()->clockName.c_str());
+    // All faces advertise this service, regardless of whether MQTT or WLED is enabled.
+    // A unique instance avoids service-name conflicts while the hostnames are being resolved.
+    if (mdns_service_add(mdnsIdentity, "_ultimatrix", "_tcp", 80, nullptr, 0) == ESP_OK)
+      mdns_browse_new("_ultimatrix", "_tcp", mdnsPeer);
     const bool httpOk = MDNS.addService("http", "tcp", 80);
     snprintf(mdnsServices, sizeof(mdnsServices), "http %s", httpOk ? "ok" : "FAILED");
     if (Settings::getInstance()->telnet) MDNS.addService("telnet", "tcp", 23);
@@ -296,7 +325,20 @@ static void startMdns() {
 #endif
   }
   mdnsStartedAt = millis();
+  mdnsInspectAt = mdnsStartedAt + 1000;
   consoleLog("mDNS: %s.local %s (%s)\n", mdnsHost, mdnsStarted ? "up" : "FAILED", mdnsServices);
+}
+
+static void watchMdns(uint32_t now) {
+  if (!mdnsStarted || (int32_t)(now - mdnsInspectAt) < 0) return;
+  mdnsInspectAt = now + 1000;
+  char actual[MDNS_NAME_BUF_LEN] = "";
+  const bool renamed = mdns_hostname_get(actual) == ESP_OK && strcmp(actual, mdnsHost);
+  if (!mdnsMultiple && (mdnsPeerSeen.load() || renamed)) {
+    mdnsMultiple = true;
+    consoleLog("mDNS: another clock or hostname conflict detected; adding MAC suffix\n");
+    startMdns();
+  } else if (renamed) strlcpy(mdnsHost, actual, sizeof(mdnsHost));
 }
 
 #define UM_TELNET_COMMON_HELP "  nvs  show how full the settings storage is\r\n  mdns  show the mDNS name and records (mdns restart: announce again)\r\n  update  download signed application update\r\n  update-status  show update progress\r\n  birthday  show the birthday screen for a minute (again to stop)\r\n"
@@ -485,7 +527,8 @@ static void settingsState() {
     if (s.hasLocation && ultime::timeStatus() == timeSet && sun::times(s.latitude, s.longitude, time(nullptr), rise, set) == sun::Result::Normal)
       json += ",\"sunTimes\":" + jsonText("Today: sunrise " + minuteText(rise) + ", sunset " + minuteText(set) + ".");
   }
-  json += ",\"network\":{\"ssid\":" + jsonText(WiFi.SSID()) + ",\"ip\":" + jsonText(WiFi.localIP().toString()) + "},\"welcomeHidden\":" + String(welcomeHidden() ? "true" : "false") + ",\"welcomeMode\":" + String(welcomeMode ? "true" : "false") + ",\"settings\":{";
+  json += ",\"network\":{\"ssid\":" + jsonText(WiFi.SSID()) + ",\"ip\":" + jsonText(WiFi.localIP().toString()) + ",\"hostname\":" + jsonText(String(mdnsHost) + ".local") + "},\"welcomeHidden\":" + String(welcomeHidden() ? "true" : "false") + ",\"welcomeMode\":" + String(welcomeMode ? "true" : "false") + ",\"settings\":{";
+  json += "\"mdnsUseName\":" + String(s.mdnsUseName ? "true" : "false") + ",\"clockName\":" + jsonText(s.clockName) + ",";
   json += "\"brightness\":" + String(s.brightness) + ",\"rotation\":" + String(s.rotation);
   json += ",\"use24h\":" + String(s.use24h ? "true" : "false") + ",\"ntpServer\":" + jsonText(s.ntpServer);
   json += ",\"autoBrightness\":" + String(s.autoBrightness ? "true" : "false") + ",\"ldrPin\":" + String(s.ldrPin);
@@ -686,6 +729,12 @@ static void saveSettings() {
   Settings candidate = *Settings::getInstance();
   auto &s = candidate;
   // Optional new fields preserve compatibility with existing bookmarked forms.
+  if (server.hasArg("clockName")) {
+    String name = server.arg("clockName"); name.trim();
+    if (!Settings::validClockName(name)) { settingsResponse(400, "Enter a clock name of 1 to 48 bytes, without control characters."); return; }
+    s.clockName = name;
+    s.mdnsUseName = server.hasArg("mdnsUseName");
+  }
   if (server.hasArg("use24h")) {
     long format;
     if (!number("use24h", 0, 1, format)) { settingsResponse(400, "Choose a time format."); return; }
@@ -777,6 +826,7 @@ static void saveSettings() {
   bool restart = previous.swapBlueGreen != s.swapBlueGreen;
   bool timeChanged = previous.timezone != s.timezone || previous.use24h != s.use24h || previous.ntpServer != s.ntpServer;
   bool consoleChanged = previous.telnet != s.telnet;
+  bool nameChanged = previous.clockName != s.clockName || previous.mdnsUseName != s.mdnsUseName;
   *Settings::getInstance() = candidate;
   if (displayReady) display->setRotation(s.rotation);
   if (timeChanged && face) clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
@@ -785,7 +835,11 @@ static void saveSettings() {
     else { telnet.stop(); telnetStarted = false; }
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
-  server.send(200, "application/json", restart ? "{\"message\":\"Settings saved. Restarting Ultimatrix.\",\"restart\":true}" : "{\"message\":\"Settings saved and applied.\",\"restart\":false}");
+  if (nameChanged && !consoleChanged && WiFi.status() == WL_CONNECTED) startMdns();
+  String response = "{\"message\":" + jsonText(restart ? "Settings saved. Restarting Ultimatrix." : "Settings saved and applied.");
+  response += ",\"restart\":" + String(restart ? "true" : "false") + ",\"network\":{\"hostname\":";
+  response += jsonText(String(mdnsHost) + ".local") + ",\"ip\":" + jsonText(WiFi.localIP().toString()) + "}}";
+  server.send(200, "application/json", response);
   if (restart) restartAt = millis() + 1000;
 }
 
@@ -1431,6 +1485,7 @@ static void background() {
   }
   if (!telnetStarted && face && !memoryShed && !telnetLow && Settings::getInstance()->telnet) { telnetStarted = true; telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); }
   if (!portalActive && WiFi.status() == WL_CONNECTED && !mdnsStarted && (int32_t)(now - mdnsRetryAt) >= 0) startMdns();
+  if (!portalActive && WiFi.status() == WL_CONNECTED) watchMdns(now);
 #ifdef UM_WLED_OVERLAY
   wled::service(face && bootDone && !updateChecking && !firmwareUpdating && WiFi.status() == WL_CONNECTED, now, updateChecking || firmwareUpdating);  // a memory shed gives the canvas back once (shedOnLowMemory) but does not switch the listeners off for good  // opens the UDP listeners when there is heap for them, closes them when it is needed elsewhere
 #endif
@@ -1806,7 +1861,7 @@ void loop() {
 #ifdef UM_WLED_OVERLAY
     wled::attachPanel(*display);
 #endif
-    consoleLog("Ultimatrix %s settings: http://%s/ (http://ultimatrix.local/)\n", UM_MODE_NAME, WiFi.localIP().toString().c_str());
+    consoleLog("Ultimatrix %s settings: http://%s/ (http://%s.local/)\n", UM_MODE_NAME, WiFi.localIP().toString().c_str(), mdnsHost);
   }
   if ((int32_t)(now - nextFrame) >= 0) {
     uint8_t brightness = displayControl.update(*Settings::getInstance(), now, ultime::timeStatus() == timeSet,
@@ -1824,6 +1879,7 @@ void loop() {
       uint32_t holdAt = millis();  // not the loop's `now`: bootTick() just stamped connectedAt/syncedAt/noticeAt with a later time, and an unsigned difference to it would wrap and end the notice at once
       if (bootHoldOver(holdAt)) { bootDone = true; consoleLog("[Boot] done at %u ms\n", (unsigned)holdAt); }
     }
+    const char *mqttDisplayMode = "boot";
     if (bootDone) {  // keeps drawing during an update: the feeds are parked, the face shows its last snapshot
       // A face that paints its own night (Mario, Luigi) follows the sun for its sky and only gives way to the red clock in a dark room
       face->poll();  // the face follows its data while the night clock is up too
@@ -1832,19 +1888,28 @@ void loop() {
       bool wledDrawn = false;
 #endif
       bool dlnaDrawn = false;
+      static bool mqttPixelsShown = false;
+      if (mqttPixelsShown && !Mqtt::instance().pixelsActive()) { nightClock.reset(); face->invalidate(); }
+      mqttPixelsShown = Mqtt::instance().pixelsActive();
       const bool popup = face->alertOverridesNight();  // an alert that must show through the night clock and the birthday screen
       const bool night = displayControl.nightClockShown(face->handlesNight()) && !popup;
       if (notice::active(now, displayControl.nightDimmed(face->handlesNight()) && !popup)) {  // a message sent from Home Assistant takes the panel, whatever the face; a normal one waits out the night
+        mqttDisplayMode = "notification";
         notice::draw(*display, now);
         noticeShown = true;
+      } else if (Mqtt::instance().drawPixels(*display)) {
+        mqttDisplayMode = "pixels";
       } else if (night) {
+        mqttDisplayMode = "clock";
         nightClock.draw(*display, clockTime.getHour(), clockTime.getMinute(), clockTime.is24hFormat());
         nightShown = true;
       } else if (dlna::active()) {  // a picture played from Home Assistant stays until Stop, below notices and the night clock
+        mqttDisplayMode = "image";
         dlna::draw(*display);
         dlnaDrawn = dlnaShown = true;
 #ifdef UM_WLED_OVERLAY
       } else if (wled::wanted(now)) {  // WLED content takes the panel below the Notice and the night clock; the face is not updated meanwhile
+        mqttDisplayMode = "wled";
         wled::draw(*display, now);
         wledDrawn = wledShown = true;
 #endif
@@ -1852,6 +1917,7 @@ void loop() {
         char time[16];
         snprintf(time, sizeof(time), clockTime.is24hFormat() ? "%02d:%02d" : "%d:%02d", clockTime.getHour(), clockTime.getMinute());
         int age = birthday->year ? clockTime.getYear() - birthday->year : 0;
+        mqttDisplayMode = "birthday";
         birthday::party::draw(*display, now, birthday->name, age, time);
         display->flipDMABuffer();
         birthdayShown = true;
@@ -1868,6 +1934,7 @@ void loop() {
           nightClock.reset(); face->invalidate();
         }
         face->setNight(face->handlesNight() ? displayControl.sunDown() : displayControl.nightActive());
+        mqttDisplayMode = "clock";
         face->update();
       }
       if (!dlnaDrawn) dlna::hidden();
@@ -1875,6 +1942,7 @@ void loop() {
       if (!wledDrawn) wled::hidden();  // something above took the panel, or the content ended: the listeners stop drawing before anyone else does
 #endif
     }
+    Mqtt::instance().afterFrame(mqttDisplayMode, now);
 #ifdef UM_WLED_OVERLAY
     static bool wledPace = false;  // effects and streams run at up to 50 frames per second while WLED has the panel
     wledPace = bootDone && wledShown && wled::shown();

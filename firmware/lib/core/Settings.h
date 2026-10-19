@@ -8,6 +8,8 @@
 #define UM_DEFAULT_FOOTBALL_TEAMS "449:NED:n"
 
 struct Settings {
+  bool mdnsUseName = false;  // use a hostname-safe clock name instead of ultimatrix
+  String clockName = "Ultimatrix";  // own NVS key, shared by all faces
   uint8_t displayHeight = 64;
   uint8_t brightness = 32;
   uint8_t rotation = 0;
@@ -52,6 +54,11 @@ struct Settings {
   uint32_t pacmanColorKey() const { return pacmancolors::key(color, ghostColors, dotColor); }
 
   static Settings *getInstance() { static Settings value; return &value; }
+  static bool validClockName(const String &name) {
+    if (name.isEmpty() || name.length() > 48) return false;
+    for (size_t i = 0; i < name.length(); ++i) if ((uint8_t)name[i] < 0x20 || (uint8_t)name[i] == 0x7F) return false;
+    return true;
+  }
   void load();
   bool save();
 };

@@ -73,10 +73,21 @@ async function autosave() {
     const response = await fetch('/api/settings', { method: 'POST', body });
     const result = await response.json();
     if (!response.ok) throw new Error(result.message || 'The clock could not save your settings.');
-    initial = sent; message('Saved'); noticeTimer = setTimeout(() => { notice.hidden = true; }, 2000);
+    initial = sent; networkAddress(result.network); message('Saved'); noticeTimer = setTimeout(() => { notice.hidden = true; }, 2000);
     if (payload(false).toString() !== initial) saveTimer = setTimeout(autosave, 300);
   } catch (error) { message(error.message, true); }
   saving = false;
+}
+function networkAddress(network) {
+  if (!network) return;
+  const url = network.hostname ? 'http://' + network.hostname + '/' : '';
+  for (const id of ['#network-host', '#welcome-name']) {
+    const link = document.querySelector(id);
+    if (link) { link.textContent = url || '—'; link.href = url || '#'; }
+  }
+  // Keep this page reachable when its old .local address stops being advertised.
+  if (network.ip && network.hostname && location.hostname.endsWith('.local') && location.hostname !== network.hostname)
+    location.replace('http://' + network.ip + location.pathname + location.search + location.hash);
 }
 function section(selector, show) { document.querySelectorAll(selector).forEach(node => { node.hidden = !show; node.querySelectorAll('input,select').forEach(input => input.disabled = !show); }); }
 function choices(id, name, entries, values) {
@@ -214,6 +225,7 @@ async function load() {
     document.querySelector('#sun-hint').textContent = data.sunTimes || '';
     document.querySelector('#mode-name').textContent = data.mode; currentFace = data.modeId; markFace();
     document.querySelector('#sport-heading').textContent = data.mode + ' preferences';
+    networkAddress(data.network);
     document.querySelector('#network-name').textContent = data.network.ssid || 'Not connected';
     document.querySelector('#network-ip').textContent = data.network.ip || '—';
     document.querySelector('#sidebar-ip').textContent = data.network.ip || 'Offline';
@@ -247,9 +259,12 @@ form.addEventListener('input', event => { brightness(event); sensor(event); time
 for (const [id, name] of [['#set-dark', 'ldrDark'], ['#set-light', 'ldrLight']]) {
   document.querySelector(id).addEventListener('click', () => { if (lightNow < 0) return; field(name).value = lightNow; sensor({ target: field(name) }); dirty(); });
 }
+let networkPollAt = 0;
 setInterval(async () => {
-  if (document.hidden || !field('autoBrightness').checked || controls.disabled) return;
-  try { const data = await (await fetch('/api/settings', { cache: 'no-store' })).json(); lightNow = data.lightReading; nightWhy = data.nightWhy || ''; sensor(); } catch (error) { /* next poll retries */ }
+  if (document.hidden || controls.disabled) return;
+  if (!field('autoBrightness').checked && Date.now() - networkPollAt < 10000) return;
+  networkPollAt = Date.now();
+  try { const data = await (await fetch('/api/settings', { cache: 'no-store' })).json(); networkAddress(data.network); lightNow = data.lightReading; nightWhy = data.nightWhy || ''; sensor(); } catch (error) { /* next poll retries */ }
 }, 2000);
 form.addEventListener('change', event => {
   if (event.target.name === 'fbLeagues') {

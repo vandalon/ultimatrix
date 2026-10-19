@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Canvas</title><link rel="stylesheet" href="/theme.css">
 <style>
+html,body{overscroll-behavior-x:none}
 :root{color-scheme:light;--bg:var(--paper);--text:var(--ink)}
 body{background:var(--paper);color:var(--ink);font-size:14px;line-height:1.6}
 main{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(260px,1fr);gap:18px;align-items:start}
@@ -9,7 +10,7 @@ main>header h1{margin-bottom:8px}
 main>header .intro{margin:0}
 .card{min-width:0;margin:0;padding:22px}
 h2{font-size:17px;margin:0 0 14px}
-canvas{width:100%;aspect-ratio:1;image-rendering:pixelated;touch-action:none;background:#000;border-radius:8px;display:block;cursor:crosshair}
+canvas{width:100%;aspect-ratio:1;image-rendering:pixelated;touch-action:none;overscroll-behavior:contain;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;background:#000;border-radius:8px;display:block;cursor:crosshair}
 .matrix-frame{padding:12px;background:linear-gradient(145deg,#262b30,#101316);border:1px solid #353c43;border-radius:0;box-shadow:0 8px 20px #0003,inset 0 1px 0 #ffffff12}
 .matrix-surface{overflow:hidden;background-color:#050708;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 640'%3E%3Cdefs%3E%3Cpattern id='p' width='10' height='10' patternUnits='userSpaceOnUse'%3E%3Cpath fill='%23171b1e' d='M1 1h8v8H1z'/%3E%3C/pattern%3E%3C/defs%3E%3Cpath fill='url(%23p)' d='M0 0h640v640H0z'/%3E%3C/svg%3E");background-size:100% 100%;background-repeat:no-repeat;border-radius:0;box-shadow:0 0 0 1px #000,inset 0 0 12px #000}
 #c{border-radius:0;background:transparent;-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 640'%3E%3Cdefs%3E%3Cpattern id='p' width='10' height='10' patternUnits='userSpaceOnUse'%3E%3Cpath fill='black' d='M1 1h8v8H1z'/%3E%3C/pattern%3E%3C/defs%3E%3Cpath fill='url(%23p)' d='M0 0h640v640H0z'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 640'%3E%3Cdefs%3E%3Cpattern id='p' width='10' height='10' patternUnits='userSpaceOnUse'%3E%3Cpath fill='black' d='M1 1h8v8H1z'/%3E%3C/pattern%3E%3C/defs%3E%3Cpath fill='url(%23p)' d='M0 0h640v640H0z'/%3E%3C/svg%3E");-webkit-mask-size:100% 100%;mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}
@@ -27,6 +28,7 @@ label{font-size:13px}label:has(input[type=checkbox]){display:flex;align-items:ce
 #status{margin:0;padding:12px 16px;background:#e8f4f9;border:1px solid #d2e7ef;border-radius:12px;font-size:12px}
 .gif-page main{grid-template-columns:minmax(0,1fr)}
 input[type=color]{width:44px;height:36px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+#newcolor[hidden]{display:none}
 .sw{width:26px;height:26px;padding:0;border-radius:6px}
 .slot{display:flex;gap:6px;align-items:center;margin:6px 0}.slot span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 small,#status{color:var(--muted)}small{line-height:1.7}main a{color:#1f6a85}summary{cursor:pointer}details{padding:10px 14px;background:var(--paper);border-radius:10px}
@@ -50,7 +52,7 @@ html:not(.embed) main{margin-left:260px;max-width:1230px;padding:28px 5vw 24px}
 <header><p class="eyebrow">WLED</p><h1 id="pageTitle">Canvas</h1><p class="intro" id="pageIntro">Draw on the panel and save your creations.</p></header>
 <section class="card paint-only"><h2>Drawing editor</h2><div class="row"><label><input type="checkbox" id="liveEnabled" checked> Live screen</label><button id="sendDrawing">Send to panel</button><button id="downloadPicture">Download picture</button></div><small id="liveStatus">Connecting to the panel…</small><p class="hint">The editor shows the panel. Drawing pauses live updates so you can edit the current frame.</p><div class="matrix-frame"><div class="matrix-surface"><canvas id="c" width="64" height="64" aria-label="64 by 64 LED matrix drawing editor"></canvas></div></div>
 <div class="row" id="tools"></div>
-<div class="row"><input type="color" id="color" value="#ff8800"><span id="palette" class="row" style="margin:0"></span><button id="addcolor" title="Add a colour" aria-label="Add a colour">+</button><input type="color" id="paletteColor" value="#ff8800" hidden></div>
+<div class="row"><input type="color" id="color" value="#ff8800"><span id="palette" class="row" style="margin:0"></span><button type="button" id="addcolor" title="Add a colour" aria-label="Add a colour" aria-expanded="false" aria-controls="newcolor">+</button></div><div class="row" id="newcolor" hidden><label for="paletteColor">New colour</label><input type="color" id="paletteColor" value="#ff8800"><button type="button" id="savecolor">Add</button><button type="button" id="cancelcolor">Cancel</button></div>
 <div class="row"><button id="undo">Undo</button><button id="redo">Redo</button><button id="mirror" title="Mirror strokes left to right">Mirror</button><button id="fillshape" title="Filled rectangles">Filled</button>
 <button id="fliph">Flip ↔</button><button id="flipv">Flip ↕</button></div>
 <div class="row"><button data-shift="-1,0">←</button><button data-shift="1,0">→</button><button data-shift="0,-1">↑</button><button data-shift="0,1">↓</button></div>
@@ -153,7 +155,13 @@ function line(x0, y0, x1, y1, v) { const dx = Math.abs(x1 - x0), dy = -Math.abs(
 function rect(x0, y0, x1, y1, v) { for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) if (filled || x === x0 || x === x1 || y === y0 || y === y1) put(x, y, v); }
 function flood(x, y, v) { const from = px[y * N + x]; if (from === v) return; const stack = [[x, y]]; while (stack.length) { const [a, b] = stack.pop(); if (a < 0 || b < 0 || a >= N || b >= N || px[b * N + a] !== from) continue; put(a, b, v); if (mirror && px[b * N + a] === from) px[b * N + a] = v; stack.push([a + 1, b], [a - 1, b], [a, b + 1], [a, b - 1]); } }
 const cell = e => { const r = cv.getBoundingClientRect(); return [Math.min(N - 1, Math.max(0, Math.floor((e.clientX - r.left) / r.width * N))), Math.min(N - 1, Math.max(0, Math.floor((e.clientY - r.top) / r.height * N)))]; };
+// Some embedded WebViews need a non-passive touch listener as well as touch-action.
+for (const event of ['touchstart', 'touchmove']) cv.addEventListener(event, e => {
+  if (e.cancelable) e.preventDefault();
+  e.stopPropagation();
+}, { passive: false });
 cv.addEventListener('pointerdown', e => {
+  e.preventDefault(); e.stopPropagation();
   cv.setPointerCapture(e.pointerId); const [x, y] = cell(e), v = tool === 'eraser' ? 0 : rgb();
   if (tool === 'pick') { $('color').value = hex(px[y * N + x]); return; }
   pauseLive();
@@ -192,8 +200,10 @@ document.querySelector('[data-tool=pencil]').classList.add('on');
 let palette = []; try { palette = JSON.parse(localStorage.getItem('canvasPalette') || '[]'); } catch (_) {}
 function drawPalette() { $('palette').replaceChildren(...palette.map(c => { const b = document.createElement('button'); b.className = 'sw'; b.style.background = c; b.onclick = () => $('color').value = c; b.oncontextmenu = e => { e.preventDefault(); palette = palette.filter(p => p !== c); save(); }; return b; })); }
 function save() { try { localStorage.setItem('canvasPalette', JSON.stringify(palette)); } catch (_) {} drawPalette(); }
-$('addcolor').onclick = () => { $('paletteColor').value = $('color').value; $('paletteColor').click(); };
-$('paletteColor').onchange = () => { const c = $('paletteColor').value; $('color').value = c; if (!palette.includes(c)) { palette.push(c); if (palette.length > 16) palette.shift(); save(); } }; drawPalette();
+function colourEditor(open) { $('newcolor').hidden = !open; $('addcolor').setAttribute('aria-expanded', String(open)); }
+$('addcolor').onclick = () => { $('paletteColor').value = $('color').value; colourEditor(true); $('paletteColor').focus(); };
+$('savecolor').onclick = () => { const c = $('paletteColor').value; $('color').value = c; if (!palette.includes(c)) { palette.push(c); if (palette.length > 16) palette.shift(); save(); } colourEditor(false); };
+$('cancelcolor').onclick = () => colourEditor(false); drawPalette();
 // Device
 function fromBase64(text) { const bin = atob(text), out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
 async function pull() { const bytes = fromBase64(await (await fetch('/api/canvas/pixels', { cache: 'no-store' })).text()); for (let i = 0; i < N * N; i++) px[i] = q(bytes[i * 2] | bytes[i * 2 + 1] << 8); shadow = Uint32Array.from(px); render(); }
