@@ -14,7 +14,7 @@ input[type=range]{height:44px;margin:4px 0 0;touch-action:pan-y}input[type=color
 .presets{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.presets button{min-height:44px;padding:10px 14px}
 #power.on{background:var(--accent);color:#03181f}#power{border-radius:24px}#status{font-size:12px;line-height:1.5;margin:0}
 #images>h2,#drawing>h2{margin:0 4px 10px}iframe{display:block;width:100%;border:0;min-height:200px;border-radius:16px}
-.foot{text-align:center;font-size:12px;margin:24px 0}.foot a{display:inline-block;padding:12px;color:#1f6a85}
+iframe.fs{position:fixed;inset:0;width:100%;height:100%!important;z-index:100;border-radius:0;background:var(--paper)}.foot{text-align:center;font-size:12px;margin:24px 0}.foot a{display:inline-block;padding:12px;color:#1f6a85}
 @media(max-width:400px){body{padding-left:12px;padding-right:12px}.card{padding:18px}nav a{padding:10px 11px}}
 </style></head>
 <body>
@@ -75,6 +75,7 @@ $('fx').onchange=()=>post({on:true,seg:[{fx:+$('fx').value}]});
 $('pal').onchange=()=>post({on:true,seg:[{pal:+$('pal').value}]});
 for(const k of['sx','ix']){$(k).oninput=()=>{busy=Date.now()+1500};$(k).onchange=()=>post({on:true,seg:[{[k]:+$(k).value}]})}
 for(const k of['c0','c1'])$(k).onchange=()=>post({on:true,seg:[{col:[rgb($('c0').value),rgb($('c1').value)]}]});
+addEventListener('message',e=>{if(e.origin!==location.origin||!e.data||typeof e.data.umFullscreen!=='boolean')return;document.querySelectorAll('iframe').forEach(f=>{if(f.contentWindow===e.source)f.classList.toggle('fs',e.data.umFullscreen)});document.documentElement.style.overflow=e.data.umFullscreen?'hidden':''});
 document.querySelectorAll('iframe').forEach(frame=>frame.addEventListener('load',()=>{
   const doc=frame.contentDocument;
   const fit=()=>{frame.style.height=doc.body.scrollHeight+'px'};

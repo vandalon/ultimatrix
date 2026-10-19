@@ -44,19 +44,25 @@ small,#status{color:var(--muted)}small{line-height:1.7}main a{color:#1f6a85}summ
 .spin{width:56px;height:56px;border:6px solid rgba(255,255,255,.25);border-top-color:#4cc864;border-radius:50%;animation:spin .9s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}#loader progress{width:min(320px,80vw)}
 .gif-page .paint-only{display:none}.canvas-page .gif-only{display:none}main>nav{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px}
 html:not(.embed) main{margin-left:260px;max-width:1230px;padding:28px 5vw 24px}
+#editor.fs{position:fixed;inset:0;z-index:50;margin:0;padding:8px;border-radius:0;background:var(--card,var(--paper));display:flex;flex-direction:column;overflow:auto;gap:0}
+#editor.fs .fs-hide{display:none}#editor .fs-only{display:none}#editor.fs .fs-only:not([hidden]){display:inline-block}
+#editor.fs .row{margin:4px 0;gap:6px}#editor.fs .row button{padding:7px 10px}
+#editor.fs .matrix-frame{flex:1 1 0;min-height:120px;padding:4px;display:flex;align-items:center;justify-content:center;container-type:size}
+#editor.fs .matrix-surface{width:min(100cqw,100cqh)}
+html.fs-open,html.fs-open body{overflow:hidden}
 .embed .sidebar{display:none}
 .embed main{margin:0 auto}
 @media(max-width:1000px){main{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:800px){html:not(.embed) main{margin:0 auto;padding:24px 18px}}
 </style><script>if(location.search.indexOf("embed")>=0)document.documentElement.className="embed";document.documentElement.classList.add(location.pathname==='/gifs'?'gif-page':'canvas-page')</script></head><body class="settings-app"><aside class="sidebar"><a class="brand" href="/" aria-label="Ultimatrix home"><img class="brand-logo" src="/icon-192.png" alt="" width="40" height="40">Ultimatrix<span class="brand-dot">.</span></a><nav aria-label="Settings"><a href="/?settings#welcome">Welcome</a><a href="/?settings#mode" data-sports>Clock mode</a><a href="/?settings#homeassistant" id="nav-ha" hidden>Home Assistant</a><a href="/?settings#display">Display</a><a href="/?settings#time">Time &amp; location</a><a href="/?settings#birthdays">Birthdays</a><a href="/wled">WLED</a><a href="/canvas">Canvas</a><a href="/gifs">Animations</a><a href="/?settings#network">Network</a><a href="/?settings#switch-faces">Switch faces</a><a href="/?settings#advanced">Advanced <span><i class="nav-dot" id="nav-update-dot" title="Firmware update available" hidden></i></span></a></nav><div class="sidebar-foot"><span class="online-dot"></span> <small id="sidebar-ip">Ultimatrix</small></div></aside><main>
 <header><p class="eyebrow">WLED</p><h1 id="pageTitle">Canvas</h1><p class="intro" id="pageIntro">Draw on the panel and save your creations.</p></header>
-<section class="card paint-only"><h2>Drawing editor</h2><div class="row"><label><input type="checkbox" id="liveEnabled" checked> Live screen</label><button id="sendDrawing">Send to panel</button><button id="downloadPicture">Download picture</button></div><small id="liveStatus">Connecting to the panel…</small><p class="hint">The editor shows the panel. Drawing pauses live updates so you can edit the current frame.</p><div class="matrix-frame"><div class="matrix-surface"><canvas id="c" width="64" height="64" aria-label="64 by 64 LED matrix drawing editor"></canvas></div></div>
+<section class="card paint-only" id="editor"><h2 class="fs-hide">Drawing editor</h2><div class="row"><label><input type="checkbox" id="liveEnabled" checked> Live screen</label><button id="sendDrawing">Send to panel</button><button id="downloadPicture" class="fs-hide">Download picture</button><button id="fsbtn" aria-pressed="false">Full screen</button></div><small id="liveStatus" class="fs-hide">Connecting to the panel…</small><p class="hint fs-hide">The editor shows the panel. Drawing pauses live updates so you can edit the current frame.</p><div class="matrix-frame"><div class="matrix-surface"><canvas id="c" width="64" height="64" aria-label="64 by 64 LED matrix drawing editor"></canvas></div></div>
 <div class="row" id="tools"></div>
 <div class="row"><input type="color" id="color" value="#ff8800"><span id="palette" class="row" style="margin:0"></span><button type="button" id="addcolor" title="Add a colour" aria-label="Add a colour" aria-expanded="false" aria-controls="newcolor">+</button></div><div class="row" id="newcolor" hidden><label for="paletteColor">New colour</label><input type="color" id="paletteColor" value="#ff8800"><button type="button" id="savecolor">Add</button><button type="button" id="cancelcolor">Cancel</button></div>
-<div class="row"><button id="undo">Undo</button><button id="redo">Redo</button><button id="mirror" title="Mirror strokes left to right">Mirror</button><button id="fillshape" title="Filled rectangles">Filled</button>
-<button id="fliph">Flip ↔</button><button id="flipv">Flip ↕</button></div>
-<div class="row"><button data-shift="-1,0">←</button><button data-shift="1,0">→</button><button data-shift="0,-1">↑</button><button data-shift="0,1">↓</button></div>
-<div class="row"><button id="clear">Clear</button></div>
+<div class="row" id="fsrow"><button id="undo">Undo</button><button id="redo">Redo</button><button id="mirror" title="Mirror strokes left to right">Mirror</button><button id="fillshape" title="Filled rectangles">Filled</button>
+<button id="fliph">Flip ↔</button><button id="flipv">Flip ↕</button><button id="clear2" class="fs-only" hidden>Clear</button></div>
+<div class="row fs-hide"><button data-shift="-1,0">←</button><button data-shift="1,0">→</button><button data-shift="0,-1">↑</button><button data-shift="0,1">↓</button></div>
+<div class="row fs-hide"><button id="clear">Clear</button></div>
 </section>
 <section class="card"><h2>Saved pictures and animations</h2><div id="slots"></div><div class="paint-only">
 <div class="row"><input type="text" id="name" maxlength="15" placeholder="Name" style="width:9em"><button id="save">Save as new</button></div>
@@ -779,4 +785,20 @@ async function importFile(file) {
 if (location.pathname === '/gifs') { $('pageTitle').textContent = 'Animations'; $('pageIntro').textContent = 'Find a GIF or upload your own images and animations.'; }
 document.title = 'Ultimatrix · ' + $('pageTitle').textContent;
 (async () => { try { if (location.pathname === '/gifs') await pull(); await slots(); msg.textContent = 'Ready. The panel changes when you send content.'; } catch (e) { msg.textContent = 'Could not open the canvas: ' + e.message; } })();
+
+// Full screen drawing: CSS overlay (works on iPhone); inside the WLED page's iframe the parent enlarges the frame.
+{
+  const ed = document.getElementById('editor'), fb = document.getElementById('fsbtn');
+  if (ed && fb) {
+    const set = on => {
+      ed.classList.toggle('fs', on); document.documentElement.classList.toggle('fs-open', on);
+      fb.textContent = on ? 'Exit full screen' : 'Full screen'; fb.setAttribute('aria-pressed', on);
+      document.getElementById('clear2').hidden = !on;
+      if (window.parent !== window) parent.postMessage({ umFullscreen: on }, location.origin);
+    };
+    fb.onclick = () => set(!ed.classList.contains('fs'));
+    document.getElementById('clear2').onclick = () => document.getElementById('clear').click();
+    addEventListener('keydown', e => { if (e.key === 'Escape' && ed.classList.contains('fs')) set(false); });
+  }
+}
 </script></body></html>
