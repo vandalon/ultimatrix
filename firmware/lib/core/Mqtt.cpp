@@ -480,7 +480,14 @@ void Mqtt::publishNext(uint32_t now) {
     snprintf(old, sizeof(old), "%s/text/%s/%s/config", kDiscovery, _id, e.key);
     publish(old, "", true);
   }
-  if (publish(topic, payload.get(), true)) _step = step + 1;
+  // Written to the socket at once, one message per call: queued messages go out about one a second and are dropped after 30 s,
+  // which lost the last entities of a long discovery run
+  if (esp_mqtt_client_publish(_client, topic, payload.get(), 0, 0, 1) >= 0) {
+    _step = step + 1;
+  } else {
+    static uint32_t loggedAt = 0;
+    if (millis() - loggedAt > 5000) { loggedAt = millis(); consoleLog("[MQTT] Discovery of %s could not be sent (payload %u bytes)\n", e.key, (unsigned)out.len); }
+  }
 }
 
 // The settings go out as one retained message whenever one changes and once a minute (the diagnostics move); the update
