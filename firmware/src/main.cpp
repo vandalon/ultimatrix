@@ -1564,6 +1564,34 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
   nvs_commit(handle);
   nvs_close(handle);
 }
+// Every key any face stores in the "ultimatrix" namespace (all faces, as settings survive a face switch).
+// Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
+static const char *const kKnownKeys[] = {
+  "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh",                                   // main.cpp
+  "settingsV2", "clockName", "mdnsUseName", "autoUpdate", "nightClock", "birthdays",                          // Settings.cpp
+  "mqOn", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
+  "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
+  "wledS", "wledP", "wledT",                                                                                      // WledState.cpp
+  "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather",  // HaConfig.cpp
+  "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5",
+};
+static void nvsEraseUnknownKeys() {
+  char names[16][16];
+  size_t found = 0;
+  nvs_iterator_t it = nullptr;
+  for (esp_err_t err = nvs_entry_find("nvs", "ultimatrix", NVS_TYPE_ANY, &it); err == ESP_OK && found < 16; err = nvs_entry_next(&it)) {
+    nvs_entry_info_t info;
+    nvs_entry_info(it, &info);
+    bool known = false;
+    for (const char *key : kKnownKeys) if (!strcmp(key, info.key)) { known = true; break; }
+    if (!known) strlcpy(names[found++], info.key, sizeof(names[0]));
+  }
+  if (it) nvs_release_iterator(it);
+  if (!found) return;
+  const char *list[16];
+  for (size_t i = 0; i < found; ++i) { list[i] = names[i]; consoleLog("[Nvs] removing unused key %s\n", names[i]); }
+  nvsEraseKeys("ultimatrix", list, found);
+}
 static void tidyNvs(bool force = false) {
   nvs_stats_t before = {}, after = {};
   nvs_get_stats(nullptr, &before);
@@ -1572,6 +1600,7 @@ static void tidyNvs(bool force = false) {
   nvs_stats_t now = {};
   nvs_get_stats(nullptr, &now);
   const bool crowded = force || now.free_entries < 100;
+  nvsEraseUnknownKeys();  // every boot: keys no firmware writes any more
 #if !defined(UM_F1)
   if (crowded) nvsEraseNamespace("um-f1cache");
 #endif
