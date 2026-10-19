@@ -103,7 +103,7 @@ For a first USB install, stay in `firmware/` and replace `PORT` with your board'
 ./tools/idf.sh football -p PORT monitor
 ```
 
-Serial output runs at 115200 baud. If the clock already has the Ultimatrix bootloader and partition table, `app-flash` writes just the application.
+Serial output runs at 115200 baud. If the clock already has the Ultimatrix bootloader and partition table, `app-flash` writes just the application and also erases the boot selection, so the clock boots the image you just flashed even after an over-the-air install (set `UM_KEEP_OTADATA=1` to skip the erase).
 
 To change SDK settings, run `./tools/idf.sh football menuconfig`. `sdkconfig.defaults` supplies defaults for new builds; it does not overwrite a mode's saved `build/<mode>/sdkconfig`.
 
@@ -327,13 +327,13 @@ These images were rendered from the current code on 14 October 2026. They help r
 
 ## Development status
 
-As of 14 October 2026, the firmware builds with ESP-IDF and Arduino as a component. The shared runtime, local setup and settings, brightness controls, night display, signed updater and nine faces are implemented. The drawing and feed code are still being cleaned up.
+As of 19 October 2026 (v0.6.1), the firmware builds with ESP-IDF and Arduino as a component. The shared runtime, local setup and settings, brightness and night display, signed updater, nine faces, Home Assistant and MQTT control, the WLED overlay, Canvas and GIF saving, picture notifications and the Storage page are implemented. The drawing and feed code are still being cleaned up.
 
-All nine faces have successful builds recorded during development. That does not mean the latest source has been rebuilt for every face. The recent Words transitions and Pac-Man changes have been checked in native previews and browser mocks; the latest Pac-Man clock-colour change has not had a firmware build or device check.
+The release workflow builds all nine faces, and the v0.6.1 release built successfully. A build does not mean every face has been checked on a panel after every change. The recent Words transitions and Pac-Man changes have been checked in native previews and browser mocks; the latest Pac-Man clock-colour change has not had a firmware build or device check.
 
-Football has had initial device checks for boot, Wi-Fi, feeds, saved settings, mDNS and telnet. F1 has had a short device check of memory use and update checking.
+Football and Home have had device checks, including feeds, saved settings, telnet, picture notifications, GIF search, the display quality levels and the Storage page. A clock has updated itself over Wi-Fi from a GitHub release. F1 has had a short device check of memory use, update checking and its cache.
 
-Still open: busy live matches, longer memory runs, the latest animations and colours on a panel, setup QR reliability across phones, update failure recovery, and the GitHub release/browser install path.
+Still open: several clocks on one network (discovery and renaming), the DLNA renderer, setup QR reliability across phones, the WLED app on a phone, busy live matches, longer memory runs, update failure recovery, and the browser installer on a fresh board.
 
 ## Licences
 

@@ -1,0 +1,40 @@
+name: Feature request
+description: An improvement to an existing face, the settings page or Home Assistant support. For a brand new face, use the Request a face discussion.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: Describe the situation, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like it to do
+      description: A sketch or a screenshot helps.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where does it belong
+      options:
+        - A clock face
+        - Settings page
+        - Home Assistant / MQTT
+        - WLED overlay / Canvas
+        - Updates / installer
+        - Documentation
+        - Something else
+    validations:
+      required: true
+  - type: dropdown
+    id: help
+    attributes:
+      label: Could you help build it
+      options:
+        - "No, I just have the idea"
+        - "Yes, I can test it on my clock"
+        - "Yes, I would like to write it"

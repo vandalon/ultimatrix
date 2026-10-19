@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Request a face
+    url: https://github.com/vandalon/ultimatrix/discussions/1
+    about: Want a clock face that does not exist yet? Describe it in the Request a face discussion.
+  - name: Ask a question or show your build
+    url: https://github.com/vandalon/ultimatrix/discussions
+    about: Setup help, wiring questions and photos of your clock belong in Discussions.

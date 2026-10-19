@@ -48,5 +48,15 @@ if [ -f "$saved_config" ] && { [ "$firmware_root/sdkconfig.defaults" -nt "$saved
   echo "Regenerating $saved_config: it predates sdkconfig.defaults." >&2
   rm -f "$saved_config"
 fi
+# app-flash writes the first app slot. After an over-the-air install (Install update, or switching faces) the clock boots
+# the other slot and ignores that write, so app-flash also erases the boot selection. UM_KEEP_OTADATA=1 turns this off.
+actions=()
+have_erase=0
+for arg in "$@"; do [ "$arg" = erase-otadata ] && have_erase=1; done
+for arg in "$@"; do
+  if [ "$arg" = app-flash ] && [ "$have_erase" = 0 ] && [ "${UM_KEEP_OTADATA:-0}" != 1 ]; then actions+=(erase-otadata); fi
+  actions+=("$arg")
+done
+set -- ${actions[@]+"${actions[@]}"}
 exec "$build_python" "$IDF_PATH/tools/idf.py" -C "$firmware_root" \
   -B "$firmware_root/build/$mode" "-DULTIMATRIX_MODE=$mode" "$@"

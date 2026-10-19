@@ -1,0 +1,66 @@
+name: Bug report
+description: Something on the clock or its settings page does not work as described.
+labels: ["bug"]
+body:
+  - type: checkboxes
+    attributes:
+      label: Before you start
+      options:
+        - label: I looked through the existing issues and the README.
+          required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you see on the panel or the settings page?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce it
+      placeholder: "1. Open Settings\n2. ...\n3. ..."
+  - type: dropdown
+    id: face
+    attributes:
+      label: Face
+      options:
+        - Home
+        - Football
+        - Formula 1
+        - MotoGP
+        - Tetris
+        - Words
+        - Mario
+        - Luigi
+        - Pac-Man
+        - Scanner / Bridge
+        - Not face related
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Firmware version
+      description: Shown under Settings, Advanced, Firmware updates & diagnostics.
+      placeholder: v0.6.1
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Board and panel
+      description: ESP32 board, panel size and pitch, power supply.
+      placeholder: ESP32 Dev Module 4 MiB, 64x64 P3, 5 V 4 A
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output (optional)
+      description: From the serial monitor or the remote console (Settings, Advanced). Remove Wi-Fi passwords and tokens first.
+      render: shell
