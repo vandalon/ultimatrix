@@ -11,8 +11,6 @@ Ultimatrix is an LED matrix clock for an ESP32 and a 64×64 HUB75 panel. It can 
 
 Ultimatrix is inspired by the original [Clockwise](https://github.com/jnthas/clockwise) project by Jonathan Thas. Thank you for the idea and the groundwork.
 
-<p><img src="docs/previews/quickstart.gif" alt="Quick start: flash from the browser, join the clock's Wi-Fi, pick a face" width="560"></p>
-
 Start with the [hardware setup guide](docs/HARDWARE.md), then [install from your browser](https://vandalon.github.io/ultimatrix/) (Chrome or Edge, USB cable that carries data). Details: [Install](#install).
 
 There are eight clock faces. Each has its own firmware image, so the clock runs one face at a time. You can switch faces from the local settings page by installing another signed image over Wi-Fi.
@@ -69,6 +67,8 @@ You can change the display orientation and swap blue and green in settings. Auto
 64×32 panels and other ESP32 variants are not current build targets.
 
 ## Install
+
+<p><img src="docs/previews/quickstart.gif" alt="Illustrated quick start: choose a face and flash from the browser, scan the QR code on the panel to join the clock's Wi-Fi, choose your home network" width="560"><br><em>Illustrated quick start (drawn from the real screens, not a recording).</em></p>
 
 ### Install from your browser
 
