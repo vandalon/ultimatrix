@@ -13,5 +13,5 @@ struct Image {
   uint16_t pixels[64 * 64] = {};
 };
 // One bounded HTTP(S) JPEG download at a time, outside the display task. Null means try later.
-std::shared_ptr<Image> loadImage(const char *url);
+std::shared_ptr<Image> loadImage(const char *url, bool fill);
 }

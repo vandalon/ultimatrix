@@ -376,6 +376,7 @@ void Mqtt::applyCommands(uint32_t now) {
           strlcpy(message.image, image, sizeof(message.image));
         else { invalidImage = true; consoleLog("[Notice] Image URL must be HTTP(S), at most 256 characters\n"); }
       }
+      if (const char *scale = string("scale")) message.imageFill = !strcasecmp(scale, "fill");
       if (const char *title = string("title")) strlcpy(message.title, title, sizeof(message.title));
       if (const char *color = string("color")) message.color = parseColor(color);
       if (const char *priority = string("priority")) message.priority = strcasecmp(priority, "high") == 0 ? notice::PRIORITY_HIGH : notice::PRIORITY_NORMAL;

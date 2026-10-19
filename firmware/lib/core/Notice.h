@@ -21,6 +21,7 @@ struct Message {
   char title[kTitleMax] = "";
   char text[kTextMax] = "";
   char image[kImageUrlMax] = ""; // optional baseline JPEG URL; fitted to the panel
+  bool imageFill = false; // scale=fill crops the centre to fill the panel; default fits with black bars
   uint16_t color = 0;    // RGB565 of the title and the blink; 0 picks white (normal) or red (high)
   uint16_t seconds = 0;  // at least this long; 0 picks 10 (normal) or 30 (high). Scrolling text takes the time it needs.
   Priority priority = PRIORITY_NORMAL;

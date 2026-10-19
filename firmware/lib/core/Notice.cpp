@@ -78,9 +78,10 @@ void prepare(State &n) {
 
 void begin(State &n, uint32_t now) {
   uint32_t total = (uint32_t)(n.current.seconds ? n.current.seconds : (n.current.priority == PRIORITY_HIGH ? 30 : 10)) * 1000;
-  if (n.image && n.image->status == Image::READY && (n.current.title[0] || n.current.text[0])) total = max(total, (uint32_t)6000);
+  const bool highImage = n.current.priority == PRIORITY_HIGH && n.image && n.image->status == Image::READY;
+  if (!highImage && n.image && n.image->status == Image::READY && (n.current.title[0] || n.current.text[0])) total = max(total, (uint32_t)6000);
   n.cycleMs = 0;
-  if (n.scrollMax > 0) {  // long text scrolls once at least: rest, move, rest
+  if (!highImage && n.scrollMax > 0) {  // long text scrolls once at least: rest, move, rest
     n.cycleMs = 2 * kPauseMs + (uint32_t)n.scrollMax * kMsPerPixel;
     const uint32_t scrollTime = n.image && n.image->status == Image::READY ? 2 * n.cycleMs : n.cycleMs;
     if (total < scrollTime) total = scrollTime;
@@ -126,7 +127,7 @@ void poll(uint32_t now) {
   if (!n.on) { n.image.reset(); return; }
   if (n.imageDone) return;
   if (n.image && n.image->status != Image::LOADING) n.imageDone = true;
-  else if (!n.image && now - n.imageAt < 30000) n.image = loadImage(n.current.image);
+  else if (!n.image && now - n.imageAt < 30000) n.image = loadImage(n.current.image, n.current.imageFill);
   else if (now - n.imageAt >= 30000) { n.image.reset(); n.imageDone = true; }
   if (n.imageDone && (!n.image || n.image->status != Image::READY) && !n.current.title[0] && !n.current.text[0]) n.on = false;
 }
@@ -159,17 +160,17 @@ void draw(MatrixPanel_I2S_DMA &gfx, uint32_t now) {
   if (!state) return;
   State &n = *state;
   const bool high = n.current.priority == PRIORITY_HIGH;
+  const bool imagePage = n.image && n.image->status == Image::READY &&
+      (high || (!n.current.title[0] && !n.current.text[0]) || ((now - n.startedAt) / 3000) % 2 == 0);
   int offset = 0;
-  if (n.scrollMax > 0) {
+  if (!imagePage && n.scrollMax > 0) {
     uint32_t elapsed = now - n.startedAt;
     if (n.image && n.image->status == Image::READY)
       elapsed = (elapsed / 6000) * 3000 + (elapsed % 6000 > 3000 ? elapsed % 6000 - 3000 : 0);
     const uint32_t t = elapsed % n.cycleMs;  // starts over while the display time lasts
     if (t >= kPauseMs) offset = min((int)((t - kPauseMs) / kMsPerPixel), n.scrollMax);
   }
-  const int phase = high ? (int)(((now - n.startedAt) / kBlinkMs) & 1) : 0;
-  const bool imagePage = n.image && n.image->status == Image::READY &&
-      ((!n.current.title[0] && !n.current.text[0]) || ((now - n.startedAt) / 3000) % 2 == 0);
+  const int phase = high && !imagePage ? (int)(((now - n.startedAt) / kBlinkMs) & 1) : 0;
   const int key = (offset * 2 + phase) * 2 + (imagePage ? 1 : 0);
   if (key == n.shown) return;
   n.shown = key;
@@ -180,7 +181,6 @@ void draw(MatrixPanel_I2S_DMA &gfx, uint32_t now) {
   if (imagePage) {
     for (int y = 0; y < 64; y++)
       for (int x = 0; x < 64; x++) gfx.drawPixel(x, y, n.image->pixels[y * 64 + x]);
-    if (high) gfx.drawRect(0, 0, 64, 64, phase ? color : 0);
     gfx.flipDMABuffer();
     return;
   }

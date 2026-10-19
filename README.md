@@ -194,7 +194,7 @@ Every face can be controlled from Home Assistant over MQTT. It is off until you 
       {"image":"http://homeassistant.local:8123/local/clock-picture.jpg","seconds":15}
   ```
 
-  Use your clock's actual entity ID. The `image` field also works with `mqtt.publish` on the existing notification topic. Optional `title` and `message` alternate with the picture every three seconds (at least six seconds total so both can be seen). Image-only notifications fill the panel, fitting the picture with black bars to preserve its shape. Normal priority still waits for night mode to end; high priority shows immediately after loading and blinks a border around the picture. The duration starts after loading, then the clock returns to its face.
+  Use your clock's actual entity ID. The `image` field also works with `mqtt.publish` on the existing notification topic. At normal priority, optional `title` and `message` alternate with the picture every three seconds (at least six seconds total so both can be seen). Image-only notifications fill the panel, fitting the picture with black bars to preserve its shape by default. Add `"scale":"fill"` to fill the panel, cropping the centre without stretching; `"scale":"fit"` keeps the whole picture. Normal priority still waits for night mode to end; high priority shows the picture continuously at full brightness, including during night mode, without borders, blinking or text. The duration starts after loading, then the clock returns to its face.
 
   Pictures must be static baseline JPEGs, at most 2048×2048 pixels and 128 KiB, served by an HTTP(S) URL the clock can reach (up to 256 characters). Convert PNGs to JPEG first. The clock sends no authentication headers and does not follow redirects; a Home Assistant `/local/` URL works without a token. Picture downloads wait for available memory and quiet live feeds, and give up after 30 seconds. Failed pictures fall back to the supplied text; an image-only failure leaves the face visible. Images stay in RAM only. HTTPS follows the feeds' existing policy without certificate verification. Sending an empty message dismisses the notification, including its picture.
 
@@ -212,8 +212,10 @@ Every face can be controlled from Home Assistant over MQTT. It is off until you 
         entity_id: notify.ultimatrix_notification
       data:
         message: >-
-          {"image":"http://192.168.1.100:8123/local/doorbell.jpg","seconds":20,"priority":"high"}
+          {"image":"http://192.168.1.100:8123/local/doorbell.jpg","scale":"fill","seconds":20,"priority":"high"}
   ```
+
+  This example crops the centre to fill the panel and shows only the image at full brightness for 20 seconds. Omit `scale` to keep the whole picture with black bars.
 
   Create `/config/www` first and allow HA to write snapshots there. This saves the camera's original image without resizing; it must meet the JPEG limits above. Files in `/config/www` are served under `/local/` without authentication, so use a picture you are comfortable making accessible to anyone who can reach that HA address.
 

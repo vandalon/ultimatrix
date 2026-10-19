@@ -22,6 +22,7 @@ std::atomic<bool> busy{false};
 struct Fetch {
   char url[kImageUrlMax];
   std::shared_ptr<Image> image;
+  bool fill = false;
   Client *stream = nullptr;
   uint32_t began = 0;
   size_t bytes = 0;
@@ -57,12 +58,14 @@ UINT writeJpeg(JDEC *jd, void *bitmap, JRECT *rect) {
   if (millis() - f.began >= kDeadlineMs || firmwareUpdating) return 0;
   const uint8_t *rgb = static_cast<const uint8_t *>(bitmap);
   const int stride = rect->right - rect->left + 1;
-  // Sample source pixel centres, fit the image and leave black bars. Small images can scale up too.
+  // Fill samples a centred square; fit samples the whole image and leaves black bars.
+  const int sourceWidth = f.fill ? std::min(f.width, f.height) : f.width;
+  const int sourceHeight = f.fill ? sourceWidth : f.height;
   for (int y = 0; y < f.outHeight; y++) {
-    const int sy = (2 * y + 1) * f.height / (2 * f.outHeight);
+    const int sy = (f.height - sourceHeight) / 2 + (2 * y + 1) * sourceHeight / (2 * f.outHeight);
     if (sy < rect->top || sy > rect->bottom) continue;
     for (int x = 0; x < f.outWidth; x++) {
-      const int sx = (2 * x + 1) * f.width / (2 * f.outWidth);
+      const int sx = (f.width - sourceWidth) / 2 + (2 * x + 1) * sourceWidth / (2 * f.outWidth);
       if (sx < rect->left || sx > rect->right) continue;
       const uint8_t *p = rgb + ((sy - rect->top) * stride + sx - rect->left) * 3;
       f.image->pixels[(y + (64 - f.outHeight) / 2) * 64 + x + (64 - f.outWidth) / 2] =
@@ -100,8 +103,8 @@ bool download(Fetch &f) {
         while (scale < 3 && (jd->width >> (scale + 1)) >= 64 && (jd->height >> (scale + 1)) >= 64) scale++;
         f.width = jd->width >> scale;
         f.height = jd->height >> scale;
-        f.outWidth = f.width >= f.height ? 64 : std::max(1, 64 * f.width / f.height);
-        f.outHeight = f.height >= f.width ? 64 : std::max(1, 64 * f.height / f.width);
+        f.outWidth = f.fill || f.width >= f.height ? 64 : std::max(1, 64 * f.width / f.height);
+        f.outHeight = f.fill || f.height >= f.width ? 64 : std::max(1, 64 * f.height / f.width);
         ok = jd_decomp(jd.get(), writeJpeg, scale) == JDR_OK;
       }
     }
@@ -123,7 +126,7 @@ void task(void *arg) {
   vTaskDelete(nullptr);
 }
 }
-std::shared_ptr<Image> loadImage(const char *url) {
+std::shared_ptr<Image> loadImage(const char *url, bool fill) {
   if (firmwareUpdating || liveDataActive() || WiFi.status() != WL_CONNECTED ||
       heap_caps_get_free_size(MALLOC_CAP_8BIT) < 48000 || heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 16000 || busy.exchange(true)) return {};
   auto *f = new (std::nothrow) Fetch;
@@ -131,6 +134,7 @@ std::shared_ptr<Image> loadImage(const char *url) {
   if (!f || !image) { delete f; delete image; busy = false; return {}; }
   f->image.reset(image);
   strlcpy(f->url, url, sizeof(f->url));
+  f->fill = fill;
   auto result = f->image;
   const uint32_t stack = !strncmp(url, "https://", 8) ? 12288 : 9216;
   if (xTaskCreate(task, "noticeImage", stack, f, 1, nullptr) != pdPASS) { delete f; busy = false; return {}; }
