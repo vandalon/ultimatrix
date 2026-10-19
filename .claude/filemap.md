@@ -10,7 +10,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - .gitignore: local tooling, build output and handoff/log exclusions
 - docs/: HARDWARE.md (wiring, boards, power, LDR, troubleshooting), ARCHITECTURE.md (runtime/design), UPDATES.md (signed OTA)
 - docs/photos/: real-panel Home Assistant photos (connecting, home, energy, now playing; 1000 px) shown in a row at the top of README
-- docs/previews/: README GIFs and welcome-preview.html (standalone welcome mockup)
+- docs/previews/: README GIFs (quickstart.gif: flash/Wi-Fi/face-picker intro, built by firmware/tools/preview/quickstart.py) and welcome-preview.html (standalone welcome mockup)
 - hardware/enclosure/: parametric OpenSCAD P3/P2.5 casing prototype, optical grid samples, STL exports and fit limitations
 - web-flasher/index.html: ESP Web Tools installer; uses generated firmware/<mode>/manifest.json payloads
 
