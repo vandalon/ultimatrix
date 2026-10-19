@@ -1,5 +1,8 @@
 # Ultimatrix
 
+## Session start (default for every new chat)
+Read `HANDOFF.txt` and `.claude/filemap.md` first, then only the files the task needs.
+
 ## Handoff file (mandatory)
 `HANDOFF.txt` is the shared handoff between sessions and agents (Claude, Codex).
 - At the start of every session on this project, read `HANDOFF.txt` first.
