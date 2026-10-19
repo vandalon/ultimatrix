@@ -2,6 +2,7 @@
 // Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #include "Mqtt.h"
+#include "Console.h"
 #include "ScreenPng.h"
 #include <Preferences.h>
 #include <WiFi.h>
@@ -223,6 +224,7 @@ void Mqtt::handle(int32_t id, esp_mqtt_event_handle_t event) {
         if ((kEntities[i].flags & COMMAND) && (int)strlen(kEntities[i].key) == nameLen && strncmp(kEntities[i].key, key, nameLen) == 0) { entity = i; break; }
       if (entity < 0) break;
       char value[sizeof(_noticeText)];
+      if (entity == E_NOTIFY && event->data_len >= (int)sizeof(value)) break;  // never treat truncated JSON as a text notice
       const int n = min(event->data_len, (int)sizeof(value) - 1);
       memcpy(value, event->data, n);
       value[n] = 0;
@@ -260,7 +262,7 @@ void Mqtt::start() {
   cfg.network.timeout_ms = 5000;
   cfg.task.stack_size = 4096;
   cfg.task.priority = 2;
-  cfg.buffer.size = 768;
+  cfg.buffer.size = 1024;
   cfg.buffer.out_size = 1024;
   _client = esp_mqtt_client_init(&cfg);  // copies the strings it is given
   if (!_client) { strlcpy(_error, "Not enough memory to connect.", sizeof(_error)); return; }
@@ -359,6 +361,7 @@ void Mqtt::applyCommands(uint32_t now) {
   if (notice) {
     notice::Message message;
     const char *plain = text;
+    bool invalidImage = false;
     cJSON *json = text[0] == '{' ? cJSON_Parse(text) : nullptr;
     if (json) {
       auto string = [&](const char *key) -> const char * {
@@ -368,6 +371,11 @@ void Mqtt::applyCommands(uint32_t now) {
       const char *body = string("message");
       if (!body) body = string("text");
       plain = body ? body : "";
+      if (const char *image = string("image")) {
+        if (strlen(image) < sizeof(message.image) && (!strncmp(image, "http://", 7) || !strncmp(image, "https://", 8)))
+          strlcpy(message.image, image, sizeof(message.image));
+        else { invalidImage = true; consoleLog("[Notice] Image URL must be HTTP(S), at most 256 characters\n"); }
+      }
       if (const char *title = string("title")) strlcpy(message.title, title, sizeof(message.title));
       if (const char *color = string("color")) message.color = parseColor(color);
       if (const char *priority = string("priority")) message.priority = strcasecmp(priority, "high") == 0 ? notice::PRIORITY_HIGH : notice::PRIORITY_NORMAL;
@@ -388,7 +396,7 @@ void Mqtt::applyCommands(uint32_t now) {
       }
     }
     strlcpy(message.text, plain, sizeof(message.text));
-    notice::show(message, now);
+    if (!invalidImage || message.title[0] || message.text[0]) notice::show(message, now);
     if (json) cJSON_Delete(json);
   }
   if (_saveAt && (int32_t)(now - _saveAt) >= 0) { _saveAt = 0; Settings::getInstance()->save(); }

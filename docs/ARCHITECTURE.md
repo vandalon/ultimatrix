@@ -25,7 +25,7 @@ are ready. A successful build does not establish hardware or live-feed reliabili
 - Tetris is a build with no feeds: the falling-piece clock (time and date) with the same runtime, settings page
   and previews. It is built the way Football and F1 were reshaped: `lib/tetris` holds const data and layout functions,
   `TetrisScreens` decides what falls when and fills a fixed-size `Frame`, `TetrisRenderer` paints a `Frame`, and the
-  face redraws only when the frame changes. No heap use after boot. See [the migration plan](TETRIS_MIGRATION_PLAN.md).
+  face redraws only when the frame changes. No heap use after boot.
 - Home is the clock with Home Assistant on the side (`lib/ha-feed`): `HaClient` keeps one WebSocket open to
   `/api/websocket`, authenticates with a long-lived token and subscribes to a single server-rendered template, so
   it only receives a short line of values whenever they change. `HaTemplate` builds that Jinja template from the
@@ -118,3 +118,9 @@ picks the state (`bootTick`) and keeps it going during the blocking Wi-Fi connec
 callback (a small vendored hook). The access-point QR code is made by the unmodified Nayuki generator
 (`lib/core/qrcodegen.*`, MIT). mDNS is set up again after every `GOT_IP`. `TelnetConsole` is polled from
 `background()` with a fixed 48-byte line buffer; it is unauthenticated and off unless enabled in the settings.
+
+## Notification images
+
+The existing MQTT Notification entity accepts either plain text or JSON. JSON can include an `image` URL alongside the title, text, duration and priority. `NoticeImage` fetches a baseline JPEG in a separate task, using the shared network budget and memory gates. Downloads have byte, dimension and time limits. The decoder samples into a 64×64 RGB565 buffer while preserving the image's proportions.
+
+The display loop draws only completed images. Optional text alternates with the image; loading does not consume its display duration. Normal notifications keep the existing night and priority rules. Failed image loads fall back to text, or leave the face visible for image-only messages. Images stay in RAM and are released when dismissed, replaced or finished. PNG, GIF and video notifications are not supported. See the README for HA action examples.

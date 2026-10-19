@@ -227,6 +227,8 @@ void Clockface::collectHours(int hourKey, int hour24, int minute) {
       const int at = ha::kHistoryBars - 1 - k - late;
       if (at >= 0 && (_past.useMask >> at & 1)) { _useToday += _past.use[at]; _useTodayOk = true; }
     }
+    // Before the first completed hour there are no bars for today yet.
+    if (hour24 == 0 && _haveNow && (_now.energyOk >> ha::E_USAGE & 1)) _useTodayOk = true;
     if (_useTodayOk && _haveNow && (_now.energyOk >> ha::E_USAGE & 1)) _useToday += _now.energy[ha::E_USAGE] * minute / 60.0f;
   }
   if (!_haveNow) return;

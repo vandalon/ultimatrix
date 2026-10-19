@@ -277,6 +277,7 @@ bool HaClient::session(uint32_t version) {
   int histCount = 0, histGot = 0;
   bool historyAsked = false;  // Home Assistant wants every id higher than the one before
   bool statisticsAsked = false;
+  char statisticsMidnight[sizeof(ha::Snapshot::midnight)] = "";
   bool resolving = false;
   uint32_t templateId = 0, mediaId = 0, devicesId = 0;
   char gridTo[ha::kEntity] = "";  // meters to subtract from the grid's kWh
@@ -507,6 +508,7 @@ bool HaClient::session(uint32_t version) {
       }
       std::lock_guard<std::mutex> guard(_lock);
       for (int k = 0; k < 4; k++) {
+        _snapshot.energyOk &= ~(1 << (ha::E_USAGE_KWH + k));
         if (got >> k & 1) { _today[k] = values[k]; _snapshot.energy[ha::E_USAGE_KWH + k] = values[k]; _snapshot.energyOk |= 1 << (ha::E_USAGE_KWH + k); }
       }
       _todayOk = got;
@@ -551,6 +553,13 @@ bool HaClient::session(uint32_t version) {
         if (end && ha::parseResult(result, end - result, value)) {
           {
             std::lock_guard<std::mutex> guard(_lock);
+            if (strcmp(statisticsMidnight, value.midnight)) {
+              // A new day (or connection) must not reuse the previous day's totals or pending reply.
+              strlcpy(statisticsMidnight, value.midnight, sizeof(statisticsMidnight));
+              _todayOk = 0;
+              statsId = 0;
+              statisticsAsked = false;
+            }
             for (int k = 0; k < 4; k++)  // today's kWh come from the statistics when they have an answer
               if (_todayOk >> k & 1) { value.energy[ha::E_USAGE_KWH + k] = _today[k]; value.energyOk |= 1 << (ha::E_USAGE_KWH + k); }
             _snapshot = value;

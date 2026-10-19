@@ -19,9 +19,6 @@ const char kMacros[] =
     "{%- macro kw(l) -%}{%- set t = namespace(s=0,n=0) -%}{%- for e in l -%}{%- set v = states(e) -%}{%- if is_number(v) -%}"
     "{%- set t.s = t.s + v|float * (0.001 if state_attr(e,'unit_of_measurement')=='W' else 1) -%}{%- set t.n = t.n + 1 -%}{%- endif -%}{%- endfor -%}"
     "{%- if t.n -%}{{ t.s|round(3) }}{%- else -%}-{%- endif -%}{%- endmacro -%}"
-    "{%- macro kwh(l) -%}{%- set t = namespace(s=0,n=0) -%}{%- for e in l -%}{%- set v = states(e) -%}{%- if is_number(v) -%}"
-    "{%- set u = state_attr(e,'unit_of_measurement') -%}{%- set t.s = t.s + v|float * (0.001 if u=='Wh' else 1000 if u=='MWh' else 1) -%}{%- set t.n = t.n + 1 -%}{%- endif -%}{%- endfor -%}"
-    "{%- if t.n -%}{{ t.s|round(2) }}{%- else -%}-{%- endif -%}{%- endmacro -%}"
     "{%- macro avg(l) -%}{%- set t = namespace(s=0,n=0) -%}{%- for e in l -%}{%- set v = states(e) -%}{%- if is_number(v) -%}"
     "{%- set t.s = t.s + v|float -%}{%- set t.n = t.n + 1 -%}{%- endif -%}{%- endfor -%}{%- if t.n -%}{{ (t.s / t.n)|round(2) }}{%- else -%}-{%- endif -%}{%- endmacro -%}"
     "{%- macro num(e) -%}{%- set v = states(e) -%}{%- if is_number(v) -%}{{ v|float|round(2) }}{%- else -%}-{%- endif -%}{%- endmacro -%}"
@@ -258,7 +255,8 @@ size_t buildTemplate(const Config &c, char *out, size_t capacity) {
   }
   static const char *const macroOf[E_COUNT] = {"kw", "kw", "kw", "num", "kw", "kwh", "kwh", "kwh", "kwh"};
   for (int i = 0; i < E_COUNT; i++) {
-    if (!c.energy[i][0]) { o.add(";-"); continue; }
+    // Cumulative meter states are lifetime totals; daily kWh come only from the recorder.
+    if (i >= E_USAGE_KWH || !c.energy[i][0]) { o.add(";-"); continue; }
     if (!strcmp(c.energy[i], "auto")) { o.add(";-"); continue; }  // not resolved (the Energy dashboard has no such sensor)
     if (macroOf[i][0] == 'n') { snprintf(expression, kExpression, "num('%s')", c.energy[i]); o.field(expression); continue; }
     int at = snprintf(expression, kExpression, "%s(['", macroOf[i]);

@@ -1446,6 +1446,7 @@ static void background() {
     restartAt = now + 1500;
   }
   firmwareUpdate.poll(now, bootDone && !portalActive && WiFi.status() == WL_CONNECTED && !wledBusy(now));  // a check that came due waits until WLED lets go
+  notice::poll(now);
   Mqtt::instance().poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
   autoUpdate(now);
   reportMemory();

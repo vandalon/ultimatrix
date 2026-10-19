@@ -2,6 +2,7 @@
 // Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #include "Notice.h"
+#include "NoticeImage.h"
 #include <new>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include "PanelLayout.h"
@@ -24,11 +25,13 @@ const char *const kWarning[] = {".......#.......", "......#.#......", "......#.#
 // On the heap at the first message: the faces have little static RAM to spare, and most clocks never show one
 struct State {
   Message current, next;
+  std::shared_ptr<Image> image;
+  bool imageDone = false;
   bool hasNext = false, on = false, started = false;
   char title[kTitleLines][kCols + 1];
   char body[kBodyLines][kCols + 1];
   int titleCount = 0, bodyCount = 0, headerHeight = 0, viewHeight = 0, scrollMax = 0, shown = -1;
-  uint32_t receivedAt = 0, nextAt = 0, startedAt = 0, endsAt = 0, cycleMs = 0;
+  uint32_t receivedAt = 0, nextAt = 0, startedAt = 0, endsAt = 0, cycleMs = 0, imageAt = 0;
 };
 State *state = nullptr;
 
@@ -58,6 +61,9 @@ int titleTop(const State &n) { return n.current.priority == PRIORITY_HIGH ? kIco
 
 // Wraps the current message and works out how much of the panel the header (warning sign and title) takes
 void prepare(State &n) {
+  n.image.reset();
+  n.imageAt = millis();
+  n.imageDone = !n.current.image[0];
   flatten(n.current.title);
   flatten(n.current.text);
   n.titleCount = wrap(n.current.title, n.title, kTitleLines);
@@ -72,10 +78,12 @@ void prepare(State &n) {
 
 void begin(State &n, uint32_t now) {
   uint32_t total = (uint32_t)(n.current.seconds ? n.current.seconds : (n.current.priority == PRIORITY_HIGH ? 30 : 10)) * 1000;
+  if (n.image && n.image->status == Image::READY && (n.current.title[0] || n.current.text[0])) total = max(total, (uint32_t)6000);
   n.cycleMs = 0;
   if (n.scrollMax > 0) {  // long text scrolls once at least: rest, move, rest
     n.cycleMs = 2 * kPauseMs + (uint32_t)n.scrollMax * kMsPerPixel;
-    if (total < n.cycleMs) total = n.cycleMs;
+    const uint32_t scrollTime = n.image && n.image->status == Image::READY ? 2 * n.cycleMs : n.cycleMs;
+    if (total < scrollTime) total = scrollTime;
   }
   n.startedAt = now;
   n.endsAt = now + total;
@@ -89,14 +97,14 @@ bool highShowing(const State &n, uint32_t now) {
 }
 
 void show(const Message &message, uint32_t now) {
-  if (!message.title[0] && !message.text[0]) {
-    if (state) state->on = state->hasNext = false;
+  if (!message.title[0] && !message.text[0] && !message.image[0]) {
+    if (state) { state->on = state->hasNext = false; state->image.reset(); }
     return;
   }
   if (!state) state = new (std::nothrow) State;
   if (!state) return;
   State &n = *state;
-  if (message.priority == PRIORITY_NORMAL && highShowing(n, now)) {  // it waits behind the urgent one
+  if (message.priority == PRIORITY_NORMAL && n.on && n.current.priority == PRIORITY_HIGH && (!n.started || highShowing(n, now))) {  // it waits behind the urgent one
     n.next = message;
     n.nextAt = now;
     n.hasNext = true;
@@ -112,6 +120,17 @@ void show(const Message &message, uint32_t now) {
   prepare(n);
 }
 
+void poll(uint32_t now) {
+  if (!state) return;
+  State &n = *state;
+  if (!n.on) { n.image.reset(); return; }
+  if (n.imageDone) return;
+  if (n.image && n.image->status != Image::LOADING) n.imageDone = true;
+  else if (!n.image && now - n.imageAt < 30000) n.image = loadImage(n.current.image);
+  else if (now - n.imageAt >= 30000) { n.image.reset(); n.imageDone = true; }
+  if (n.imageDone && (!n.image || n.image->status != Image::READY) && !n.current.title[0] && !n.current.text[0]) n.on = false;
+}
+
 bool active(uint32_t now, bool night) {
   if (!state) return false;
   State &n = *state;
@@ -123,6 +142,7 @@ bool active(uint32_t now, bool night) {
     prepare(n);
   }
   if (!n.on) return false;
+  if (!n.imageDone) return false;  // keep the face visible until the image is ready or has failed
   if (!n.started) {
     if (n.current.priority == PRIORITY_NORMAL && night) {  // held for the morning
       if (now - n.receivedAt > kHoldMs) n.on = false;
@@ -141,17 +161,29 @@ void draw(MatrixPanel_I2S_DMA &gfx, uint32_t now) {
   const bool high = n.current.priority == PRIORITY_HIGH;
   int offset = 0;
   if (n.scrollMax > 0) {
-    const uint32_t t = (now - n.startedAt) % n.cycleMs;  // starts over while the display time lasts
+    uint32_t elapsed = now - n.startedAt;
+    if (n.image && n.image->status == Image::READY)
+      elapsed = (elapsed / 6000) * 3000 + (elapsed % 6000 > 3000 ? elapsed % 6000 - 3000 : 0);
+    const uint32_t t = elapsed % n.cycleMs;  // starts over while the display time lasts
     if (t >= kPauseMs) offset = min((int)((t - kPauseMs) / kMsPerPixel), n.scrollMax);
   }
   const int phase = high ? (int)(((now - n.startedAt) / kBlinkMs) & 1) : 0;
-  const int key = offset * 2 + phase;
+  const bool imagePage = n.image && n.image->status == Image::READY &&
+      ((!n.current.title[0] && !n.current.text[0]) || ((now - n.startedAt) / 3000) % 2 == 0);
+  const int key = (offset * 2 + phase) * 2 + (imagePage ? 1 : 0);
   if (key == n.shown) return;
   n.shown = key;
   const uint16_t color = n.current.color ? n.current.color : (high ? kRed : kWhite);
   const bool lit = phase == 1;  // blinking: the panel is a block of the colour and the writing turns black
   const uint16_t background = lit ? color : 0, ink = lit ? 0 : color, text = lit ? 0 : kWhite;
   gfx.fillScreen(background);
+  if (imagePage) {
+    for (int y = 0; y < 64; y++)
+      for (int x = 0; x < 64; x++) gfx.drawPixel(x, y, n.image->pixels[y * 64 + x]);
+    if (high) gfx.drawRect(0, 0, 64, 64, phase ? color : 0);
+    gfx.flipDMABuffer();
+    return;
+  }
   gfx.setFont(nullptr);
   gfx.setTextSize(1);
   gfx.setTextWrap(false);

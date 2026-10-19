@@ -17,6 +17,7 @@ set(sources
     "${root}/lib/core/TelnetConsole.cpp"
     "${root}/lib/core/Mqtt.cpp"
     "${root}/lib/core/Notice.cpp"
+    "${root}/lib/core/NoticeImage.cpp"
     "${root}/lib/core/qrcodegen.c"
     "${root}/clockfaces/${face}/Clockface.cpp")
 if(ULTIMATRIX_MODE STREQUAL "football")

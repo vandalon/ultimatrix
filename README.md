@@ -183,6 +183,40 @@ Every face can be controlled from Home Assistant over MQTT. It is off until you 
   ```
 
   JSON fields: `message` (up to 200 characters), `title`, `color` (a name such as `red` or `#rrggbb`), `seconds` (2 to 300) and `priority` (`normal` or `high`). Text that does not fit scrolls, and the message stays up long enough to scroll through. A **normal** message shows as plain text for 10 seconds, waits while night mode is on, with or without the night clock (up to an hour) and does not replace an urgent one. A **high** priority message shows at once at full brightness, whatever the hour, blinks like the doorbell on the Home face with a warning sign, and stays 30 seconds. An empty message dismisses what is showing.
+  Static pictures use the same Notification entity: send a JSON string in its message field. For example, put a baseline JPEG at `/config/www/clock-picture.jpg` on Home Assistant, then send:
+
+  ```yaml
+  action: notify.send_message
+  target:
+    entity_id: notify.ultimatrix_notification
+  data:
+    message: >-
+      {"image":"http://homeassistant.local:8123/local/clock-picture.jpg","seconds":15}
+  ```
+
+  Use your clock's actual entity ID. The `image` field also works with `mqtt.publish` on the existing notification topic. Optional `title` and `message` alternate with the picture every three seconds (at least six seconds total so both can be seen). Image-only notifications fill the panel, fitting the picture with black bars to preserve its shape. Normal priority still waits for night mode to end; high priority shows immediately after loading and blinks a border around the picture. The duration starts after loading, then the clock returns to its face.
+
+  Pictures must be static baseline JPEGs, at most 2048×2048 pixels and 128 KiB, served by an HTTP(S) URL the clock can reach (up to 256 characters). Convert PNGs to JPEG first. The clock sends no authentication headers and does not follow redirects; a Home Assistant `/local/` URL works without a token. Picture downloads wait for available memory and quiet live feeds, and give up after 30 seconds. Failed pictures fall back to the supplied text; an image-only failure leaves the face visible. Images stay in RAM only. HTTPS follows the feeds' existing policy without certificate verification. Sending an empty message dismisses the notification, including its picture.
+
+  To show a doorbell snapshot, use these actions after your automation's doorbell trigger. Replace the camera, notification entity and HA address:
+
+  ```yaml
+  actions:
+    - action: camera.snapshot
+      target:
+        entity_id: camera.front_door
+      data:
+        filename: /config/www/doorbell.jpg
+    - action: notify.send_message
+      target:
+        entity_id: notify.ultimatrix_notification
+      data:
+        message: >-
+          {"image":"http://192.168.1.100:8123/local/doorbell.jpg","seconds":20,"priority":"high"}
+  ```
+
+  Create `/config/www` first and allow HA to write snapshots there. This saves the camera's original image without resizing; it must meet the JPEG limits above. Files in `/config/www` are served under `/local/` without authentication, so use a picture you are comfortable making accessible to anyone who can reach that HA address.
+
 - **Wi-Fi signal** and **Free memory**, as diagnostics.
 
 The link is plain MQTT on your local network, without encryption, and costs the clock roughly 10 KB of memory while it is on.
@@ -195,7 +229,7 @@ Add birthdays under **Birthdays** in settings: a name (capitals, digits and spac
 
 The clock checks for updates at startup when its cached check is missing or more than 24 hours old, then about once a day while running. With Automatic updates on (the default, under Advanced), a newer version is installed by itself and the clock restarts; with it off, checking installs nothing. Available updates appear on the boot screen and settings page; with Automatic updates off, installation starts when you choose it.
 
-In **Advanced**, use **Check for updates** or **Install update**. The face picker installs another face using the same update system. The clock refuses updates while live sports data is active. If an install fails, for example for lack of memory, the clock restarts once and installs again without loading a face, showing an update screen with a progress bar.
+In **Advanced**, use **Check for updates** or **Install update**. The **Switch faces** category installs another face using the same update system. The clock refuses updates while live sports data is active. If an install fails, for example for lack of memory, the clock restarts once and installs again without loading a face, showing an update screen with a progress bar.
 
 Images need a signed manifest and a matching checksum. The updater rejects releases already installed or superseded for that face and update source. Boot rollback is enabled, with startup health checks before a new image is confirmed; failure recovery still needs device checks.
 

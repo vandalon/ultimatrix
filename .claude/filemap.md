@@ -8,7 +8,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - README.md: user docs for all clock faces. LICENSE*, THIRD_PARTY_NOTICES.md, LICENSE_SCOPE.md: licensing
 - .github/workflows/release.yml: release CI
 - .gitignore: local tooling, build output and handoff/log exclusions
-- docs/: HARDWARE.md (wiring, boards, power, LDR, troubleshooting), ARCHITECTURE.md (runtime/design), UPDATES.md (signed OTA), FOOTBALL_SNAPSHOT_PLAN.md and TETRIS_MIGRATION_PLAN.md (migration plans)
+- docs/: HARDWARE.md (wiring, boards, power, LDR, troubleshooting), ARCHITECTURE.md (runtime/design), UPDATES.md (signed OTA)
 - docs/photos/: real-panel Home Assistant photos (connecting, home, energy, now playing; 1000 px) shown in a row at the top of README
 - docs/previews/: README GIFs and welcome-preview.html (standalone welcome mockup)
 - hardware/enclosure/: parametric OpenSCAD P3/P2.5 casing prototype, optical grid samples, STL exports and fit limitations
@@ -45,7 +45,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - TelnetConsole.cpp/.h, Console.h: remote logging console
 - ScreenPng.h: bounded 192x192 indexed PNG encoder (kScale 3) from 64x64 display rows; square LED gaps, fixed DEFLATE runs/repeated cells/rows, no large framebuffer or zlib window
 - Mqtt.cpp/.h: optional MQTT link to Home Assistant (default off): config in NVS, discovery entities, commands queued by the esp-mqtt task and applied by poll(), state publishing, 10-second CPU task/refill diagnostics and changed-screen MQTT camera snapshots
-- Notice.cpp/.h: full-panel text message (wrapped, paged) sent from Home Assistant, drawn over any face by main.cpp
+- Notice.cpp/.h: full-panel text/image notifications from Home Assistant, drawn over any face by main.cpp. NoticeImage.cpp/.h: bounded asynchronous HTTP(S) baseline-JPEG download and 64x64 fit; images alternate with optional text
 - DiskCache.h: mounts LittleFS; formats only genuinely erased cache flash
 - CacheBlob.h: versioned NVS POD blobs with size/CRC validation
 - NetworkBudget.h, MemoryLimits.h: shared download/update gates, feed-task coordination and collection limits
