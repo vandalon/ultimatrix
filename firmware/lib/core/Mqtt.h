@@ -35,6 +35,7 @@ public:
     bool (*screenRow)(int16_t y, uint8_t *rgb);  // optional RGB888 readback, called between frames
     void (*cpuUsage)(CpuInfo &out);  // average task load across both cores, display refill separately
     int (*lightLevel)();  // the averaged light sensor reading, or -1 while the sensor is not read
+    void (*switchFace)(const char *mode);  // installs another face's signed image (a mode name such as "football")
   };
   static Mqtt &instance();
   static bool validHost(const char *host);

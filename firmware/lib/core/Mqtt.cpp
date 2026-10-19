@@ -50,7 +50,7 @@ int8_t onOff(const char *text) {
 enum EntityId : uint8_t {
   E_BRIGHTNESS, E_AUTO_BRIGHTNESS, E_NIGHT_CLOCK, E_NOTIFY, E_MIN_BRIGHTNESS, E_NIGHT_MODE, E_NIGHT_SUN, E_NIGHT_START, E_NIGHT_END,
   E_ROTATION, E_TIME_24H, E_AUTO_TIMEZONE, E_TIMEZONE, E_NTP_SERVER, E_LDR_DARK, E_LDR_LIGHT, E_SWAP, E_AUTO_UPDATE, E_TELNET,
-  E_RESTART, E_CHECK_UPDATE, E_UPDATE, E_LIGHT, E_WIFI, E_MEMORY, E_SCREEN, E_CPU, E_DISPLAY_CPU,
+  E_RESTART, E_CHECK_UPDATE, E_UPDATE, E_LIGHT, E_WIFI, E_MEMORY, E_SCREEN, E_CPU, E_DISPLAY_CPU, E_FACE,
 #ifdef UM_WLED_OVERLAY
   E_CANVAS,
 #endif
@@ -89,6 +89,7 @@ const Entity kEntities[E_COUNT] = {
     {"camera", "screen", "Screen", CUSTOM, "\"topic\":\"~/screen\",\"encoding\":\"\""},
     {"sensor", "cpu_usage", "CPU usage", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"icon\":\"mdi:chip\""},
     {"sensor", "display_cpu", "Display refill CPU", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"icon\":\"mdi:led-on\""},
+    {"select", "face", "Face", STATE | COMMAND | CONFIG, "\"options\":[\"Home\",\"Football\",\"F1\",\"MotoGP\",\"Tetris\",\"Words\",\"Mario\",\"Luigi\",\"Pac-Man\"],\"icon\":\"mdi:swap-horizontal\""},
 #ifdef UM_WLED_OVERLAY
     {"select", "canvas", "Saved picture", COMMAND | CUSTOM, "\"stat_t\":\"~/canvas\",\"icon\":\"mdi:image\""},
 #endif
@@ -304,6 +305,11 @@ bool Mqtt::publish(const char *topic, const char *payload, bool retain) {
   return esp_mqtt_client_enqueue(_client, topic, payload, 0, 0, retain, true) >= 0;
 }
 
+// The Face select: the label Home Assistant shows and the mode name the updater knows
+struct FaceChoice { const char *label, *mode; };
+constexpr FaceChoice kFaces[] = {{"Home", "home"}, {"Football", "football"}, {"F1", "f1"}, {"MotoGP", "motogp"}, {"Tetris", "tetris"},
+                                 {"Words", "word"}, {"Mario", "mario"}, {"Luigi", "luigi"}, {"Pac-Man", "pacman"}};
+
 // One command from Home Assistant: validated like the settings page does, then applied to the settings (the caller
 // notices the change and runs the follow-ups). Bad values are ignored.
 void Mqtt::applyCommand(const Command &command, Settings &s) {
@@ -327,6 +333,10 @@ void Mqtt::applyCommand(const Command &command, Settings &s) {
       return;
     }
 #endif
+    case E_FACE:  // an explicit choice only: the face now running is ignored, anything unknown is dropped
+      if (!_hooks.switchFace || !strcmp(value, UM_MODE_NAME)) return;
+      for (const FaceChoice &face : kFaces) if (!strcmp(value, face.label)) { _hooks.switchFace(face.mode); return; }
+      return;
     case E_BRIGHTNESS: s.brightness = constrain(number, 1, 255); break;
     case E_MIN_BRIGHTNESS: s.minimumBrightness = constrain(number, 1, 255); break;
     case E_AUTO_BRIGHTNESS: if (on >= 0) s.autoBrightness = on; break;
@@ -503,7 +513,7 @@ void Mqtt::publishState(uint32_t now) {
     else out.add("\"cpu_usage\":null,");
     if (cpu.display >= 0) out.add("\"display_cpu\":%d,", cpu.display);
     else out.add("\"display_cpu\":null,");
-    out.add("\"wifi_signal\":%d,\"free_memory\":%u}", (int)WiFi.RSSI(), (unsigned)(ESP.getFreeHeap() / 1024));
+    out.add("\"face\":\"%s\",\"wifi_signal\":%d,\"free_memory\":%u}", UM_MODE_NAME, (int)WiFi.RSSI(), (unsigned)(ESP.getFreeHeap() / 1024));
     snprintf(topic, sizeof(topic), "%s/state", _base);
     if (publish(topic, json.get(), true)) { _stateDue = false; _stateAt = now; _stateSignature = sig; }
     return;

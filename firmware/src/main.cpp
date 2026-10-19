@@ -860,6 +860,19 @@ static void mqttRestart() { restartAt = millis() + 500; }
 static void mqttCheckUpdate() { firmwareUpdate.checkNow(false); }
 static void mqttInstallUpdate() { firmwareUpdate.request(); }
 
+// The Face select in Home Assistant: the same signed install as the settings page, started by an explicit choice
+static void mqttSwitchFace(const char *mode) {
+  if (!FirmwareUpdate::knownMode(mode)) return;
+  const bool accepted = firmwareUpdate.request(mode, false);
+  FirmwareUpdate::Status status; firmwareUpdate.status(status);
+  if (!accepted && status.lowMemory) {  // too little memory with this face running: restart first and install before the feeds start
+    consoleLog("[MQTT] Switching face to %s needs a restart first\n", mode);
+    firmwareUpdate.scheduleAfterReboot(mode);
+    restartAt = millis() + 1000;
+  } else if (!accepted) consoleLog("[MQTT] Face switch refused: %s\n", status.message);
+  else consoleLog("[MQTT] Switching face to %s\n", mode);
+}
+
 static void mqttUpdateInfo(Mqtt::UpdateInfo &out) {
   FirmwareUpdate::Status status; firmwareUpdate.status(status);
   FirmwareUpdate::Latest latest; firmwareUpdate.latest(latest);
@@ -1535,7 +1548,7 @@ void setup() {
   ha::load();
 #endif
   firmwareUpdate.begin();  // the cached "update available" result, so the boot screen can mention it
-  Mqtt::instance().begin(firmwareUpdate.version(), {mqttSettingsChanged, mqttRestart, mqttCheckUpdate, mqttInstallUpdate, mqttUpdateInfo, mqttScreenRow, mqttCpuUsage, mqttLightLevel});
+  Mqtt::instance().begin(firmwareUpdate.version(), {mqttSettingsChanged, mqttRestart, mqttCheckUpdate, mqttInstallUpdate, mqttUpdateInfo, mqttScreenRow, mqttCpuUsage, mqttLightLevel, mqttSwitchFace});
   {  // The fast display is only for the Wi-Fi setup QR: when setup was asked for. A start that needs the setup late restarts into it (setupRefresh flag)
     Preferences refreshPrefs;
     bool asked = false;
