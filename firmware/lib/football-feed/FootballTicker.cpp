@@ -7,6 +7,7 @@
 #include "TeamColors.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <esp_heap_caps.h>
 #include "EspnParse.h"
 #ifndef UM_FOOTBALL_ONLY
@@ -1720,6 +1721,17 @@ void FootballTicker::buildOverview(const MatchList &matches, const std::vector<c
     if (m.state == 'p' && m.kickoff > nowUtc) next.push_back(mp);
   }
   std::stable_partition(live.begin(), live.end(), [&](const Match *m) { return isFavourite(m->home) || isFavourite(m->away); });
+  // While matches are live, the results and fixtures below them are those of the same match weekend (any league)
+  auto otherWeekend = [&](const Match *m) {
+    int64_t day = _dateTime->utcToLocal(m->kickoff) / SECS_PER_DAY;
+    for (const Match *l : live)
+      if (std::llabs(day - (int64_t)(_dateTime->utcToLocal(l->kickoff) / SECS_PER_DAY)) <= 3) return false;
+    return true;
+  };
+  if (!live.empty()) {
+    finished.erase(std::remove_if(finished.begin(), finished.end(), otherWeekend), finished.end());
+    next.erase(std::remove_if(next.begin(), next.end(), otherWeekend), next.end());
+  }
   std::sort(finished.begin(), finished.end(), [&](const Match *a, const Match *b) {
     bool aToday = _dateTime->utcToLocal(a->kickoff) / SECS_PER_DAY == today;
     bool bToday = _dateTime->utcToLocal(b->kickoff) / SECS_PER_DAY == today;
@@ -1731,8 +1743,12 @@ void FootballTicker::buildOverview(const MatchList &matches, const std::vector<c
   for (const Match *m : coming) {
     bool known = false;  // today's matches are on both boards
     for (const Match *n : next) known |= n->kickoff == m->kickoff && n->home == m->home && n->away == m->away;
-    if (!known) next.push_back(m);
+    if (!known && (live.empty() || !otherWeekend(m))) next.push_back(m);
   }
+  // The face names the weekday only, so a match a week or more away would read as an earlier day
+  next.erase(std::remove_if(next.begin(), next.end(),
+                            [&](const Match *m) { return _dateTime->utcToLocal(m->kickoff) / SECS_PER_DAY >= today + 7; }),
+             next.end());
   // Matches that kick off together keep their order between refreshes, or a face that takes turns in them swaps early
   std::sort(next.begin(), next.end(), [&](const Match *a, const Match *b) {
 #ifdef UM_FOOTBALL_ONLY
