@@ -2,6 +2,7 @@
 // Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
 // See LICENSE_SCOPE.md.
 #include "MqttPixels.h"
+#include "NetworkBudget.h"
 #include "NoticeImage.h"
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <esp_heap_caps.h>
@@ -122,6 +123,14 @@ void MqttPixels::cancelReceive() {
   _incoming.reset();
 }
 void MqttPixels::receive(esp_mqtt_event_handle_t event, bool first) {
+  if (first && !event->retain && event->total_data_len > 256 && event->total_data_len <= (int)kMaxPayload && !room(event->total_data_len + 1)) {
+    // Too little memory for a big command: park the feeds and give them up to 10 s to hand theirs back. The client holds its API
+    // lock while this runs, so the parking happens from here and not from poll(); the rest of the message waits in the socket.
+    for (int i = 0; i < 200 && !room(event->total_data_len + 1); i++) {
+      notice::holdFeeds(notice::HOLD_MQTT_PIXELS, true);
+      vTaskDelay(pdMS_TO_TICKS(50));
+    }
+  }
   std::lock_guard<std::mutex> guard(_mutex);
   if (first) {
     _incoming.reset(); _received = 0;
@@ -173,8 +182,10 @@ void MqttPixels::apply(const char *json, uint32_t now) {
 }
 void MqttPixels::poll(uint32_t now, bool enabled) {
   std::unique_ptr<char[]> pending;
+  bool receiving;
   {
     std::lock_guard<std::mutex> guard(_mutex);
+    receiving = _incoming || _pending;
     if (_incoming && uint32_t(now - _receiveAt) < 0x80000000u && now - _receiveAt > 10000) {
       _incoming.reset(); strlcpy(_status, "Pixel upload timed out", sizeof(_status));
     }
@@ -184,7 +195,7 @@ void MqttPixels::poll(uint32_t now, bool enabled) {
   if (!enabled) { _frame.reset(); _timed = false; }
   else if (pending) apply(pending.get(), now);
   if (_timed && (int32_t)(now - _until) >= 0) { _frame.reset(); _timed = false; }
-  notice::holdFeeds(notice::HOLD_MQTT_PIXELS, active());
+  notice::holdFeeds(notice::HOLD_MQTT_PIXELS, active() || (receiving && enabled));  // also while a command waits to be applied
 }
 bool MqttPixels::draw(MatrixPanel_I2S_DMA &display) {
   if (!_frame) return false;
