@@ -6,6 +6,7 @@
 #include "Console.h"
 #include <DiskCache.h>
 #include <NetworkBudget.h>
+#include <NoticeImage.h>
 #include <errno.h>
 #include <esp_crt_bundle.h>
 #include <esp_random.h>
@@ -834,6 +835,11 @@ void search() {
 #else
   const String q = srv->arg("q");
   if (q.isEmpty() || q.length() > 60) { message(400, "Type something to search for."); return; }
+  struct FeedPark { ~FeedPark() { notice::holdFeeds(notice::HOLD_GIF_SEARCH, false); } } feedPark;  // the feeds resume when the search is over
+  for (int i = 0; i < 40 && heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 32000; i++) {
+    notice::holdFeeds(notice::HOLD_GIF_SEARCH, true);  // park the feeds and wait (up to 2 s) for their memory
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
   if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 32000) {
     // a loaded GIF holds the memory: the page repeats the search with &free=1, which removes it from the clock (the same call as deleting an import)
     if (ram.frames && !srv->hasArg("free")) { json(503, "{\"message\":\"A loaded GIF is using the memory the search needs.\",\"needsFree\":true}"); return; }

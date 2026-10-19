@@ -196,6 +196,8 @@ Every face can be controlled from Home Assistant over MQTT. It is off until you 
       {"image":"http://homeassistant.local:8123/local/clock-picture.jpg","seconds":15}
   ```
 
+  To send a picture without hosting it, put the 64×64 RGB565 image in the JSON as `image_rgb565` (10,924 base64 characters, the same format as the [MQTT pixel commands](docs/MQTT_PIXELS.md)), together with the optional `title`, `message`, `priority` and `seconds`. It works on the `notify/set` topic (the whole message is limited to 12 KB, and memory must be free when it arrives), and `firmware/tools/img2base64.py picture.jpg --notify --yaml` builds the complete action from any JPEG or PNG.
+
   Use your clock's actual entity ID. The `image` field also works with `mqtt.publish` on the existing notification topic. At normal priority, optional `title` and `message` alternate with the picture every three seconds (at least six seconds total so both can be seen). Image-only notifications fill the panel, fitting the picture with black bars to preserve its shape by default. Add `"scale":"fill"` to fill the panel, cropping the centre without stretching; `"scale":"fit"` keeps the whole picture. Normal priority still waits for night mode to end; high priority shows the picture continuously at full brightness, including during night mode, without borders, blinking or text. The duration starts after loading, then the clock returns to its face.
 
   Pictures can be baseline JPEGs or non-interlaced PNGs, served by an HTTP(S) URL the clock can reach (up to 256 characters). The clock sends no authentication headers and does not follow redirects; a Home Assistant `/local/` URL works without a token.
@@ -247,9 +249,9 @@ Canvas has a **Download picture** button for the current editor image. It export
 
 The link is plain MQTT on your local network, without encryption, and costs the clock roughly 10 KB of memory while it is on.
 
-### MQTT pixels and display capture
+### MQTT pixels
 
-Automations can draw individual pixels or send a complete 64×64 image over MQTT. The **Display** sensor reports the current display mode; **Capture display** puts a replayable image in that sensor's `image` attribute. Copy that JSON into an automation to show the same still image later, with an optional duration. See [MQTT pixel commands and capture](docs/MQTT_PIXELS.md) for topics, limits and Home Assistant examples.
+Automations can draw individual pixels or send a complete 64×64 image over MQTT. The **Display** sensor reports the current display mode. See [MQTT pixel commands](docs/MQTT_PIXELS.md) for topics, limits and Home Assistant examples.
 
 ### Birthdays
 

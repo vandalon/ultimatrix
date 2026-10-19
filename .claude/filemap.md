@@ -44,8 +44,8 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - DisplayControl, PanelLayout, BootScreen, ScreenTimer, FlipDigits, NumericFont, LapFonts: display/panel helpers, fonts
 - TelnetConsole.cpp/.h, Console.h: remote logging console
 - ScreenPng.h: bounded 192x192 indexed PNG encoder (kScale 3) from 64x64 display rows; square LED gaps, fixed DEFLATE runs/repeated cells/rows, no large framebuffer or zlib window
-- MqttPixels.cpp/.h: bounded fragmented MQTT pixel uploads, validated coordinate/RGB565 commands and temporary frame overlay. docs/MQTT_PIXELS.md documents HA drawing, capture and replay.
-- Mqtt.cpp/.h: optional MQTT link to Home Assistant (default off): config in NVS, discovery entities, commands queued by the esp-mqtt task and applied by poll(), state publishing, 10-second CPU task/refill diagnostics, changed-screen MQTT camera snapshots, a dynamic Saved picture dropdown for Canvas slots, a Face select (signed face install), Display mode/image sensor and on-demand Capture display button
+- MqttPixels.cpp/.h: bounded fragmented MQTT pixel uploads, validated coordinate/RGB565 commands and temporary frame overlay. docs/MQTT_PIXELS.md documents HA drawing with coordinates or base64 images.
+- Mqtt.cpp/.h: optional MQTT link to Home Assistant (default off): config in NVS, discovery entities, commands queued by the esp-mqtt task and applied by poll(), state publishing, 10-second CPU task/refill diagnostics, changed-screen MQTT camera snapshots, a dynamic Saved picture dropdown for Canvas slots, a Face select (signed face install), Display mode sensor
 - DlnaRenderer.cpp/.h, DlnaDescriptions.h: DLNA media renderer (HA Browse media/Play/Stop of pictures; SSDP + SOAP, polling only) and UPnP service descriptions; wired in main.cpp, untested on device
 - Notice.cpp/.h: full-panel text/image notifications from Home Assistant, drawn over any face by main.cpp. NoticeImage.cpp/.h: bounded asynchronous HTTP(S) UMIMG/JPEG/PNG downloads and 64x64 fit/fill; NoticePng.cpp/.h decodes PNG with image-sized history and alpha over black; normal-priority images alternate with optional text
 - DiskCache.h: mounts LittleFS; formats only genuinely erased cache flash
@@ -82,6 +82,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - package-firmware.py: packages application images and signed OTA manifests into dist/ (generated)
 - check-static-ram.py: post-build check that fails a face above the 60 KB static RAM budget (hooked in firmware/CMakeLists.txt)
 
+- img2base64.py: JPEG/PNG -> 64x64 rgb565_base64 JSON payload for MQTT pixels/set (Pillow)
 - gzip_asset.py: gzip -9 (fixed timestamp) of one web asset for embedding
 - gen_icons.py: renders BootScreen's U logo into web app icons
 - gen_tzdb.py, zones.csv: generate the build-time timezone table from zone rules

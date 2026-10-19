@@ -63,13 +63,10 @@ private:
   void publishNext(uint32_t now);
   void publishState(uint32_t now);
   void publishScreen(uint32_t now);
-  void publishSnapshot(uint32_t now);
   bool publish(const char *topic, const char *payload, bool retain);
   MqttPixels _pixels;
-  std::atomic<bool> _snapshotWanted{false};
   char _displayMode[16] = "boot";
   std::atomic<bool> _displayDue{true};
-  uint32_t _snapshotAt = 0, _snapshotEveryMs = 0, _nextSnapshotAt = 0;
   Config _cfg;
   Hooks _hooks = {};
   char _discoveryName[49] = "";
@@ -80,6 +77,12 @@ private:
   std::mutex _lock;
   Command _queue[kQueue];  // commands waiting for poll()
   uint8_t _queued = 0;
+  // Notifications with a picture are bigger than one command: assembled here, handled by applyCommands()
+  std::unique_ptr<char[]> _bigIncoming, _bigPending;
+  std::shared_ptr<notice::Image> _bigImage, _bigImagePending;  // reserved with the buffer, so decoding cannot run out of memory
+  size_t _bigSize = 0, _bigGot = 0;
+  std::atomic<uint32_t> _holdNoticeUntil{0};  // feeds stay parked until then after a picture was refused for memory
+  void receiveBigNotice(esp_mqtt_event_handle_t event, bool first);
   bool _hasNotice = false;
   char _noticeText[notice::kPayloadMax] = "";
   bool _restart = false, _stateDue = true, _updateDue = true;

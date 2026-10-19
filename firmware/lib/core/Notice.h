@@ -3,6 +3,8 @@
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #pragma once
 #include <Arduino.h>
+#include <memory>
+#include "NoticeImage.h"
 
 class MatrixPanel_I2S_DMA;
 
@@ -21,6 +23,7 @@ struct Message {
   char title[kTitleMax] = "";
   char text[kTextMax] = "";
   char image[kImageUrlMax] = ""; // optional JPEG/PNG URL; fitted to the panel
+  std::shared_ptr<Image> picture; // optional ready 64x64 picture sent with the message (MQTT image_rgb565); shown instead of a download
   bool imageFill = false; // scale=fill crops the centre to fill the panel; default fits with black bars
   uint16_t color = 0;    // RGB565 of the title and the blink; 0 picks white (normal) or red (high)
   uint16_t seconds = 0;  // at least this long; 0 picks 10 (normal) or 30 (high). Scrolling text takes the time it needs.

@@ -258,7 +258,7 @@ static void bootTick() {
 }
 
 // The mDNS name is set up again after every GOT_IP, so ultimatrix.local survives a router restart
-static bool memoryShed = false;  // set once out-of-memory errors showed up: telnet and mDNS stay off until the next restart
+static bool memoryShed = false;  // set once out-of-memory errors showed up: mDNS stays off until the next restart (telnet returns when memory is free)
 #ifdef UM_WLED_OVERLAY
 static bool wledBusy(uint32_t now) { return wled::wanted(now); }  // WLED has the panel: no new background network work (update checks, geo-IP); the feeds park themselves
 #else
@@ -831,7 +831,7 @@ static void saveSettings() {
   if (displayReady) display->setRotation(s.rotation);
   if (timeChanged && face) clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (consoleChanged) {
-    if (s.telnet && !memoryShed && !telnetLow) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
+    if (s.telnet && !telnetLow) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
     else { telnet.stop(); telnetStarted = false; }
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
@@ -899,7 +899,7 @@ static void mqttSettingsChanged(const Settings &previous) {
   if ((previous.timezone != s.timezone || previous.use24h != s.use24h || previous.ntpServer != s.ntpServer) && face)
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (previous.telnet != s.telnet) {
-    if (s.telnet && !memoryShed && !telnetLow) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
+    if (s.telnet && !telnetLow) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
     else { telnet.stop(); telnetStarted = false; }
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
@@ -1126,12 +1126,12 @@ static void shedOnLowMemory() {
   if (!bootDone) { strikes += fresh; if (strikes >= 6) lowerPanelQuality("allocation failures during boot"); return; }
   if (memoryShed) { strikes += fresh; if (strikes >= 3) lowerPanelQuality("allocation failures after shedding"); return; }
   memoryShed = true;
-  telnet.stop();
+  telnet.stop(); telnetStarted = false; telnetLow = true;  // telnet comes back by itself once memory is free again (main loop)
   if (mdnsStarted) { MDNS.end(); mdnsStarted = false; }
 #ifdef UM_WLED_OVERLAY
   wled::service(false);  // the UDP listeners and the drawing buffer go too
 #endif
-  consoleLog("[Memory] allocation failures: telnet and mDNS stopped until restart (free=%u largest=%u)\n",
+  consoleLog("[Memory] allocation failures: telnet stopped until memory is free, mDNS until restart (free=%u largest=%u)\n",
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 }
 
@@ -1483,7 +1483,7 @@ static void background() {
       }
     } else lowSince = 0;
   }
-  if (!telnetStarted && face && !memoryShed && !telnetLow && Settings::getInstance()->telnet) { telnetStarted = true; telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); }
+  if (!telnetStarted && face && !telnetLow && Settings::getInstance()->telnet) { telnetStarted = true; telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); }
   if (!portalActive && WiFi.status() == WL_CONNECTED && !mdnsStarted && (int32_t)(now - mdnsRetryAt) >= 0) startMdns();
   if (!portalActive && WiFi.status() == WL_CONNECTED) watchMdns(now);
 #ifdef UM_WLED_OVERLAY

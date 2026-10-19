@@ -4,9 +4,11 @@
 #include "Mqtt.h"
 #include "Console.h"
 #include "ScreenPng.h"
+#include "NetworkBudget.h"
 #include <Preferences.h>
 #include <WiFi.h>
 #include <cJSON.h>
+#include <mbedtls/base64.h>
 #include <esp_mac.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
@@ -50,7 +52,7 @@ int8_t onOff(const char *text) {
 enum EntityId : uint8_t {
   E_BRIGHTNESS, E_AUTO_BRIGHTNESS, E_NIGHT_CLOCK, E_NOTIFY, E_MIN_BRIGHTNESS, E_NIGHT_MODE, E_NIGHT_SUN, E_NIGHT_START, E_NIGHT_END,
   E_ROTATION, E_TIME_24H, E_AUTO_TIMEZONE, E_TIMEZONE, E_NTP_SERVER, E_LDR_DARK, E_LDR_LIGHT, E_SWAP, E_AUTO_UPDATE, E_TELNET,
-  E_RESTART, E_CHECK_UPDATE, E_UPDATE, E_LIGHT, E_WIFI, E_MEMORY, E_SCREEN, E_CPU, E_DISPLAY_CPU, E_FACE, E_DISPLAY, E_SNAPSHOT,
+  E_RESTART, E_CHECK_UPDATE, E_UPDATE, E_LIGHT, E_WIFI, E_MEMORY, E_SCREEN, E_CPU, E_DISPLAY_CPU, E_FACE, E_DISPLAY,
 #ifdef UM_WLED_OVERLAY
   E_CANVAS,
 #endif
@@ -90,8 +92,7 @@ const Entity kEntities[E_COUNT] = {
     {"sensor", "cpu_usage", "CPU usage", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"icon\":\"mdi:chip\""},
     {"sensor", "display_cpu", "Display refill CPU", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"icon\":\"mdi:led-on\""},
     {"select", "face", "Face", STATE | COMMAND | CONFIG, "\"options\":[\"Home\",\"Football\",\"F1\",\"MotoGP\",\"Tetris\",\"Words\",\"Mario\",\"Luigi\",\"Pac-Man\"],\"icon\":\"mdi:swap-horizontal\""},
-    {"sensor", "display", "Display", CUSTOM, "\"stat_t\":\"~/display\",\"json_attr_t\":\"~/display/image\",\"icon\":\"mdi:led-on\""},
-    {"button", "snapshot", "Capture display", COMMAND, "\"icon\":\"mdi:camera\""},
+    {"sensor", "display", "Display", CUSTOM, "\"stat_t\":\"~/display\",\"icon\":\"mdi:led-on\""},
 #ifdef UM_WLED_OVERLAY
     {"select", "canvas", "Saved picture", COMMAND | CUSTOM, "\"stat_t\":\"~/canvas\",\"icon\":\"mdi:image\""},
 #endif
@@ -212,6 +213,7 @@ void Mqtt::handle(int32_t id, esp_mqtt_event_handle_t event) {
     }
     case MQTT_EVENT_DISCONNECTED:
       _pixels.cancelReceive();
+      { std::lock_guard<std::mutex> guard(_lock); _bigIncoming.reset(); }
       _connected = false;
       break;
     case MQTT_EVENT_ERROR:
@@ -224,13 +226,25 @@ void Mqtt::handle(int32_t id, esp_mqtt_event_handle_t event) {
       }
       break;
     case MQTT_EVENT_DATA: {
-      if (event->current_data_offset != 0) { _pixels.receive(event, false); break; }
+      if (event->current_data_offset != 0) {
+        if (_bigIncoming) receiveBigNotice(event, false); else _pixels.receive(event, false);
+        break;
+      }
       if (!event->topic) break;
       char pixelTopic[48]; snprintf(pixelTopic, sizeof(pixelTopic), "%s/pixels/set", _base);
       if (event->topic_len == (int)strlen(pixelTopic) && !memcmp(event->topic, pixelTopic, event->topic_len)) {
         _pixels.receive(event, true); break;
       }
       _pixels.cancelReceive();
+      {
+        std::lock_guard<std::mutex> guard(_lock);
+        _bigIncoming.reset();
+      }
+      char noticeTopic[48]; snprintf(noticeTopic, sizeof(noticeTopic), "%s/notify/set", _base);
+      if (event->topic_len == (int)strlen(noticeTopic) && !memcmp(event->topic, noticeTopic, event->topic_len) &&
+          event->total_data_len >= (int)sizeof(_noticeText)) {
+        receiveBigNotice(event, true); break;
+      }
       if (event->data_len != event->total_data_len) break;  // small settings commands must fit in one piece
       const size_t baseLen = strlen(_base);
       if (event->topic_len <= (int)baseLen + 1 || strncmp(event->topic, _base, baseLen) != 0 || event->topic[baseLen] != '/') break;
@@ -245,7 +259,7 @@ void Mqtt::handle(int32_t id, esp_mqtt_event_handle_t event) {
       int entity = -1;
       for (int i = 0; i < E_COUNT; i++)
         if ((kEntities[i].flags & COMMAND) && (int)strlen(kEntities[i].key) == nameLen && strncmp(kEntities[i].key, key, nameLen) == 0) { entity = i; break; }
-      if (entity < 0 || (entity == E_SNAPSHOT && event->retain)) break;
+      if (entity < 0) break;
       char value[sizeof(_noticeText)];
       if (entity == E_NOTIFY && event->data_len >= (int)sizeof(value)) break;  // never treat truncated JSON as a text notice
       const int n = min(event->data_len, (int)sizeof(value) - 1);
@@ -350,20 +364,6 @@ void Mqtt::applyCommand(const Command &command, Settings &s) {
         return;
       }
       return;
-    case E_SNAPSHOT: {
-      if (!strcmp(value, "PRESS")) _snapshotWanted = true;
-      else if (!strcmp(value, "OFF")) { _snapshotEveryMs = 0; _snapshotWanted = false; }
-      else {
-        char *end = nullptr;
-        unsigned long seconds = strtoul(value, &end, 10);
-        if (value[0] >= '0' && value[0] <= '9' && *end == 0 && seconds >= 10 && seconds <= 3600) {
-          _snapshotEveryMs = seconds * 1000;
-          _nextSnapshotAt = millis() + _snapshotEveryMs;
-          _snapshotWanted = true;
-        }
-      }
-      return;
-    }
     case E_BRIGHTNESS: s.brightness = constrain(number, 1, 255); break;
     case E_MIN_BRIGHTNESS: s.minimumBrightness = constrain(number, 1, 255); break;
     case E_AUTO_BRIGHTNESS: if (on >= 0) s.autoBrightness = on; break;
@@ -396,10 +396,59 @@ void Mqtt::applyCommand(const Command &command, Settings &s) {
   }
 }
 
+// A notification with a 64x64 picture ("image_rgb565", the pixels/set base64 format) arrives in several pieces
+void Mqtt::receiveBigNotice(esp_mqtt_event_handle_t event, bool first) {
+  constexpr size_t kBigMax = 12288;
+  if (first) {
+    if (event->retain || event->total_data_len > (int)kBigMax || _bigPending) {
+      consoleLog("[Notice] Notification with picture refused: retained, busy or too large\n"); return;
+    }
+    // Reserve the picture and the receive buffer together. If the heap is too full, park the feeds (poll() does it) and
+    // retry for up to 10 s; the rest of the message waits in the socket meanwhile.
+    const uint32_t started = millis();
+    std::unique_ptr<char[]> buffer;
+    std::shared_ptr<notice::Image> image;
+    // Always park the feeds for a picture: they hold the memory the decoding and the notice need. Give them up to 2 s.
+    _holdNoticeUntil = (millis() + 30000) | 1;
+    notice::holdFeeds(notice::HOLD_MQTT_NOTICE, true);
+    for (int i = 0; i < 40 && !reapFeedTasks(); i++) vTaskDelay(pdMS_TO_TICKS(50));
+    for (int i = 0; i < 200; i++) {
+      image.reset(new (std::nothrow) notice::Image);
+      buffer.reset(image ? new (std::nothrow) char[event->total_data_len + 1] : nullptr);
+      if (buffer) break;
+      image.reset();
+      // The esp-mqtt client holds its API lock while this handler runs, so the clock loop (and poll()) can be stuck on a
+      // publish: park the feeds from here, and keep reaping them as they stop.
+      _holdNoticeUntil = (millis() + 30000) | 1;
+      notice::holdFeeds(notice::HOLD_MQTT_NOTICE, true);
+      vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    if (buffer) consoleLog("[Notice] Picture notification received, memory ready after %u ms\n", (unsigned)(millis() - started));
+    if (!buffer) {
+      consoleLog("[Notice] Not enough memory for the picture even with the feeds paused (heap %u, largest block %u)\n",
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+      return;
+    }
+    std::lock_guard<std::mutex> guard(_lock);
+    _bigSize = event->total_data_len; _bigGot = 0;
+    _bigIncoming = std::move(buffer);
+    _bigImage = std::move(image);
+  }
+  std::lock_guard<std::mutex> guard(_lock);
+  if (!_bigIncoming) return;
+  if (event->current_data_offset != (int)_bigGot || event->total_data_len != (int)_bigSize ||
+      event->data_len < 0 || size_t(event->data_len) > _bigSize - _bigGot) { _bigIncoming.reset(); return; }
+  memcpy(_bigIncoming.get() + _bigGot, event->data, event->data_len);
+  _bigGot += event->data_len;
+  if (_bigGot == _bigSize) { _bigIncoming[_bigSize] = 0; _bigPending = std::move(_bigIncoming); _bigImagePending = std::move(_bigImage); }
+}
+
 void Mqtt::applyCommands(uint32_t now) {
   Command batch[kQueue];
   uint8_t count;
   bool notice;
+  std::unique_ptr<char[]> big;
+  std::shared_ptr<notice::Image> picture;
   char text[sizeof(_noticeText)];
   {
     std::lock_guard<std::mutex> guard(_lock);
@@ -409,6 +458,38 @@ void Mqtt::applyCommands(uint32_t now) {
     if (notice) memcpy(text, _noticeText, sizeof(text));
     _queued = 0;
     _hasNotice = false;
+    big = std::move(_bigPending);
+    picture = std::move(_bigImagePending);
+  }
+  if (big) _holdNoticeUntil = 0;
+  if (big) {  // JSON with "image_rgb565":"<10924 base64 characters>": decode the picture, keep the rest as a normal notification
+    char *key = strstr(big.get(), "\"image_rgb565\"");
+    char *value = key ? key + 14 : nullptr;
+    while (value && (*value == ' ' || *value == ':')) value++;
+    char *end = value && *value == '"' ? strchr(++value, '"') : nullptr;
+    size_t written = 0;
+    const char *problem = nullptr;
+    if (!end) problem = "image_rgb565 key or string not found";
+    else if (end - value != 10924) problem = "image_rgb565 is not 10924 characters";
+    else if (strlen(end) + (value - big.get()) >= sizeof(text)) problem = "the rest of the message is too long";
+    else if (!picture) problem = "no picture buffer";
+    else {
+      if (mbedtls_base64_decode(reinterpret_cast<unsigned char *>(picture->pixels), sizeof(picture->pixels), &written,
+                                     reinterpret_cast<const unsigned char *>(value), 10924) || written != sizeof(picture->pixels))
+        problem = "image_rgb565 is not valid base64";
+    }
+    if (problem) {
+      picture.reset();
+      consoleLog("[Notice] Notification picture rejected: %s (heap %u, largest block %u, %u bytes, starts %.40s)\n", problem,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+                 (unsigned)strlen(big.get()), big.get());
+    } else {
+      picture->status = notice::Image::READY;
+      memmove(value, end, strlen(end) + 1);  // leaves "image_rgb565":""
+      strlcpy(text, big.get(), sizeof(text));
+      notice = true;
+    }
+    big.reset();
   }
   if (count) {
     auto &s = *Settings::getInstance();
@@ -460,7 +541,8 @@ void Mqtt::applyCommands(uint32_t now) {
       }
     }
     strlcpy(message.text, plain, sizeof(message.text));
-    if (!invalidImage || message.title[0] || message.text[0]) notice::show(message, now);
+    message.picture = picture;
+    if (!invalidImage || message.title[0] || message.text[0] || picture) notice::show(message, now);
     if (json) cJSON_Delete(json);
   }
   if (_saveAt && (int32_t)(now - _saveAt) >= 0) { _saveAt = 0; Settings::getInstance()->save(); }
@@ -485,6 +567,11 @@ void Mqtt::publishNext(uint32_t now) {
     snprintf(old, sizeof(old), "%s/light/%s/power/config", kDiscovery, _id);
     if (esp_mqtt_client_publish(_client, old, "", 0, 0, 1) < 0) return;
     snprintf(old, sizeof(old), "%s/light", _base);
+    if (esp_mqtt_client_publish(_client, old, "", 0, 0, 1) < 0) return;
+    // Remove the Capture display button and the retained capture announced by earlier builds.
+    snprintf(old, sizeof(old), "%s/button/%s/snapshot/config", kDiscovery, _id);
+    if (esp_mqtt_client_publish(_client, old, "", 0, 0, 1) < 0) return;
+    snprintf(old, sizeof(old), "%s/display/image", _base);
     if (esp_mqtt_client_publish(_client, old, "", 0, 0, 1) < 0) return;
   }
   const Entity &e = kEntities[step - 1];
@@ -665,58 +752,13 @@ void Mqtt::afterFrame(const char *mode, uint32_t now) {
     char topic[48]; snprintf(topic, sizeof(topic), "%s/display", _base);
     if (!publish(topic, _displayMode, true)) _displayDue = true;
   }
-  if (_snapshotEveryMs && (int32_t)(now - _nextSnapshotAt) >= 0) {
-    _snapshotWanted = true;
-    _nextSnapshotAt = now + _snapshotEveryMs;
-  }
-  if (_snapshotWanted.load() && (!_snapshotAt || now - _snapshotAt >= 2000)) publishSnapshot(now);
-}
-
-void Mqtt::publishSnapshot(uint32_t now) {
-  if (!_hooks.screenRow || esp_mqtt_client_get_outbox_size(_client)) return;
-  constexpr size_t capacity = 11200;  // 10924 base64 characters plus JSON metadata
-  _snapshotWanted = false;
-  _snapshotAt = now | 1;
-  char topic[48];
-  auto failed = [&](const char *reason) {
-    snprintf(topic, sizeof(topic), "%s/pixels/status", _base);
-    publish(topic, reason, false);
-  };
-  if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < 2 * capacity + 12288 ||
-      heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < capacity + 1024) {
-    failed("Not enough memory for display snapshot; try again when feeds are idle"); return;
-  }
-  std::unique_ptr<char[]> json(new (std::nothrow) char[capacity]);
-  if (!json) { failed("Not enough memory for display snapshot"); return; }
-  size_t used = snprintf(json.get(), capacity,
-      "{\"image\":{\"width\":64,\"height\":64,\"format\":\"rgb565_base64\",\"clear\":true,\"duration\":30,\"data\":\"");
-  const size_t dataStart = used;
-  constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  uint32_t bits = 0; unsigned count = 0;
-  auto byte = [&](uint8_t value) {
-    bits = (bits << 8) | value; count += 8;
-    while (count >= 6) { count -= 6; json[used++] = alphabet[(bits >> count) & 63]; }
-  };
-  uint8_t row[64 * 3];
-  for (int y = 0; y < 64; ++y) {
-    if (!_hooks.screenRow(y, row)) { failed("Display readback unavailable"); return; }
-    for (int x = 0; x < 64; ++x) {
-      const uint8_t *rgb = row + x * 3;
-      uint16_t value = ((rgb[0] & 0xF8) << 8) | ((rgb[1] & 0xFC) << 3) | (rgb[2] >> 3);
-      byte(value & 255); byte(value >> 8);
-    }
-  }
-  if (count) json[used++] = alphabet[(bits << (6 - count)) & 63];
-  while ((used - dataStart) % 4) json[used++] = '=';
-  used += snprintf(json.get() + used, capacity - used, "\"},\"captured_uptime_ms\":%u,\"source\":\"%s\"}", (unsigned)now, _displayMode);
-  snprintf(topic, sizeof(topic), "%s/display/image", _base);
-  if (esp_mqtt_client_enqueue(_client, topic, json.get(), used, 0, true, true) < 0) {
-    failed("Display snapshot could not be queued");
-  }
 }
 
 void Mqtt::poll(uint32_t now, bool online) {
   _pixels.poll(now, _cfg.enabled);
+  const uint32_t holdUntil = _holdNoticeUntil.load();
+  if (holdUntil && (int32_t)(holdUntil - now) <= 0) _holdNoticeUntil = 0;
+  notice::holdFeeds(notice::HOLD_MQTT_NOTICE, _cfg.enabled && _holdNoticeUntil.load());
   if (!_cfg.enabled || !online || !_cfg.host[0]) {
     if (_client) stop();
     _restart = false;
@@ -760,6 +802,6 @@ void Mqtt::poll(uint32_t now, bool online) {
 #endif
   if (_connected.load() && _step.load() > 0) {
     publishNext(now);
-    if (_step.load() > E_COUNT + 1 && !_snapshotWanted.load()) publishScreen(now);
+    if (_step.load() > E_COUNT + 1) publishScreen(now);
   }
 }

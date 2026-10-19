@@ -64,6 +64,7 @@ void prepare(State &n) {
   n.image.reset();
   n.imageAt = millis();
   n.imageDone = !n.current.image[0];
+  if (n.current.picture) { n.image = n.current.picture; n.imageDone = true; }
   flatten(n.current.title);
   flatten(n.current.text);
   n.titleCount = wrap(n.current.title, n.title, kTitleLines);
@@ -98,8 +99,8 @@ bool highShowing(const State &n, uint32_t now) {
 }
 
 void show(const Message &message, uint32_t now) {
-  if (!message.title[0] && !message.text[0] && !message.image[0]) {
-    if (state) { state->on = state->hasNext = false; state->image.reset(); }
+  if (!message.title[0] && !message.text[0] && !message.image[0] && !message.picture) {
+    if (state) { state->on = state->hasNext = false; state->image.reset(); state->current.picture.reset(); state->next.picture.reset(); }
     return;
   }
   if (!state) state = new (std::nothrow) State;
@@ -124,8 +125,8 @@ void show(const Message &message, uint32_t now) {
 void poll(uint32_t now) {
   if (!state) return;
   State &n = *state;
-  if (!n.on) { n.image.reset(); holdFeeds(HOLD_NOTICE, false); return; }
-  holdFeeds(HOLD_NOTICE, !n.imageDone);  // the feeds make room while the picture loads
+  if (!n.on) { n.image.reset(); n.current.picture.reset(); if (!n.hasNext) n.next.picture.reset(); holdFeeds(HOLD_NOTICE, false); return; }
+  holdFeeds(HOLD_NOTICE, !n.imageDone || n.current.picture);  // the feeds make room while the picture loads, and while a sent picture shows
   if (n.imageDone) return;
   if (n.image && n.image->status != Image::LOADING) n.imageDone = true;
   else if (!n.image && now - n.imageAt < 30000) n.image = loadImage(n.current.image, n.current.imageFill);
