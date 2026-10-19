@@ -18,6 +18,11 @@ set(sources
     "${root}/lib/core/Mqtt.cpp"
     "${root}/lib/core/Notice.cpp"
     "${root}/lib/core/NoticeImage.cpp"
+    "${root}/lib/core/NoticePng.cpp"
+    "${root}/lib/core/DlnaRenderer.cpp"
+    "${root}/vendor/uzlib/tinflate.c"
+    "${root}/vendor/uzlib/adler32.c"
+    "${root}/vendor/uzlib/crc32.c"
     "${root}/lib/core/qrcodegen.c"
     "${root}/clockfaces/${face}/Clockface.cpp")
 if(ULTIMATRIX_MODE STREQUAL "football")
@@ -119,7 +124,7 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)  # commands are not scriptable in IDF's requ
     add_custom_target(tzdb_header DEPENDS "${tzdb}")
 endif()
 idf_component_register(SRCS ${sources}
-    INCLUDE_DIRS "${root}/lib/core" "${CMAKE_CURRENT_BINARY_DIR}/generated" "${root}/lib/${sport}" "${root}/lib/faces" "${root}/lib/motogp-feed" "${root}/lib/wled" "${root}/clockfaces/${face}"
+    INCLUDE_DIRS "${root}/vendor/uzlib" "${root}/lib/core" "${CMAKE_CURRENT_BINARY_DIR}/generated" "${root}/lib/${sport}" "${root}/lib/faces" "${root}/lib/motogp-feed" "${root}/lib/wled" "${root}/clockfaces/${face}"
     REQUIRES espressif__arduino-esp32 clock-libraries esp_wifi esp_netif esp_event espressif__network_provisioning nvs_flash esp_http_client esp-tls app_update json mqtt)
 if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     add_dependencies(${COMPONENT_LIB} tzdb_header)

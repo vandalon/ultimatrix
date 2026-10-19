@@ -48,7 +48,7 @@ html:not(.embed) main{margin-left:260px;max-width:1230px;padding:28px 5vw 24px}
 @media(max-width:800px){html:not(.embed) main{margin:0 auto;padding:24px 18px}}
 </style><script>if(location.search.indexOf("embed")>=0)document.documentElement.className="embed";document.documentElement.classList.add(location.pathname==='/gifs'?'gif-page':'canvas-page')</script></head><body class="settings-app"><aside class="sidebar"><a class="brand" href="/" aria-label="Ultimatrix home"><img class="brand-logo" src="/icon-192.png" alt="" width="40" height="40">Ultimatrix<span class="brand-dot">.</span></a><nav aria-label="Settings"><a href="/?settings#welcome">Welcome</a><a href="/?settings#mode" data-sports>Clock mode</a><a href="/?settings#homeassistant" id="nav-ha" hidden>Home Assistant</a><a href="/?settings#display">Display</a><a href="/?settings#time">Time &amp; location</a><a href="/?settings#birthdays">Birthdays</a><a href="/wled">WLED</a><a href="/canvas">Canvas</a><a href="/gifs">Animations</a><a href="/?settings#network">Network</a><a href="/?settings#switch-faces">Switch faces</a><a href="/?settings#advanced">Advanced <span><i class="nav-dot" id="nav-update-dot" title="Firmware update available" hidden></i></span></a></nav><div class="sidebar-foot"><span class="online-dot"></span> <small id="sidebar-ip">Ultimatrix</small></div></aside><main>
 <header><p class="eyebrow">WLED</p><h1 id="pageTitle">Canvas</h1><p class="intro" id="pageIntro">Draw on the panel and save your creations.</p></header>
-<section class="card paint-only"><h2>Drawing editor</h2><div class="row"><label><input type="checkbox" id="liveEnabled" checked> Live screen</label><button id="sendDrawing">Send to panel</button></div><small id="liveStatus">Connecting to the panel…</small><p class="hint">The editor shows the panel. Drawing pauses live updates so you can edit the current frame.</p><div class="matrix-frame"><div class="matrix-surface"><canvas id="c" width="64" height="64" aria-label="64 by 64 LED matrix drawing editor"></canvas></div></div>
+<section class="card paint-only"><h2>Drawing editor</h2><div class="row"><label><input type="checkbox" id="liveEnabled" checked> Live screen</label><button id="sendDrawing">Send to panel</button><button id="downloadPicture">Download picture</button></div><small id="liveStatus">Connecting to the panel…</small><p class="hint">The editor shows the panel. Drawing pauses live updates so you can edit the current frame.</p><div class="matrix-frame"><div class="matrix-surface"><canvas id="c" width="64" height="64" aria-label="64 by 64 LED matrix drawing editor"></canvas></div></div>
 <div class="row" id="tools"></div>
 <div class="row"><input type="color" id="color" value="#ff8800"><span id="palette" class="row" style="margin:0"></span><button id="addcolor" title="Add a colour" aria-label="Add a colour">+</button><input type="color" id="paletteColor" value="#ff8800" hidden></div>
 <div class="row"><button id="undo">Undo</button><button id="redo">Redo</button><button id="mirror" title="Mirror strokes left to right">Mirror</button><button id="fillshape" title="Filled rectangles">Filled</button>
@@ -56,22 +56,22 @@ html:not(.embed) main{margin-left:260px;max-width:1230px;padding:28px 5vw 24px}
 <div class="row"><button data-shift="-1,0">←</button><button data-shift="1,0">→</button><button data-shift="0,-1">↑</button><button data-shift="0,1">↓</button></div>
 <div class="row"><button id="clear">Clear</button></div>
 </section>
-<section class="card paint-only"><h2>Saved drawings</h2><div id="slots"></div>
+<section class="card"><h2>Saved pictures and animations</h2><div id="slots"></div><div class="paint-only">
 <div class="row"><input type="text" id="name" maxlength="15" placeholder="Name" style="width:9em"><button id="save">Save as new</button></div>
 <h2>Animation</h2><div class="row"><input type="number" id="delay" value="150" min="20" max="60000" style="width:6em"><small>ms per frame</small><select id="target"></select><button id="frame">Add as next frame</button></div>
-<small>Draw a frame, save it, then add frames to the same drawing (up to 64, as many as fit). A drawing with several frames plays in a loop.</small>
+<small>Draw a frame, save it, then add frames to the same drawing (up to 24 frames / 5 seconds, as many as fit). A drawing with several frames plays in a loop.</small>
 <h2 style="margin-top:14px">Cycle drawings</h2><div class="row"><input type="number" id="cycle" value="0" min="0" max="3600" style="width:6em"><small>seconds (0 = off)</small><button id="setcycle">Set</button></div>
-</section><section class="card gif-only"><h2>Search GIFs</h2>
+</div></section><section class="card gif-only"><h2>Search GIFs</h2>
 <details style="margin-bottom:8px"><summary><small>How this works</small></summary><small><ol style="margin:6px 0;padding-left:20px">
 <li>The clock does the search for you with a KLIPY key built into its firmware, so it needs internet access.</li>
 
 <li>Search, then tap a GIF. A crop square opens first (GIFs are cropped on their first frame), or tick <b>Always fill the screen</b> to skip it and crop to the middle. Animated GIFs are loaded as frames (up to 64, as many as fit) into the clock's memory and play at once. Use Previous/Next for more results.</li>
-<li>An imported GIF is kept in the clock's memory only: it is gone when WLED stops or the clock restarts. Pictures and drawings you press <b>Save as new</b> for are kept on the clock.</li>
+<li>An imported GIF is temporary until you press <b>Save played GIF</b>. Saved animations keep up to 24 frames / 5 seconds and can be selected from Home Assistant. Pictures and drawings you press <b>Save as new</b> for are also kept on the clock.</li>
 </ol>
 The search happens on the clock, the pictures load in this browser. Animated import needs Chrome or Edge; Safari and the WLED app load the first frame only. The free key allows about 100 searches an hour.</small></details>
 <div class="row"><label><input type="checkbox" id="fillscreen"> Always fill the screen (crop to the middle, no crop window)</label></div>
 <div class="row"><input type="text" id="gq" placeholder="Search KLIPY" style="flex:1;min-width:0"><button id="gsearch">Search</button><span id="gspin" class="mini" hidden></span></div>
-<div class="gres" id="gres"></div><div class="row" id="gpages" hidden><button id="gprev">Previous</button><small id="gpage"></small><button id="gnext">Next</button></div><small id="gcredit">Powered by KLIPY.</small>
+<div class="row"><input id="keepname" maxlength="15" placeholder="Saved name" style="flex:1;min-width:0"><button id="keepgif">Save played GIF</button></div><small>Save up to 24 frames / 5 seconds for Home Assistant. Saved pictures and animations share 8 slots and the clock’s storage.</small><div class="gres" id="gres"></div><div class="row" id="gpages" hidden><button id="gprev">Previous</button><small id="gpage"></small><button id="gnext">Next</button></div><small id="gcredit">Powered by KLIPY.</small>
 <h2 style="margin-top:14px">Load an image or GIF</h2><div class="row"><label for="gifContrast">GIF contrast</label><input id="gifContrast" type="range" min="80" max="160" step="5" value="120"><output id="gifContrastValue" for="gifContrast">120%</output></div><small>GIFs use 32 colours without dithering. Contrast applies to the next import; 100% keeps the original contrast.</small><div class="row"><input type="file" id="file" accept="image/*"></div>
 <div class="row"><input type="text" id="url" placeholder="or a web address of a picture or GIF" style="flex:1;min-width:0"><button id="geturl">Load</button></div>
 <small>Or paste a web address of a picture or GIF (the site must allow other pages to load it; direct image links usually do), or choose a file. Pictures open a crop square first; pictures and GIFs are scaled to 64×64 here in the browser; animated GIFs import as an animation in Chrome and Edge. Images are shown on the panel; GIF animations are kept in memory.</small>
@@ -93,6 +93,24 @@ for (const [id, name] of Object.entries(tools)) { const b = document.createEleme
 const hex = v => '#' + v.toString(16).padStart(6, '0'), rgb = () => parseInt($('color').value.slice(1), 16);
 function render() { for (let i = 0; i < N * N; i++) { const v = px[i]; image.data[i * 4] = (v >> 16) & 255; image.data[i * 4 + 1] = (v >> 8) & 255; image.data[i * 4 + 2] = v & 255; image.data[i * 4 + 3] = 255; } ctx.putImageData(image, 0, 0); }
 const to565 = v => ((v >> 16 & 0xF8) << 8) | ((v >> 8 & 0xFC) << 3) | ((v & 255) >> 3);
+// Uncompressed 24-bit 64x64 BMP (bottom-up): Home Assistant's media uploader accepts it and the clock's DLNA renderer plays it.
+$('downloadPicture').onclick = () => {
+  const data = new Uint8Array(54 + N * N * 3), view = new DataView(data.buffer);
+  data.set([66, 77]);
+  view.setUint32(2, data.length, true); view.setUint32(10, 54, true); view.setUint32(14, 40, true);
+  view.setInt32(18, N, true); view.setInt32(22, N, true); view.setUint16(26, 1, true); view.setUint16(28, 24, true);
+  view.setUint32(34, N * N * 3, true);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const v = px[(N - 1 - y) * N + x], o = 54 + (y * N + x) * 3;
+    data[o] = v & 255; data[o + 1] = (v >> 8) & 255; data[o + 2] = (v >> 16) & 255;
+  }
+  const url = URL.createObjectURL(new Blob([data], { type: 'image/bmp' }));
+  const link = document.createElement('a'); link.href = url;
+  link.download = ($('name').value || 'picture').replace(/[^a-zA-Z0-9_-]+/g, '-') + '.bmp';
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  msg.textContent = 'Picture downloaded (64×64 BMP). Animation exports are not supported.';
+};
 const q = v => { const c = to565(v); return ((c >> 8 & 0xF8) | (c >> 13)) << 16 | ((c >> 3 & 0xFC) | (c >> 9 & 3)) << 8 | ((c << 3 & 0xF8) | (c >> 2 & 7)); };
 async function openCanvas() { for (let k = 0; ; k++) { const r = await fetch('/api/canvas/open', { method: 'POST' }); if (r.ok) return; if (k >= 8) throw new Error('The clock is busy or short of memory.'); await new Promise(resolve => setTimeout(resolve, 1000)); } }
 async function post(url, body, type) { if (/^\/api\/canvas\/(clear)(\?|$)/.test(url) || (url.includes('/slot?') && url.includes('op=load'))) await openCanvas(); const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': type || 'text/plain' }, body: body ?? '' }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.message || r.msg); return j; }
@@ -358,12 +376,40 @@ async function gsearch(newSearch = true) {
     if (r.status === 503 && j.needsFree) { r = await ask(true); j = await r.json().catch(() => ({})); }  // the loaded GIF holds the memory the search needs: the clock removes it
     if (!r.ok) throw new Error(j.message || o.name + ' answered ' + r.status + '.');
     const list = j.gifs || [];
-    $('gres').replaceChildren(...list.map(u => { const i = document.createElement('img'); i.src = u; i.loading = 'lazy'; i.onclick = () => loadUrl(u); return i; }));
+    $('gres').replaceChildren(...list.map(item => {
+      const u = typeof item === 'string' ? item : item.url, slug = item.slug || '';
+      const card = document.createElement('div'), i = document.createElement('img');
+      i.src = u; i.loading = 'lazy'; i.onclick = () => { $('keepname').value = slug.slice(0, 15); loadUrl(u); };
+      card.append(i);
+      if (slug) {
+        const label = document.createElement('input'); label.value = slug; label.readOnly = true;
+        label.title = 'KLIPY slug — click to select, then copy'; label.style.cssText = 'width:100%;min-width:0;font-size:11px;padding:5px';
+        label.onclick = () => label.select(); card.append(label);
+      }
+      return card;
+    }));
     $('gpages').hidden = !list.length && page === 1; $('gpage').textContent = 'Page ' + page; more = list.length >= 24;
     msg.textContent = list.length ? 'Tap a GIF to load it.' : page > 1 ? 'No more results.' : 'Nothing found.';
   } catch (e) { msg.textContent = e.message; }
   searching(false);
 }
+$('keepgif').onclick = async () => {
+  const button = $('keepgif'); button.disabled = true;
+  try {
+    const info = await (await fetch('/api/canvas', { cache: 'no-store' })).json();
+    if (!info.importBytes) throw new Error('Play an imported GIF first.');
+    const used = new Set(info.slots.filter(s => s.id < 8).map(s => s.id));
+    const slot = [0,1,2,3,4,5,6,7].find(i => !used.has(i));
+    if (slot === undefined) throw new Error('All 8 slots are occupied. Remove a saved item first.');
+    const url = '/api/canvas/keep?slot=' + slot + '&name=' + encodeURIComponent($('keepname').value || 'Saved GIF');
+    const estimate = await post(url + '&estimate=1');
+    if (!estimate.fits) throw new Error('This needs ' + Math.ceil(estimate.bytes / 1024) + ' KB; only ' + Math.floor(estimate.free / 1024) + ' KB is free. Trim it or remove a saved item.');
+    if (!confirm('Save ' + estimate.frames + ' frames (up to 5 seconds)? Needs ' + Math.ceil(estimate.bytes / 1024) + ' KB; ' + Math.floor(estimate.free / 1024) + ' KB is free.')) return;
+    await post(url);
+    await slots(); msg.textContent = 'Saved. It will appear in Home Assistant’s Saved picture dropdown.';
+  } catch (e) { msg.textContent = e.message; }
+  finally { button.disabled = false; }
+};
 $('gprev').onclick = () => { if (page > 1) { page--; gsearch(false); } };
 $('gnext').onclick = () => { page++; gsearch(false); };
 try { $('fillscreen').checked = localStorage.getItem('fillScreen') === '1'; } catch (_) {}

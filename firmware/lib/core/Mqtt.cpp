@@ -14,6 +14,9 @@
 #include <memory>
 #include <new>
 #include "TimeService.h"
+#ifdef UM_WLED_OVERLAY
+#include <Wled.h>
+#endif
 
 namespace {
 constexpr const char *kDiscovery = "homeassistant";
@@ -47,7 +50,11 @@ int8_t onOff(const char *text) {
 enum EntityId : uint8_t {
   E_BRIGHTNESS, E_AUTO_BRIGHTNESS, E_NIGHT_CLOCK, E_NOTIFY, E_MIN_BRIGHTNESS, E_NIGHT_MODE, E_NIGHT_SUN, E_NIGHT_START, E_NIGHT_END,
   E_ROTATION, E_TIME_24H, E_AUTO_TIMEZONE, E_TIMEZONE, E_NTP_SERVER, E_LDR_DARK, E_LDR_LIGHT, E_SWAP, E_AUTO_UPDATE, E_TELNET,
-  E_RESTART, E_CHECK_UPDATE, E_UPDATE, E_LIGHT, E_WIFI, E_MEMORY, E_SCREEN, E_CPU, E_DISPLAY_CPU, E_COUNT
+  E_RESTART, E_CHECK_UPDATE, E_UPDATE, E_LIGHT, E_WIFI, E_MEMORY, E_SCREEN, E_CPU, E_DISPLAY_CPU,
+#ifdef UM_WLED_OVERLAY
+  E_CANVAS,
+#endif
+  E_COUNT
 };
 enum Flag : uint8_t { STATE = 1, COMMAND = 2, CONFIG = 4, DIAGNOSTIC = 8, CUSTOM = 16 };  // CUSTOM: its extra part brings its own state topic
 struct Entity { const char *component, *key, *name; uint8_t flags; const char *extra; };
@@ -82,6 +89,9 @@ const Entity kEntities[E_COUNT] = {
     {"camera", "screen", "Screen", CUSTOM, "\"topic\":\"~/screen\",\"encoding\":\"\""},
     {"sensor", "cpu_usage", "CPU usage", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"icon\":\"mdi:chip\""},
     {"sensor", "display_cpu", "Display refill CPU", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"icon\":\"mdi:led-on\""},
+#ifdef UM_WLED_OVERLAY
+    {"select", "canvas", "Saved picture", COMMAND | CUSTOM, "\"stat_t\":\"~/canvas\",\"icon\":\"mdi:image\""},
+#endif
 };
 
 // Appends formatted text to a buffer, stopping quietly when it is full
@@ -191,6 +201,7 @@ void Mqtt::handle(int32_t id, esp_mqtt_event_handle_t event) {
       esp_mqtt_client_subscribe_single(_client, filter, 0);
       _error[0] = 0;
       _screenSent = false;
+      _canvasRefresh = true;
       _step = 1;  // 0 is idle; the discovery messages follow from poll()
       _connected = true;
       break;
@@ -301,6 +312,21 @@ void Mqtt::applyCommand(const Command &command, Settings &s) {
   int number = atoi(value);
   uint16_t minutes;
   switch (command.entity) {
+#ifdef UM_WLED_OVERLAY
+    case E_CANVAS: {
+      if (!strcmp(value, "Off")) { _canvasWanted = -1; wled::state().on = false; wled::realtimeStop(); wled::lookChanged(); return; }
+      const int slot = value[0] - '1';
+      char name[17], label[24];
+      if (!wled::enabled() || slot < 0 || slot >= wled::kDrawingSlots || !wled::canvas::slotName(slot, name, sizeof(name))) return;
+      snprintf(label, sizeof(label), "%d. %s", slot + 1, name);
+      if (strcmp(value, label)) return;
+      _canvasWanted = slot; _canvasUntil = millis() + 10000;
+      wled::state().fx = wled::kPaintEffect; wled::state().on = true;
+      wled::options().cycleSec = 0;
+      wled::inputActivity(); wled::lookChanged();
+      return;
+    }
+#endif
     case E_BRIGHTNESS: s.brightness = constrain(number, 1, 255); break;
     case E_MIN_BRIGHTNESS: s.minimumBrightness = constrain(number, 1, 255); break;
     case E_AUTO_BRIGHTNESS: if (on >= 0) s.autoBrightness = on; break;
@@ -422,6 +448,16 @@ void Mqtt::publishNext(uint32_t now) {
   out.add("{\"name\":\"%s\"", e.name);
   if ((e.flags & STATE) && !(e.flags & CUSTOM)) out.add(",\"stat_t\":\"~/state\",\"val_tpl\":\"{{value_json.%s}}\"", e.key);
   if (e.flags & COMMAND) out.add(",\"cmd_t\":\"~/%s/set\"", e.key);
+#ifdef UM_WLED_OVERLAY
+  if (step - 1 == E_CANVAS) {
+    out.add(",\"options\":[\"Off\"");
+    for (int i = 0; i < wled::kDrawingSlots; i++) {
+      char name[17];
+      if (wled::canvas::slotName(i, name, sizeof(name))) out.add(",\"%d. %s\"", i + 1, name);
+    }
+    out.add("]");
+  }
+#endif
   if (e.extra[0]) out.add(",%s", e.extra);
   if (e.flags & CONFIG) out.add(",\"ent_cat\":\"config\"");
   if (e.flags & DIAGNOSTIC) out.add(",\"ent_cat\":\"diagnostic\"");
@@ -570,6 +606,29 @@ void Mqtt::poll(uint32_t now, bool online) {
   if (_restart) { stop(); _restart = false; }
   if (!_client) { start(); return; }
   applyCommands(now);
+#ifdef UM_WLED_OVERLAY
+  if (_canvasWanted >= 0) {
+    if (!wled::state().on || !wled::enabled()) _canvasWanted = -1;
+    else if (wled::feedsQuiet() && wled::canvas::loadSlot(_canvasWanted)) { _canvasWanted = -1; wled::lookChanged(); }
+    else if ((int32_t)(now - _canvasUntil) >= 0) { _canvasWanted = -1; wled::state().on = false; wled::lookChanged(); consoleLog("[MQTT] Could not load saved picture\n"); }
+  }
+  if (_canvasRefresh.exchange(false)) { _canvasHash = 0; _canvasAt = 0; }
+  if (_connected && (!_canvasAt || now - _canvasAt >= 5000)) {
+    _canvasAt = now | 1;
+    uint32_t hash = 2166136261u;
+    char selected[24] = "Off";
+    for (int i = 0; i < wled::kDrawingSlots; i++) {
+      char name[17];
+      if (!wled::canvas::slotName(i, name, sizeof(name))) continue;
+      hash = mixText(mix(hash, i), name);
+      if (wled::state().on && wled::state().fx == wled::kPaintEffect && wled::canvas::currentSlot() == i)
+        snprintf(selected, sizeof(selected), "%d. %s", i + 1, name);
+    }
+    if (hash != _canvasHash && _step > E_COUNT) { _step = E_CANVAS + 1; _canvasHash = hash; }
+    char topic[40]; snprintf(topic, sizeof(topic), "%s/canvas", _base);
+    publish(topic, selected, true);
+  }
+#endif
   if (_connected.load() && _step.load() > 0) {
     publishNext(now);
     if (_step.load() > E_COUNT + 1) publishScreen(now);

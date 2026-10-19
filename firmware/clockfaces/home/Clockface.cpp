@@ -9,6 +9,7 @@
 #include <string.h>
 #include "FaceKit.h"
 #include "HaClient.h"
+#include "NetworkBudget.h"
 #include "HaConfig.h"
 
 extern std::atomic<bool> firmwareUpdating;
@@ -132,6 +133,7 @@ void Clockface::setup(ClockTime *dateTime) {
   _alert = ALERT_NONE;
   _alertFlags = 0;
   memset(_openAlertAt, 0, sizeof(_openAlertAt));
+  feedTrimFn = [](void *) { ha::media::release(); };  // a picture (notice, DLNA) needs the heap: the 8 KB album cover goes back and is fetched again afterwards
   HaClient::instance().begin();
 }
 
@@ -389,6 +391,7 @@ void Clockface::fillStatus(Frame &frame) const {
 
 // Every frame, also while the night clock is on the panel: the alerts and the hourly history carry on
 void Clockface::poll() {
+  if (!feedsHalted()) HaClient::instance().begin();  // restarts the connection task after a held picture or an update
   refreshEnergy();
   const uint32_t now = millis();
   followSnapshot(now);

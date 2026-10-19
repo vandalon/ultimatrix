@@ -43,6 +43,7 @@
 #include <TelnetConsole.h>
 #include <Mqtt.h>
 #include <Notice.h>
+#include <DlnaRenderer.h>
 #include <nvs.h>
 #ifdef UM_WLED_OVERLAY
 #include <Wled.h>
@@ -81,6 +82,7 @@ static bool nightShown = false;
 static bool birthdayShown = false;  // the birthday screen is on the panel instead of the face
 static uint32_t nvsFreeEntries = 1000;  // free entries in the settings storage, refreshed once a minute
 static void watchNvs();
+static bool dlnaShown = false;      // a picture sent to the DLNA renderer is on the panel instead of the face
 static bool noticeShown = false;    // a message from Home Assistant is on the panel instead of the face
 #ifdef UM_WLED_OVERLAY
 static bool wledShown = false;      // WLED content (an effect, a drawing or a pixel stream) is on the panel instead of the face
@@ -1447,6 +1449,7 @@ static void background() {
   }
   firmwareUpdate.poll(now, bootDone && !portalActive && WiFi.status() == WL_CONNECTED && !wledBusy(now));  // a check that came due waits until WLED lets go
   notice::poll(now);
+  dlna::poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
   Mqtt::instance().poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
   autoUpdate(now);
   reportMemory();
@@ -1733,6 +1736,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
 #ifdef UM_WLED_OVERLAY
   wled::apiAttach(server, postRoute);
 #endif
+  dlna::attach(server, postRoute);
 #ifdef UM_HOME
   server.on("/api/ha", HTTP_GET, haState);
   postRoute("/api/ha", haSave);
@@ -1813,6 +1817,7 @@ void loop() {
       wled::poll(clockTime.getHour24(), clockTime.getMinute(), clockTime.getSecond(), clockTime.is24hFormat(), clockTime.getWeekday(), now);
       bool wledDrawn = false;
 #endif
+      bool dlnaDrawn = false;
       const bool popup = face->alertOverridesNight();  // an alert that must show through the night clock and the birthday screen
       const bool night = displayControl.nightClockShown(face->handlesNight()) && !popup;
       if (notice::active(now, displayControl.nightDimmed(face->handlesNight()) && !popup)) {  // a message sent from Home Assistant takes the panel, whatever the face; a normal one waits out the night
@@ -1821,6 +1826,9 @@ void loop() {
       } else if (night) {
         nightClock.draw(*display, clockTime.getHour(), clockTime.getMinute(), clockTime.is24hFormat());
         nightShown = true;
+      } else if (dlna::active()) {  // a picture played from Home Assistant stays until Stop, below notices and the night clock
+        dlna::draw(*display);
+        dlnaDrawn = dlnaShown = true;
 #ifdef UM_WLED_OVERLAY
       } else if (wled::wanted(now)) {  // WLED content takes the panel below the Notice and the night clock; the face is not updated meanwhile
         wled::draw(*display, now);
@@ -1834,12 +1842,12 @@ void loop() {
         display->flipDMABuffer();
         birthdayShown = true;
       } else {
-        if (nightShown || birthdayShown || noticeShown
+        if (nightShown || birthdayShown || noticeShown || dlnaShown
 #ifdef UM_WLED_OVERLAY
             || wledShown
 #endif
         ) {
-          nightShown = birthdayShown = noticeShown = false;
+          nightShown = birthdayShown = noticeShown = dlnaShown = false;
 #ifdef UM_WLED_OVERLAY
           wledShown = false;
 #endif
@@ -1848,6 +1856,7 @@ void loop() {
         face->setNight(face->handlesNight() ? displayControl.sunDown() : displayControl.nightActive());
         face->update();
       }
+      if (!dlnaDrawn) dlna::hidden();
 #ifdef UM_WLED_OVERLAY
       if (!wledDrawn) wled::hidden();  // something above took the panel, or the content ended: the listeners stop drawing before anyone else does
 #endif

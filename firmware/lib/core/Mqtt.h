@@ -73,5 +73,8 @@ private:
   bool _restart = false, _stateDue = true, _updateDue = true;
   uint32_t _screenAt = 0, _screenSignature = 0;
   std::atomic<bool> _screenSent{false};
+  std::atomic<bool> _canvasRefresh{true};
+  int _canvasWanted = -1;
+  uint32_t _canvasUntil = 0, _canvasAt = 0, _canvasHash = 0;
   uint32_t _saveAt = 0, _stateAt = 0, _updateAt = 0, _stateSignature = 0, _updateSignature = 0;
 };

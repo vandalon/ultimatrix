@@ -124,11 +124,13 @@ void show(const Message &message, uint32_t now) {
 void poll(uint32_t now) {
   if (!state) return;
   State &n = *state;
-  if (!n.on) { n.image.reset(); return; }
+  if (!n.on) { n.image.reset(); holdFeeds(HOLD_NOTICE, false); return; }
+  holdFeeds(HOLD_NOTICE, !n.imageDone);  // the feeds make room while the picture loads
   if (n.imageDone) return;
   if (n.image && n.image->status != Image::LOADING) n.imageDone = true;
   else if (!n.image && now - n.imageAt < 30000) n.image = loadImage(n.current.image, n.current.imageFill);
   else if (now - n.imageAt >= 30000) { n.image.reset(); n.imageDone = true; }
+  if (n.imageDone) holdFeeds(HOLD_NOTICE, false);
   if (n.imageDone && (!n.image || n.image->status != Image::READY) && !n.current.title[0] && !n.current.text[0]) n.on = false;
 }
 

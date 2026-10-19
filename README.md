@@ -183,7 +183,7 @@ Every face can be controlled from Home Assistant over MQTT. It is off until you 
   ```
 
   JSON fields: `message` (up to 200 characters), `title`, `color` (a name such as `red` or `#rrggbb`), `seconds` (2 to 300) and `priority` (`normal` or `high`). Text that does not fit scrolls, and the message stays up long enough to scroll through. A **normal** message shows as plain text for 10 seconds, waits while night mode is on, with or without the night clock (up to an hour) and does not replace an urgent one. A **high** priority message shows at once at full brightness, whatever the hour, blinks like the doorbell on the Home face with a warning sign, and stays 30 seconds. An empty message dismisses what is showing.
-  Static pictures use the same Notification entity: send a JSON string in its message field. For example, put a baseline JPEG at `/config/www/clock-picture.jpg` on Home Assistant, then send:
+  Static JPEG and PNG pictures use the same Notification entity: send a JSON string in its message field. For example, put a baseline JPEG at `/config/www/clock-picture.jpg` on Home Assistant, then send:
 
   ```yaml
   action: notify.send_message
@@ -196,7 +196,12 @@ Every face can be controlled from Home Assistant over MQTT. It is off until you 
 
   Use your clock's actual entity ID. The `image` field also works with `mqtt.publish` on the existing notification topic. At normal priority, optional `title` and `message` alternate with the picture every three seconds (at least six seconds total so both can be seen). Image-only notifications fill the panel, fitting the picture with black bars to preserve its shape by default. Add `"scale":"fill"` to fill the panel, cropping the centre without stretching; `"scale":"fit"` keeps the whole picture. Normal priority still waits for night mode to end; high priority shows the picture continuously at full brightness, including during night mode, without borders, blinking or text. The duration starts after loading, then the clock returns to its face.
 
-  Pictures must be static baseline JPEGs, at most 2048×2048 pixels and 128 KiB, served by an HTTP(S) URL the clock can reach (up to 256 characters). Convert PNGs to JPEG first. The clock sends no authentication headers and does not follow redirects; a Home Assistant `/local/` URL works without a token. Picture downloads wait for available memory and quiet live feeds, and give up after 30 seconds. Failed pictures fall back to the supplied text; an image-only failure leaves the face visible. Images stay in RAM only. HTTPS follows the feeds' existing policy without certificate verification. Sending an empty message dismisses the notification, including its picture.
+  Pictures can be baseline JPEGs or non-interlaced PNGs, served by an HTTP(S) URL the clock can reach (up to 256 characters). The clock sends no authentication headers and does not follow redirects; a Home Assistant `/local/` URL works without a token.
+
+  - **JPEG** is the format for photos, camera snapshots and anything larger than the panel: up to 2048×2048 pixels and 128 KiB. It is decoded in small blocks and scaled down on the way, so its memory use does not depend on the picture size.
+  - **PNG** is meant for small pictures such as icons and pixel art, ideally pre-sized to 64×64. PNG decoding needs the whole decoded image in one block of memory, so large PNGs are refused (the console shows `PNG needs N bytes of decode memory`). Measured on the Home face: a 165×115 RGBA PNG needs about 79 KB and a 512×512 RGBA PNG about 1 MB, while the largest free block is usually under 30 KB. As a rule of thumb, stay below about 60×60 for RGBA, 70×70 for RGB and 120×120 for 8-bit palette PNGs. Larger pictures should be sent as JPEG. Supported: grayscale/palette at 1, 2, 4 or 8 bits and RGB/alpha at 8 bits per channel, with transparency shown against black. Not supported: interlaced, 16-bit and animated PNG.
+
+  Picture downloads wait for available memory and quiet live feeds, and give up after 30 seconds. Failed pictures fall back to the supplied text; an image-only failure leaves the face visible. Images stay in RAM only. HTTPS follows the feeds' existing policy without certificate verification. Sending an empty message dismisses the notification, including its picture.
 
   To show a doorbell snapshot, use these actions after your automation's doorbell trigger. Replace the camera, notification entity and HA address:
 
@@ -218,6 +223,22 @@ Every face can be controlled from Home Assistant over MQTT. It is off until you 
   This example crops the centre to fill the panel and shows only the image at full brightness for 20 seconds. Omit `scale` to keep the whole picture with black bars.
 
   Create `/config/www` first and allow HA to write snapshots there. This saves the camera's original image without resizing; it must meet the JPEG limits above. Files in `/config/www` are served under `/local/` without authentication, so use a picture you are comfortable making accessible to anyone who can reach that HA address.
+
+Canvas has a **Download picture** button for the current editor image. It exports a static 64×64 `.bmp`. Upload it in Home Assistant under Media, then pick the clock's media player (the DLNA Digital Media Renderer integration finds it automatically) and use Browse media > Play; the picture stays until Stop. You can also serve the file at a reachable HTTP(S) URL and use it in a notification's `image` field. Animation frames are not exported. Not yet verified on a real clock.
+
+- **Saved picture** (with WLED enabled in the firmware): a dropdown of pictures and animations saved on the clock. Choose an item to show it, or **Off** to return to the clock face. WLED must be enabled in settings. This uses WLED playback, so the normal night/live-sports rules still apply. Items play until switched off, replaced, or the configured WLED idle timeout expires; animations loop.
+
+  Save pictures in **Canvas**. To keep a played KLIPY GIF, open **Animations**, load it, enter a name and press **Save played GIF**. New saved animations are limited to the first **24 frames or 5 seconds**, whichever is shorter. Temporary imports can still play up to 64 frames. There are **8 shared slots** and 128 KiB of filesystem space shared with other clock data; saving checks available space and never overwrites an occupied slot. Saved items survive restarts. Use the saved list on Canvas or Animations to remove them. HA's dropdown refreshes within about five seconds; labels include the slot number so duplicate names remain distinct.
+
+  ```yaml
+  action: select.select_option
+  target:
+    entity_id: select.ultimatrix_saved_picture
+  data:
+    option: "1. Happy cat"
+  ```
+
+  Replace the entity ID and option with those shown in HA. Select `Off` with the same action to return to the face. KLIPY search results also show their copyable slug for identification; notifications cannot yet fetch a GIF by slug. Saving converted frames once avoids needing an HA conversion helper for later playback.
 
 - **Wi-Fi signal** and **Free memory**, as diagnostics.
 

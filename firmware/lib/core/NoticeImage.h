@@ -4,14 +4,19 @@
 #pragma once
 #include <atomic>
 #include <memory>
+#include <stddef.h>
 #include <stdint.h>
 
 namespace notice {
+constexpr size_t kDownloadUrlMax = 1024; // longest accepted picture URL (signed media URLs are long)
 struct Image {
   enum Status { LOADING, READY, FAILED };
   std::atomic<Status> status{LOADING};
   uint16_t pixels[64 * 64] = {};
 };
-// One bounded HTTP(S) JPEG download at a time, outside the display task. Null means try later.
+enum FeedHolder : uint8_t { HOLD_NOTICE = 1, HOLD_DLNA = 2 };
+// Parks the football/F1/MotoGP/Home feeds and hands back their heap while a picture loads or shows; call every poll
+void holdFeeds(FeedHolder who, bool hold);
+// One bounded HTTP(S) JPEG/PNG download at a time, outside the display task. Null means try later.
 std::shared_ptr<Image> loadImage(const char *url, bool fill);
 }

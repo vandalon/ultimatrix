@@ -126,15 +126,17 @@ bool stringAfter(const char *message, const char *key, char *out, size_t size) {
 }  // namespace
 
 HaClient &HaClient::instance() {
-  static HaClient client;
-  return client;
+  static HaClient *client = new HaClient;  // on the heap: 2.6 KB off the static RAM budget, and not reserved by an update-only boot
+  return *client;
 }
 
 void HaClient::begin() {
-  if (_started) return;
+  static uint32_t retryAt = 0;
+  if (_started || (int32_t)(millis() - retryAt) < 0) return;
   _started = true;
   if (xTaskCreatePinnedToCore(task, "homeassistant", 8192, this, 1, nullptr, 0) != pdPASS) {
     _started = false;
+    retryAt = millis() + 5000;  // poll() asks every frame: try again in a few seconds
     consoleLog("[HA] could not start the connection task\n");
   }
 }
@@ -192,7 +194,9 @@ void HaClient::run() {
     } else if (WiFi.status() != WL_CONNECTED) {
       set(IDLE, "Waiting for Wi-Fi");
     } else if (feedsHalted()) {
-      set(IDLE, firmwareUpdating ? "Paused for an update" : "Paused while WLED is on");
+      set(IDLE, firmwareUpdating ? "Paused for an update" : "Paused for a picture or WLED");
+      _started = false;  // the task ends and gives back its 8 KB stack; Clockface::poll() calls begin() again when the hold is over
+      vTaskDelete(nullptr);
     } else if (!rejected) {
       const bool ended = session(version);
       ha::media::clear();  // the Now playing page must not outlive the connection that said something was playing

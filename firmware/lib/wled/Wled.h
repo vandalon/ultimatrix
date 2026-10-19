@@ -128,6 +128,7 @@ void setPixel(int index, uint8_t r, uint8_t g, uint8_t b);   // also marks the d
 void tick(uint32_t now);                       // animation and cycling, called while Paint renders
 int currentSlot();                             // saved drawing on show (unedited), -1 none
 bool loadSlot(int id);
+bool slotName(int id, char *out, size_t size);  // saved flash items only, background task
 void attach(WebServer &server, void (*postRoute)(const char *, WebServer::THandlerFunction));
 }
 

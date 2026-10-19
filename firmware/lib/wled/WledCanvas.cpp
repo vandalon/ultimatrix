@@ -12,6 +12,7 @@
 #include <mbedtls/ssl.h>
 #include <esp_heap_caps.h>
 #include <mbedtls/base64.h>
+#include <algorithm>
 #include <memory>
 #include <new>
 #include <stdlib.h>
@@ -517,7 +518,7 @@ void save() {
   if (append) {
     f = LittleFS.open(file, "r+");
     Header old;
-    if (!f || !readHeader(f, old) || old.frames >= kMaxFrames) { if (f) f.close(); message(400, "That drawing has no room for more frames."); return; }
+    if (!f || !readHeader(f, old) || old.frames >= 24 || (old.frames + 1) * old.delay > 5000) { if (f) f.close(); message(400, "That drawing has no room for more frames."); return; }
     if (!(last && lastSlot == id && lastFrames == old.frames) && heap_caps_get_free_size(MALLOC_CAP_8BIT) >= kBufferBytes + kHeadroom) {
       if (!last) last = (uint16_t *)malloc(kBufferBytes);
       lastSlot = -1;
@@ -549,6 +550,71 @@ void save() {
   if (last) { memcpy(last, buf, kBufferBytes); lastSlot = id; lastFrames = h.frames; lastAt = millis(); }
   shown = id; options().paintSlot = id; touched();
   openSlot(id, buf);  // note the frame offsets for playback; the buffer already holds the first frame's look
+  info();
+}
+
+bool loadRam();
+
+// Explicitly keep the played import. Five seconds maximum; preflight before touching a saved slot.
+void keep() {
+  const int id = srv->arg("slot").toInt();
+  if (id < 0 || id >= kDrawingSlots || !ram.frames || importingNow || shown != kRamSlot || !buf) { message(400, "Play an imported animation and choose a free slot first."); return; }
+  Header existing;
+  if (slotInfo(id, existing)) { message(409, "That slot is occupied. Choose an empty slot."); return; }
+  if (!mount()) { message(503, "Storage is unavailable."); return; }
+  LittleFS.remove("/canvas-save.tmp");  // recover an interrupted save; occupied slots are never touched
+  if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < kBufferBytes + kCanvasHeadroom) { message(507, "Not enough memory to save this animation."); return; }
+  std::unique_ptr<uint16_t[]> pixels(new (std::nothrow) uint16_t[kPixels]);
+  if (!pixels) { message(507, "Not enough memory to save this animation."); return; }
+  const int frames = std::min(24, std::min(ram.frames, std::max(1, 5000 / (int)ram.delay)));
+  Header h{kMagic, (uint8_t)frames, 0, (uint16_t)std::min(5000, (int)ram.delay), {}};
+  sanitize(srv->arg("name"), h.name);
+  if (!h.name[0]) strlcpy(h.name, "Saved GIF", sizeof(h.name));
+  if (!strncmp(h.name, "Import", 6)) { message(400, "Choose a name that does not start with Import."); return; }
+  std::unique_ptr<uint16_t[]> previous;
+  if (heap_caps_get_free_size(MALLOC_CAP_8BIT) >= kBufferBytes + kCanvasHeadroom) previous.reset(new (std::nothrow) uint16_t[kPixels]);
+  auto decode = [&](int i) {
+    if (!readMem(ram.frame[i], buf)) return false;
+    if (indexedCanvas && rgbPalette) {
+      const uint8_t *indexes = reinterpret_cast<uint8_t *>(buf);
+      for (int n = 0; n < kPixels; n++) {
+        const uint8_t *c = rgbPalette + indexes[n] * 3;
+        pixels[n] = pack(c[0], c[1], c[2]);
+      }
+    } else memcpy(pixels.get(), buf, kBufferBytes);
+    return true;
+  };
+  size_t need = sizeof(h);
+  bool ok = true;
+  for (int i = 0; i < frames && ok; i++) {
+    ok = decode(i);
+    int mode; if (ok) need += 2 + frameSize(pixels.get(), i && previous ? previous.get() : nullptr, mode);
+    if (ok && previous) memcpy(previous.get(), pixels.get(), kBufferBytes);
+    delay(1);
+  }
+  const size_t free = LittleFS.totalBytes() - LittleFS.usedBytes();
+  if (srv->hasArg("estimate")) {
+    loadRam();
+    if (!ok) { message(400, "Could not decode the played animation."); return; }
+    json(200, String("{\"bytes\":") + need + ",\"free\":" + free + ",\"frames\":" + frames + ",\"fits\":" + (free >= need + 8192 ? "true" : "false") + "}");
+    return;
+  }
+  if (!ok || free < need + 8192) {
+    loadRam(); message(507, "Animation does not fit. Trim it or remove a saved item."); return;
+  }
+  File f = LittleFS.open("/canvas-save.tmp", "w");
+  ok = f && f.write((const uint8_t *)&h, sizeof(h)) == sizeof(h);
+  for (int i = 0; i < frames && ok; i++) {
+    ok = decode(i) && writeFrame(f, pixels.get(), i && previous ? previous.get() : nullptr);
+    if (ok && previous) memcpy(previous.get(), pixels.get(), kBufferBytes);
+    delay(1);
+  }
+  if (f) f.close();
+  char dest[16]; path(id, dest);
+  if (ok) ok = LittleFS.rename("/canvas-save.tmp", dest);
+  if (!ok) LittleFS.remove("/canvas-save.tmp");
+  loadRam();
+  if (!ok) { message(500, "Could not save the animation."); return; }
   info();
 }
 
@@ -784,7 +850,7 @@ void search() {
     if (!sent) { message(502, "Could not reach KLIPY."); return; }
     std::unique_ptr<unsigned char[]> chunk(new (std::nothrow) unsigned char[512]);
     if (!chunk) { message(503, "Not enough memory to search right now."); return; }
-    String token;
+    String token, field, slug;
     bool inString = false, escape = false, afterString = false, body = false;
     char head[16] = {0};
     int headLen = 0;
@@ -811,10 +877,15 @@ void search() {
           if (c == ' ' || c == '\n' || c == '\r') continue;
           afterString = false;
           if (c == ':') {
+            field = token;
             for (int k = 0; k < 4; ++k) if (token == sizes[k]) size = k;
+          } else if (field == "slug") {
+            slug = token;
+            for (size_t k = 0; k < slug.length(); k++) if (!isalnum((unsigned char)slug[k]) && slug[k] != '-' && slug[k] != '_') { slug = ""; break; }
+            field = "";
           } else if (token.startsWith("https://") && token.endsWith(".gif") && token.indexOf(' ') < 0 && counts[size] < kMax) {
             if (counts[size]) found[size] += ',';
-            found[size] += '"'; found[size] += token; found[size] += '"';
+            found[size] += "{\"url\":\""; found[size] += token; found[size] += "\",\"slug\":\""; found[size] += slug; found[size] += "\"}";
             counts[size]++;
           }
         }
@@ -897,6 +968,14 @@ bool indexedFrame(const uint8_t *&indexes, const uint8_t *&palette) {
   return true;
 }
 
+bool slotName(int id, char *out, size_t size) {
+  Header h;
+  if (id < 0 || id >= kDrawingSlots || !slotInfo(id, h)) return false;
+  char name[17]; memcpy(name, h.name, 16); name[16] = 0;
+  strlcpy(out, name, size);
+  return true;
+}
+
 int currentSlot() { return shown; }
 
 bool loadSlot(int id) {
@@ -972,6 +1051,7 @@ void attach(WebServer &server, void (*postRoute)(const char *, WebServer::THandl
   postRoute("/api/canvas/rows", rows);
   postRoute("/api/canvas/clear", clear);
   postRoute("/api/canvas/save", save);
+  postRoute("/api/canvas/keep", keep);
   postRoute("/api/canvas/frame", frameChunk);
   postRoute("/api/canvas/slot", slot);
   server.on("/api/canvas/search", HTTP_GET, search);

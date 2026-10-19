@@ -37,7 +37,7 @@ class HaClient {
     uint32_t energyVersion() const { return _resolvedVersion; }
 
     static HaClient &instance();
-    void begin();  // starts the task once
+    void begin();  // starts the task if it is not running (it ends itself while the feeds are held)
 
     // The latest values; false until a first result of this connection has arrived
     bool snapshot(ha::Snapshot &out);
@@ -68,5 +68,5 @@ class HaClient {
     char _status[64] = "";
     std::atomic<State> _state{IDLE};
     std::atomic<uint32_t> _updates{0};
-    bool _started = false;
+    std::atomic<bool> _started{false};
 };

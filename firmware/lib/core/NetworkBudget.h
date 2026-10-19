@@ -12,7 +12,9 @@ inline std::atomic<bool> feedsPaused{false};
 // Set by a feed that can give back heap data (the football boards) while WLED is on and memory is low; the data is downloaded again afterwards
 inline void (*feedTrimFn)(void *) = nullptr;
 inline void *feedTrimArg = nullptr;
-inline bool feedsHalted() { return firmwareUpdating.load() || feedsPaused.load(); }
+// A picture is loading or showing (notice image, DLNA): the feeds park for it too. One bit per holder (notice::holdFeeds)
+inline std::atomic<uint8_t> feedsHeld{0};
+inline bool feedsHalted() { return firmwareUpdating.load() || feedsPaused.load() || feedsHeld.load() != 0; }
 inline bool liveDataActive() { return liveEventOn.load() || liveFeedReading.load(); }
 
 // Short-lived downloads and live-feed handshakes share a turn. A connected

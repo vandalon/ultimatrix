@@ -4,6 +4,7 @@ The source imports retain their required copyright notices. See LICENSE_SCOPE.md
 
 Pinned firmware dependencies and preserved licence copies:
 
+- uzlib inflate/checksums (Joergen Ibsen and Paul Sokolovsky, zlib licence), firmware/vendor/uzlib: LICENSES/uzlib.txt. The local configuration enables extra input checks.
 - HUB75 matrix DMA driver: LICENSES/HUB75-MIT.txt.
 - Adafruit GFX: LICENSES/Adafruit-GFX-BSD-2-Clause.txt.
 - Adafruit BusIO: LICENSES/Adafruit-BusIO-MIT.txt.

@@ -44,8 +44,9 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - DisplayControl, PanelLayout, BootScreen, ScreenTimer, FlipDigits, NumericFont, LapFonts: display/panel helpers, fonts
 - TelnetConsole.cpp/.h, Console.h: remote logging console
 - ScreenPng.h: bounded 192x192 indexed PNG encoder (kScale 3) from 64x64 display rows; square LED gaps, fixed DEFLATE runs/repeated cells/rows, no large framebuffer or zlib window
-- Mqtt.cpp/.h: optional MQTT link to Home Assistant (default off): config in NVS, discovery entities, commands queued by the esp-mqtt task and applied by poll(), state publishing, 10-second CPU task/refill diagnostics and changed-screen MQTT camera snapshots
-- Notice.cpp/.h: full-panel text/image notifications from Home Assistant, drawn over any face by main.cpp. NoticeImage.cpp/.h: bounded asynchronous HTTP(S) baseline-JPEG download and 64x64 fit; images alternate with optional text
+- Mqtt.cpp/.h: optional MQTT link to Home Assistant (default off): config in NVS, discovery entities, commands queued by the esp-mqtt task and applied by poll(), state publishing, 10-second CPU task/refill diagnostics, changed-screen MQTT camera snapshots and a dynamic Saved picture dropdown for Canvas slots
+- DlnaRenderer.cpp/.h, DlnaDescriptions.h: DLNA media renderer (HA Browse media/Play/Stop of pictures; SSDP + SOAP, polling only) and UPnP service descriptions; wired in main.cpp, untested on device
+- Notice.cpp/.h: full-panel text/image notifications from Home Assistant, drawn over any face by main.cpp. NoticeImage.cpp/.h: bounded asynchronous HTTP(S) UMIMG/JPEG/PNG downloads and 64x64 fit/fill; NoticePng.cpp/.h decodes PNG with image-sized history and alpha over black; normal-priority images alternate with optional text
 - DiskCache.h: mounts LittleFS; formats only genuinely erased cache flash
 - CacheBlob.h: versioned NVS POD blobs with size/CRC validation
 - NetworkBudget.h, MemoryLimits.h: shared download/update gates, feed-task coordination and collection limits
@@ -54,7 +55,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - FootballCatalog.h, F1Drivers.h, PacmanColors.h: competition/team catalog, driver metadata and Pac-Man palettes
 - qrcodegen.c/.h: QR code (Nayuki)
 
-- WledCanvas.cpp and web/canvas.html: canvas editor (/canvas) and dedicated GIF loader (/gifs; same embedded asset, separate views); GIF search is done by the clock: /api/canvas/search, key in gitignored lib/wled/klipy_key.h, with RAM animations; GIF imports use a shared 32-colour RGB888 palette (no dithering), adjustable import contrast and packed/RLE/delta/LZ/XOR-LZ indexes and bounded upload chunks; playback reuses the canvas buffer; import budget follows available data heap with reserved headroom; abandoned imports are reaped independently of the visible effect.
+- WledCanvas.cpp and web/canvas.html: canvas editor (/canvas) and dedicated GIF loader (/gifs; same embedded asset, separate views); GIF search is done by the clock: /api/canvas/search, key in gitignored lib/wled/klipy_key.h, with RAM animations and copyable slugs; explicit Save played GIF keeps up to 24 frames / 5 seconds in a vacant flash slot for HA playback; GIF imports use a shared 32-colour RGB888 palette (no dithering), adjustable import contrast and packed/RLE/delta/LZ/XOR-LZ indexes and bounded upload chunks; playback reuses the canvas buffer; import budget follows available data heap with reserved headroom; abandoned imports are reaped independently of the visible effect.
 
 ### lib/wled/ (optional WLED overlay, compiled into every face but the bridge; main.cpp UM_WLED_OVERLAY blocks)
 - Wled.h: API (state, options, effects, overlay poll/wanted/draw/hidden, realtime, JSON API). WledState.cpp: state, presets/playlists, timers, nightlight, fades (NVS wledS/P/T). WledEffects.cpp: 36 effects + palettes (draw into the back buffer). WledRealtime.cpp: DDP/WLED UDP/Art-Net/E1.31 listeners (non-blocking, drop when not on the panel), panel lock, overlay glue. WledApi.cpp: WLED JSON API, /win, /api/wled options, mDNS _wled._tcp. WledPaint.cpp: 8 KB Paint buffer for the "i" pixel array
@@ -70,7 +71,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 
 ### web/ (settings UI served by device)
 - settings.html, settings.js, theme.css, manifest.webmanifest, icons/, faces/ (face thumbnails .png)
-- wled.html: effects/presets controls and navigation; canvas.html: canvas and GIF views, visible-only live screen in the drawing editor, LED dot styling and pause-on-edit; opening a page does not take over the panel
+- wled.html: effects/presets controls and navigation; canvas.html: canvas and GIF views, visible-only live screen in the drawing editor, LED dot styling and pause-on-edit; static panel-ready UMIMG download from the editor; opening a page does not take over the panel
 
 ### tools/
 - idf.sh, setup-idf.sh: per-mode IDF command wrapper and SDK setup
@@ -90,5 +91,6 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - preview/shim/: Arduino/ESP/display/service stubs for native previews
 
 ### vendor/
+- uzlib/: vendored inflate/checksums for PNG notifications; size-checked output buffer supplies history, no fixed dictionary; local input validation enabled
 - gfx/, busio/, hub75/, wifi-manager/: vendored graphics, bus I/O, HUB75 driver and Wi-Fi provisioning dependencies; inspect only when the task needs them
 - hub75/src/ESP32-HUB75-MatrixPanel-I2S-DMA.cpp: row streaming from packed six-bit lanes; full-precision color buffers allocated per frame, optimized 7/8-bit refill and aligned pixel writes; dense 6-byte column buffers and allocation-free displayed-row readback; lower panel half switches one sweep after the upper (seam fix, setRingMode) with the draw side waiting once per flip (RingStats flips/waits). Published as vandalon/ESP32-HUB75-DMA-Memory-Optimized (MIT): keep both copies in step
