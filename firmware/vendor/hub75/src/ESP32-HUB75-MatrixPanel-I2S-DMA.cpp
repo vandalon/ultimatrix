@@ -1017,10 +1017,12 @@ uint8_t MatrixPanel_I2S_DMA::applyGain(uint8_t brt)
   const uint8_t floor_ = oeFloor();
   if (brt == 0 || brt >= floor_) { g_gainLut = nullptr; return brt; }
   unsigned gain = brt * 256u / floor_;  // 8.8
-  // The gain stops at 1/8: below that the dimmest content (the night clock) would round to nothing, so the window narrows again
+  // The gain stops at 1/8: below that the dimmest content (the night clock) would round to nothing, so the window narrows again,
+  // but never below half the floor (4 clocks in the narrowest plane): at 1 or 2 clocks the plane weights drift and white turns yellow.
+  // The lowest brightness settings therefore all give the same dimming, except for the red night clock (m_deepDim): it needs the dimmest output.
   constexpr unsigned kMinGain = 32;
   uint8_t window = floor_;
-  if (gain < kMinGain) { gain = kMinGain; window = (uint8_t)(brt * 256u / kMinGain); }
+  if (gain < kMinGain) { gain = kMinGain; window = (uint8_t)(brt * 256u / kMinGain); if (!m_deepDim) window = std::max<uint8_t>(window, floor_ / 2u); }
   const int depth = m_cfg.getPixelColorDepthBits();
   const int shift = 12 - depth + 8;
   const unsigned max_val = (1u << depth) - 1;

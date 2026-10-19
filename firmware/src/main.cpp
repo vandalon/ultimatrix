@@ -107,6 +107,7 @@ static const Birthdays::Entry *birthdayToday() {
 }
 static FirmwareUpdate firmwareUpdate;
 static uint8_t appliedBrightness = 0;
+static bool appliedDeepDim = false;
 
 // The Wi-Fi manager's access point: open, so the QR code on the panel is the open-network form
 static const char *kApName = "UM-SETUP";
@@ -1868,9 +1869,12 @@ void loop() {
         clockTime.getHour24() * 60 + clockTime.getMinute(), !bootDone || portalActive, face && face->handlesNight());
     if ((face && face->alertFullBrightness()) || notice::fullBrightness(now)) brightness = 255;  // a popup that asked for full brightness
     uint8_t panel = panelBrightness(brightness);
-    if (panel != appliedBrightness) {
+    const bool deepDim = displayControl.nightDimmed(face && face->handlesNight());  // the red night clock may dim past the safe window width
+    if (panel != appliedBrightness || deepDim != appliedDeepDim) {
       const uint8_t dimFloor = display->brightnessFloor();
+      display->setDeepDim(deepDim);
       display->setBrightness8(panel);
+      appliedDeepDim = deepDim;
       if (panel < dimFloor || appliedBrightness < dimFloor) { nightClock.reset(); if (face) face->invalidate(); }  // dimming below the floor changes the pixel values; the night clock draws once a minute
       appliedBrightness = panel;
     }
