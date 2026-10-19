@@ -50,6 +50,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - DiskCache.h: mounts LittleFS; formats only genuinely erased cache flash
 - CacheBlob.h: versioned NVS POD blobs with size/CRC validation
 - NetworkBudget.h, MemoryLimits.h: shared download/update gates, feed-task coordination (feedsHeld parks feeds while a notice/DLNA picture loads or shows) and collection limits
+- GzipAsset.h: UM_GZIP_ASSET symbol macro and sendGzip() for the embedded compressed web pages
 - BackgroundWait.h: waits while servicing the background callback registered by main.cpp
 - EspnFeed.h: yielding HTTP/JSON stream reader and ESPN timestamp parsing
 - FootballCatalog.h, F1Drivers.h, PacmanColors.h: competition/team catalog, driver metadata and Pac-Man palettes
@@ -70,7 +71,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - faces/: FaceKit.h, MiniFont.h, PlumberSprites.h (drawing helpers, small font and walking poses); PlumberWorld.h defines courses, mushroom drops, items and Piranha pipes
 
 ### web/ (settings UI served by device)
-- settings.html, settings.js, theme.css, manifest.webmanifest, icons/, faces/ (face thumbnails .png)
+- settings.html, settings.js, theme.css, manifest.webmanifest, icons/, faces/ (face thumbnails .png). The text pages (settings, js, css, wled, canvas) are gzip-compressed at build time by tools/gzip_asset.py (main/CMakeLists.txt) and served with Content-Encoding: gzip via lib/core/GzipAsset.h
 - wled.html: effects/presets controls and navigation; canvas.html: canvas and GIF views, visible-only live screen in the drawing editor, LED dot styling and pause-on-edit; static panel-ready UMIMG download from the editor; opening a page does not take over the panel
 
 ### tools/
@@ -80,6 +81,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - package-firmware.py: packages application images and signed OTA manifests into dist/ (generated)
 - check-static-ram.py: post-build check that fails a face above the 60 KB static RAM budget (hooked in firmware/CMakeLists.txt)
 
+- gzip_asset.py: gzip -9 (fixed timestamp) of one web asset for embedding
 - gen_icons.py: renders BootScreen's U logo into web app icons
 - gen_tzdb.py, zones.csv: generate the build-time timezone table from zone rules
 - preview/faces.cpp, preview/faces.py, preview/faces-scenarios.h: native pixel-art face runner, GIF generation and scenarios

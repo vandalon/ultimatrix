@@ -2,6 +2,8 @@
 // Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #include "Wled.h"
+#include "GzipAsset.h"
+#include "Console.h"
 #include <DiskCache.h>
 #include <NetworkBudget.h>
 #include <errno.h>
@@ -26,7 +28,7 @@
 // stored packed in the flash file system, up to 8 slots; a slot with several frames is an animation.
 namespace wled {
 namespace canvas {
-extern const char canvasHtml[] asm("_binary_canvas_html_start");
+UM_GZIP_ASSET(canvasHtmlGz, "canvas_html")
 
 namespace {
 constexpr int kMaxFrames = 64;
@@ -292,6 +294,14 @@ bool readMem(const uint8_t *blob, uint16_t *out) {
   return decodeBody(in, head >> 14, head & kLengthMask, out);
 }
 
+size_t slotBytes(int id) {  // the saved file's size, before the filesystem rounds it up to whole blocks
+  char name[16];
+  path(id, name);
+  File f = LittleFS.open(name, "r");
+  const size_t size = f ? f.size() : 0;
+  if (f) f.close();
+  return size;
+}
 bool slotInfo(int id, Header &h) {
   if (!mount()) return false;
   char name[16];
@@ -348,7 +358,10 @@ inline uint16_t pack(uint8_t r, uint8_t g, uint8_t b) { return (r & 0xF8) << 8 |
 
 // ---- HTTP ----
 void json(int status, const String &body) { srv->sendHeader("Cache-Control", "no-store"); srv->send(status, "application/json", body); }
-void message(int status, const char *text) { json(status, String("{\"message\":\"") + text + "\"}"); }
+void message(int status, const char *text) {
+  if (status >= 400) consoleLog("[Canvas] %d: %s\n", status, text);
+  json(status, String("{\"message\":\"") + text + "\"}");
+}
 
 // Who writes to the canvas: a line whenever the writer changes or after a quiet spell, plus every clear, save, load and delete (serial)
 void noteWriter(const char *what) {
@@ -390,14 +403,14 @@ void info() {
   trimLast(millis());
   String out = String("{\"active\":") + (buf ? "true" : "false") + ",\"slot\":" + shown + ",\"cycle\":" + options().cycleSec + ",\"frames\":" + (anim.frames > 1 ? anim.frames : 1) + ",\"room\":" + importRoom() +
                ",\"importBytes\":" + ram.bytes + ",\"headroom\":" + kHeadroom +
-               ",\"free\":" + (mount() ? (int)(LittleFS.totalBytes() - LittleFS.usedBytes()) : 0) + ",\"slots\":[";
+               ",\"free\":" + (mount() ? (int)(LittleFS.totalBytes() - LittleFS.usedBytes()) : 0) + ",\"total\":" + (mount() ? (int)LittleFS.totalBytes() : 0) + ",\"slots\":[";
   bool first = true;
   for (int id = 0; id < kDrawingSlots; ++id) {
     Header h;
     if (!slotInfo(id, h)) continue;
     char name[17];
     memcpy(name, h.name, 16); name[16] = 0;
-    out += String(first ? "" : ",") + "{\"id\":" + id + ",\"name\":\"" + name + "\",\"frames\":" + h.frames + ",\"delay\":" + h.delay + "}";
+    out += String(first ? "" : ",") + "{\"id\":" + id + ",\"name\":\"" + name + "\",\"frames\":" + h.frames + ",\"delay\":" + h.delay + ",\"bytes\":" + (unsigned)slotBytes(id) + "}";
     first = false;
   }
   if (ram.frames) out += String(first ? "" : ",") + "{\"id\":" + kRamSlot + ",\"name\":\"Import\",\"frames\":" + ram.frames + ",\"delay\":" + ram.delay + "}";
@@ -615,6 +628,7 @@ void keep() {
   if (!ok) LittleFS.remove("/canvas-save.tmp");
   loadRam();
   if (!ok) { message(500, "Could not save the animation."); return; }
+  consoleLog("[Canvas] Saved \"%s\" to slot %d (%d frames, about %u bytes)\n", h.name, id + 1, frames, (unsigned)need);
   info();
 }
 
@@ -735,7 +749,7 @@ void slot() {
   }
   if (id < 0 || id >= kDrawingSlots) { message(400, "Choose a slot from 1 to 8."); return; }
   if (srv->arg("op") == "delete") {
-    if (mount()) { char file[16]; path(id, file); LittleFS.remove(file); }
+    if (mount()) { char file[16]; path(id, file); LittleFS.remove(file); consoleLog("[Canvas] Slot %d deleted\n", id + 1); }
     if (shown == id) { shown = -1; anim.frames = 0; }
     if (options().paintSlot == id) { options().paintSlot = 255; touched(); }
     info();
@@ -938,6 +952,7 @@ void clearImports() {
     char file[16];
     path(id, file);
     LittleFS.remove(file);
+    consoleLog("[Canvas] Removed temporary import in slot %d\n", id + 1);
     if (shown == id) { shown = -1; anim.frames = 0; }
     if (options().paintSlot == id) { options().paintSlot = 255; touched(); }
   }
@@ -1042,8 +1057,8 @@ void tick(uint32_t now) {
 void attach(WebServer &server, void (*postRoute)(const char *, WebServer::THandlerFunction)) {
   srv = &server;
   clearImports();  // an import lasts until WLED lets go of the panel or the clock restarts
-  server.on("/gifs", HTTP_GET, []() { srv->send_P(200, "text/html; charset=utf-8", canvasHtml); });
-  server.on("/canvas", HTTP_GET, []() { srv->send_P(200, "text/html; charset=utf-8", canvasHtml); });
+  server.on("/gifs", HTTP_GET, []() { sendGzip(*srv, "text/html; charset=utf-8", canvasHtmlGz, canvasHtmlGzEnd); });
+  server.on("/canvas", HTTP_GET, []() { sendGzip(*srv, "text/html; charset=utf-8", canvasHtmlGz, canvasHtmlGzEnd); });
   server.on("/api/canvas", HTTP_GET, info);
   server.on("/api/canvas/pixels", HTTP_GET, pixels);
   postRoute("/api/canvas/open", open);

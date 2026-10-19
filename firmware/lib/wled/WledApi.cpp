@@ -2,6 +2,7 @@
 // Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #include "Wled.h"
+#include "GzipAsset.h"
 #include <esp_heap_caps.h>
 #include <ESPmDNS.h>
 #include <mdns.h>
@@ -16,7 +17,7 @@
 // The part of WLED's HTTP API that the WLED apps and Home Assistant's WLED integration (python-wled) use: /json (state,
 // info, effects, palettes), /json/si, /json/state (GET and POST), /json/eff|effects, /json/pal|palettes, /json/fxdata,
 // /presets.json and the small /win?... query API. Responses stream in chunks so no JSON document is built on the heap.
-extern const char wledHtml[] asm("_binary_wled_html_start");
+UM_GZIP_ASSET(wledHtmlGz, "wled_html")
 
 namespace wled {
 namespace {
@@ -572,7 +573,7 @@ void apiAttach(WebServer &server, void (*postRoute)(const char *, WebServer::THa
   // (the prototype's per-request header logging is gone: at 115200 baud a full serial buffer stalls the loop that also draws)
   canvas::attach(server, postRoute);
   wsAttach(server);
-  server.on("/wled", HTTP_GET, []() { srv->send_P(200, "text/html; charset=utf-8", wledHtml); });
+  server.on("/wled", HTTP_GET, []() { sendGzip(*srv, "text/html; charset=utf-8", wledHtmlGz, wledHtmlGzEnd); });
   srv = &server;
   // Browsers and the WLED app's web view ask OPTIONS before a JSON POST: answer it like WLED does
   server.onNotFound([]() {

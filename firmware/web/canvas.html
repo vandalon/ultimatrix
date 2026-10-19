@@ -241,14 +241,14 @@ async function slots() {
   $('cycle').value = info.cycle;
   for (const s of info.slots) {
     const row = document.createElement('div'); row.className = 'slot';
-    const label = document.createElement('span'); label.textContent = (s.id + 1) + '. ' + s.name + (s.frames > 1 ? ' (' + s.frames + ' frames)' : '') + (s.id === info.slot ? ' ●' : '');
+    const label = document.createElement('span'); label.textContent = (s.id + 1) + '. ' + s.name + (s.frames > 1 ? ' (' + s.frames + ' frames)' : '') + (s.bytes ? ', ' + (s.bytes < 10240 ? (s.bytes / 1024).toFixed(1) : Math.round(s.bytes / 1024)) + ' KB' : '') + (s.id === info.slot ? ' ●' : '');
     const load = document.createElement('button'), del = document.createElement('button');
     load.textContent = 'Show'; load.onclick = async () => { pauseLive(); try { await post('/api/canvas/slot?op=load&slot=' + s.id); await pull(); await slots(); } catch (e) { msg.textContent = e.message; } };
     del.textContent = '×'; del.onclick = async () => { try { await post('/api/canvas/slot?op=delete&slot=' + s.id); await slots(); } catch (e) { msg.textContent = e.message; } };
     row.append(label, load, del); list.append(row); target.append(new Option(s.id + 1 + '. ' + s.name, s.id));
   }
   if (!info.slots.length) list.textContent = 'Nothing saved yet.';
-  const left = document.createElement('small'); left.textContent = 'Storage left on the clock: ' + Math.floor(info.free / 1024) + ' KB (it is shared with other data; remove drawings with × to make room).'; list.append(left);
+  const left = document.createElement('small'); left.textContent = 'Storage left on the clock: ' + Math.floor(info.free / 1024) + ' KB of ' + Math.round((info.total || 0) / 1024) + ' KB (it is shared with other data; remove drawings with × to make room).'; list.append(left);
   const used = new Set(info.slots.map(s => s.id)); window.freeSlot = [0, 1, 2, 3, 4, 5, 6, 7].find(i => !used.has(i)) ?? -1;
   window.freeBytes = info.free; window.slotList = info.slots;
 }

@@ -132,14 +132,25 @@ endif()
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     ${mode_definitions} UM_MODE_ID="${ULTIMATRIX_MODE}" DOUBLE_BUFFER_ON UM_FOOTBALL_SIM)
 
-# Serve the setup assets directly from flash rather than assembling a page on the heap.
-foreach(asset settings.html theme.css settings.js)
-    target_add_binary_data(${COMPONENT_LIB} "${root}/web/${asset}" TEXT)
-endforeach()
+# Serve the setup assets directly from flash rather than assembling a page on the heap. The text assets are gzip-compressed
+# at build time and sent with Content-Encoding: gzip (see lib/core/GzipAsset.h).
+set(web_assets settings.html theme.css settings.js)
 if(ULTIMATRIX_WLED AND NOT ULTIMATRIX_MODE STREQUAL "bridge" AND NOT ULTIMATRIX_MODE STREQUAL "scanner")
-    target_add_binary_data(${COMPONENT_LIB} "${root}/web/wled.html" TEXT)
-    target_add_binary_data(${COMPONENT_LIB} "${root}/web/canvas.html" TEXT)  # the pixel editor  # the light page the WLED app opens
+    list(APPEND web_assets wled.html canvas.html)  # the light page the WLED app opens, and the pixel editor
 endif()
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/web")
+set(web_gz_files "")
+foreach(asset ${web_assets})
+    set(gz "${CMAKE_CURRENT_BINARY_DIR}/generated/web/${asset}.gz")
+    add_custom_command(OUTPUT "${gz}"
+        COMMAND ${Python3_EXECUTABLE} "${root}/tools/gzip_asset.py" "${root}/web/${asset}" "${gz}"
+        DEPENDS "${root}/web/${asset}" "${root}/tools/gzip_asset.py"
+        COMMENT "Compressing ${asset}")
+    list(APPEND web_gz_files "${gz}")
+    target_add_binary_data(${COMPONENT_LIB} "${gz}" BINARY)
+endforeach()
+add_custom_target(web_gz DEPENDS ${web_gz_files})
+add_dependencies(${COMPONENT_LIB} web_gz)
 # Installable-app manifest and its LED-matrix U icons.
 target_add_binary_data(${COMPONENT_LIB} "${root}/web/manifest.webmanifest" TEXT)
 # Clock face thumbnails for the face picker (64x64, one frame of each face).

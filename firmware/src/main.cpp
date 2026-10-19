@@ -44,6 +44,7 @@
 #include <Mqtt.h>
 #include <Notice.h>
 #include <DlnaRenderer.h>
+#include <GzipAsset.h>
 #include <nvs.h>
 #ifdef UM_WLED_OVERLAY
 #include <Wled.h>
@@ -403,9 +404,9 @@ static bool telnetCommand(const char *c, Print &out) {
   return false;
 }
 
-extern const char settingsHtml[] asm("_binary_settings_html_start");
-extern const char themeCss[] asm("_binary_theme_css_start");
-extern const char settingsJs[] asm("_binary_settings_js_start");
+UM_GZIP_ASSET(settingsHtmlGz, "settings_html")
+UM_GZIP_ASSET(themeCssGz, "theme_css")
+UM_GZIP_ASSET(settingsJsGz, "settings_js")
 extern const char manifestJson[] asm("_binary_manifest_webmanifest_start");
 #define UM_ICON(sym) \
   extern const uint8_t sym##Start[] asm("_binary_" #sym "_png_start"); \
@@ -454,7 +455,7 @@ static void settingsPage() {
   if (wled::wantsLightPage(server)) { server.sendHeader("Location", "/wled"); server.send(302, "text/plain", ""); return; }
 #endif
   welcomeVisited = true;  // the welcome screens drop the QR code once somebody has opened the page
-  server.send_P(200, "text/html; charset=utf-8", settingsHtml); }
+  sendGzip(server, "text/html; charset=utf-8", settingsHtmlGz, settingsHtmlGzEnd); }
 
 static String minuteText(unsigned minute) {
   char text[6];
@@ -1672,7 +1673,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
       wifi.server->send(200, "text/plain", connected ? WiFi.localIP().toString() : String(""));
       if (connected && !portalIpServed) { portalIpServed = true; portalCloseAt = millis() + 10000; }
     });
-    wifi.server->on("/theme.css", HTTP_GET, []() { wifi.server->send_P(200, "text/css; charset=utf-8", themeCss); });
+    wifi.server->on("/theme.css", HTTP_GET, []() { sendGzip(*wifi.server, "text/css; charset=utf-8", themeCssGz, themeCssGzEnd); });
     wifi.server->on("/icon-192.png", HTTP_GET, []() {
       wifi.server->sendHeader("Cache-Control", "public, max-age=86400");
       wifi.server->send_P(200, "image/png", (const char *)icon_192Start, icon_192End - icon_192Start);
@@ -1708,8 +1709,8 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   else wifi.autoConnect(kApName);
   server.on("/", HTTP_GET, settingsPage);
   postRoute("/settings", saveSettings);
-  server.on("/theme.css", HTTP_GET, []() { server.send_P(200, "text/css; charset=utf-8", themeCss); });
-  server.on("/settings.js", HTTP_GET, []() { server.send_P(200, "application/javascript; charset=utf-8", settingsJs); });
+  server.on("/theme.css", HTTP_GET, []() { sendGzip(server, "text/css; charset=utf-8", themeCssGz, themeCssGzEnd); });
+  server.on("/settings.js", HTTP_GET, []() { sendGzip(server, "application/javascript; charset=utf-8", settingsJsGz, settingsJsGzEnd); });
   server.on("/manifest.webmanifest", HTTP_GET, []() { server.send_P(200, "application/manifest+json", manifestJson); });
   server.on("/icon-192.png", HTTP_GET, []() { sendIcon(icon_192Start, icon_192End); });
   server.on("/icon-512.png", HTTP_GET, []() { sendIcon(icon_512Start, icon_512End); });
