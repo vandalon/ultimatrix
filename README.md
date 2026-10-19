@@ -11,7 +11,7 @@ Ultimatrix is an LED matrix clock for an ESP32 and a 64×64 HUB75 panel. It can 
 
 Ultimatrix is inspired by the original [Clockwise](https://github.com/jnthas/clockwise) project by Jonathan Thas. Thank you for the idea and the groundwork.
 
-The HUB75 panel driver is a memory-optimised fork of [ESP32-HUB75-MatrixPanel-DMA](https://github.com/mrcodetastic/ESP32-HUB75-MatrixPanel-DMA), published separately as [ESP32-HUB75-DMA-Memory-Optimized](https://github.com/vandalon/ESP32-HUB75-DMA-Memory-Optimized) (MIT).
+The HUB75 panel driver is a memory-optimised fork of [ESP32-HUB75-MatrixPanel-DMA](https://github.com/mrcodetastic/ESP32-HUB75-MatrixPanel-DMA), published separately as [ESP32-HUB75-DMA-Memory-Optimized](https://github.com/vandalon/ESP32-HUB75-DMA-Memory-Optimized).
 
 Start with the [hardware setup guide](docs/HARDWARE.md), then [install from your browser](https://vandalon.github.io/ultimatrix/) (Chrome or Edge, USB cable that carries data). Details: [Install](#install).
 
