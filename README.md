@@ -15,7 +15,7 @@ The HUB75 panel driver is a memory-optimised fork of [ESP32-HUB75-MatrixPanel-DM
 
 Start with the [hardware setup guide](docs/HARDWARE.md), then [install from your browser](https://vandalon.github.io/ultimatrix/) (Chrome or Edge, USB cable that carries data). Details: [Install](#install).
 
-There are eight clock faces. Each has its own firmware image, so the clock runs one face at a time. You can switch faces from the local settings page by installing another signed image over Wi-Fi.
+There are nine clock faces. Each has its own firmware image, so the clock runs one face at a time. You can switch faces from the local settings page by installing another signed image over Wi-Fi.
 
 ## Clock faces
 
@@ -234,10 +234,10 @@ Every face can be controlled from Home Assistant over MQTT. It is off until you 
 
 Canvas has a **Download picture** button for the current editor image. It exports a static 64×64 `.bmp`. Upload it in Home Assistant under Media, then pick the clock's media player (the DLNA Digital Media Renderer integration finds it automatically) and use Browse media > Play; the picture stays until Stop. You can also serve the file at a reachable HTTP(S) URL and use it in a notification's `image` field. Animation frames are not exported. Not yet verified on a real clock.
 
-- **Face** (Configuration): a dropdown of the eight faces that shows the face now running. Choosing another one installs that face's signed image over Wi-Fi and restarts the clock, exactly like the **Faces** category on the settings page. Choosing the current face does nothing. It is refused while a live match or session is running, and the install needs a reachable update source; if memory is too short it restarts first and installs before the feeds start. Because one click downloads and installs another image, don't wire it to an automation unless you mean it, and keep your MQTT broker closed to untrusted clients. Only signed images are accepted.
+- **Face** (Configuration): a dropdown of the nine faces that shows the face now running. Choosing another one installs that face's signed image over Wi-Fi and restarts the clock, exactly like the **Faces** category on the settings page. Choosing the current face does nothing. It is refused while a live match or session is running, and the install needs a reachable update source; if memory is too short it restarts first and installs before the feeds start. Because one click downloads and installs another image, don't wire it to an automation unless you mean it, and keep your MQTT broker closed to untrusted clients. Only signed images are accepted.
 - **Saved picture** (with WLED enabled in the firmware): a dropdown of pictures and animations saved on the clock. Choose an item to show it, or **Off** to return to the clock face. WLED must be enabled in settings. This uses WLED playback, so the normal night/live-sports rules still apply. Items play until switched off, replaced, or the configured WLED idle timeout expires; animations loop.
 
-  Save pictures in **Canvas**. To keep a played KLIPY GIF, open **Animations**, load it, enter a name and press **Save played GIF**. New saved animations are limited to the first **24 frames or 5 seconds**, whichever is shorter. Temporary imports can still play up to 64 frames. There are **8 shared slots** and 128 KiB of filesystem space shared with other clock data; saving checks available space and never overwrites an occupied slot. Saved items survive restarts. Use the saved list on Canvas or Animations to remove them. HA's dropdown refreshes within about five seconds; labels include the slot number so duplicate names remain distinct.
+  Save pictures in **Canvas**. To keep a played KLIPY GIF, open **Animations**, load it, enter a name and press **Save played GIF**. New saved animations are limited to the first **24 frames or 5 seconds**, whichever is shorter. Temporary imports can still play up to 64 frames. There are **8 shared slots** and 128 KiB of filesystem space shared with other clock data; saving checks available space and never overwrites an occupied slot. Saved items survive restarts. Use the saved list on Canvas or Animations to remove them. Cached data left by the faces can be cleared under **Advanced → Storage**. HA's dropdown refreshes within about five seconds; labels include the slot number so duplicate names remain distinct.
 
   ```yaml
   action: select.select_option
@@ -265,6 +265,8 @@ Add birthdays under **Birthdays** in settings: a name (capitals, digits and spac
 
 The clock checks for updates at startup when its cached check is missing or more than 24 hours old, then about once a day while running. With Automatic updates on (the default, under Advanced), a newer version is installed by itself and the clock restarts; with it off, checking installs nothing. Available updates appear on the boot screen and settings page; with Automatic updates off, installation starts when you choose it.
 
+**Advanced → Storage** shows how much of the clock's flash disk is free, how much the saved drawings use, and the cached data the faces keep (Football's files and the F1/MotoGP cache). **Clear cached data** removes it to free space; the faces rebuild what they need, and saved drawings are never removed.
+
 In **Advanced**, use **Check for updates** or **Install update**. The **Faces** category installs another face using the same update system. The clock refuses updates while live sports data is active. If an install fails, for example for lack of memory, the clock restarts once and installs again without loading a face, showing an update screen with a progress bar.
 
 Images need a signed manifest and a matching checksum. The updater rejects releases already installed or superseded for that face and update source. Boot rollback is enabled, with startup health checks before a new image is confirmed; failure recovery still needs device checks.
@@ -283,7 +285,7 @@ python3 firmware/tools/package-firmware.py
 
 It writes the built faces and signed manifests to `dist/firmware/`, in the folder layout expected by a private server. Keep the signing key private. Self-hosted face installation has been confirmed on a device.
 
-The [release workflow](.github/workflows/release.yml) builds all eight faces when a `v*` tag is pushed. It signs the update manifests, creates a GitHub release and deploys the browser flasher and an update-file mirror to GitHub Pages. It needs the `UPDATE_SIGNING_KEY` repository secret and GitHub Pages configured for Actions. This workflow has not yet been checked end to end.
+The [release workflow](.github/workflows/release.yml) builds all nine faces when a `v*` tag is pushed. It signs the update manifests, creates a GitHub release and deploys the browser flasher and an update-file mirror to GitHub Pages. It needs the `UPDATE_SIGNING_KEY` repository secret and GitHub Pages configured for Actions. This workflow has not yet been checked end to end.
 
 ## Display quality
 
@@ -315,7 +317,7 @@ From the repository root:
 python3 firmware/tools/preview/refresh.py
 ```
 
-This refreshes all eight face images, their animated previews, the overview and the boot replay. The README uses the same PNG files as the settings page. Rebuild and install the firmware to put new images on a clock.
+This refreshes all nine face images, their animated previews, the overview and the boot replay. The README uses the same PNG files as the settings page. Rebuild and install the firmware to put new images on a clock.
 
 For one animated preview, use `--face football` with `showcase.py`, or `--face pacman` with `faces.py`. The sports previews replay data from `firmware/tools/preview/showcase-data.json`; they show recorded results rather than current feeds. Tetris uses a fixed clock, and the other animated faces use scripted clock scenarios.
 
@@ -325,9 +327,9 @@ These images were rendered from the current code on 14 October 2026. They help r
 
 ## Development status
 
-As of 14 October 2026, the firmware builds with ESP-IDF and Arduino as a component. The shared runtime, local setup and settings, brightness controls, night display, signed updater and eight faces are implemented. The drawing and feed code are still being cleaned up.
+As of 14 October 2026, the firmware builds with ESP-IDF and Arduino as a component. The shared runtime, local setup and settings, brightness controls, night display, signed updater and nine faces are implemented. The drawing and feed code are still being cleaned up.
 
-All eight faces have successful builds recorded during development. That does not mean the latest source has been rebuilt for every face. The recent Words transitions and Pac-Man changes have been checked in native previews and browser mocks; the latest Pac-Man clock-colour change has not had a firmware build or device check.
+All nine faces have successful builds recorded during development. That does not mean the latest source has been rebuilt for every face. The recent Words transitions and Pac-Man changes have been checked in native previews and browser mocks; the latest Pac-Man clock-colour change has not had a firmware build or device check.
 
 Football has had initial device checks for boot, Wi-Fi, feeds, saved settings, mDNS and telnet. F1 has had a short device check of memory use and update checking.
 

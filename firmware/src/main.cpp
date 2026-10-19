@@ -43,6 +43,7 @@
 #include <TelnetConsole.h>
 #include <Mqtt.h>
 #include <Notice.h>
+#include <Storage.h>
 #include <DlnaRenderer.h>
 #include <GzipAsset.h>
 #include <nvs.h>
@@ -869,6 +870,9 @@ static void checkFirmware() {
 }
 
 // The colour quality level for the settings page: what runs, why it was lowered, and the lock
+static void storageState() { server.send(200, "application/json", storage::json()); }
+static void storageClear() { storage::clear(); server.send(200, "application/json", storage::json()); }
+
 static void displayStatus() {
   String json = "{\"level\":" + String(panelLevel + 1) + ",\"lock\":" + String(panelState.lock) + ",\"reason\":\"" +
       (panelState.reason == paneltier::Busy ? "busy" : panelState.reason == paneltier::Quiet ? "quiet" : "none") +
@@ -1799,6 +1803,8 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/firmware/reboot", rebootForFirmwareUpdate);
   postRoute("/api/firmware/check", checkFirmware);
   postRoute("/api/firmware/server", saveUpdateServer);
+  server.on("/api/storage", HTTP_GET, storageState);
+  postRoute("/api/storage/clear", storageClear);
   server.on("/api/display", HTTP_GET, displayStatus);
   postRoute("/api/display", displaySave);
   server.on("/api/mqtt", HTTP_GET, mqttState);

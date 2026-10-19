@@ -18,6 +18,7 @@ set(sources
     "${root}/lib/core/Mqtt.cpp"
     "${root}/lib/core/MqttPixels.cpp"
     "${root}/lib/core/Notice.cpp"
+    "${root}/lib/core/Storage.cpp"
     "${root}/lib/core/NoticeImage.cpp"
     "${root}/lib/core/NoticePng.cpp"
     "${root}/lib/core/DlnaRenderer.cpp"

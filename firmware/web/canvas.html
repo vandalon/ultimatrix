@@ -70,7 +70,7 @@ html:not(.embed) main{margin-left:260px;max-width:1230px;padding:28px 5vw 24px}
 <li>Search, then tap a GIF. A crop square opens first (GIFs are cropped on their first frame), or tick <b>Always fill the screen</b> to skip it and crop to the middle. Animated GIFs are loaded as frames (up to 64, as many as fit) into the clock's memory and play at once. Use Previous/Next for more results.</li>
 <li>An imported GIF is temporary until you press <b>Save played GIF</b>. Saved animations keep up to 24 frames / 5 seconds and can be selected from Home Assistant. Pictures and drawings you press <b>Save as new</b> for are also kept on the clock.</li>
 </ol>
-The search happens on the clock, the pictures load in this browser. Animated import needs Chrome or Edge; Safari and the WLED app load the first frame only. The free key allows about 100 searches an hour.</small></details>
+The search happens on the clock, the pictures load in this browser. Animated import needs Chrome or Edge; Safari and the WLED app load the first frame only.</small></details>
 <div class="row"><label><input type="checkbox" id="fillscreen"> Always fill the screen (crop to the middle, no crop window)</label></div>
 <div class="row"><input type="text" id="gq" placeholder="Search KLIPY" style="flex:1;min-width:0"><button id="gsearch">Search</button><span id="gspin" class="mini" hidden></span></div>
 <div class="row"><input id="keepname" maxlength="15" placeholder="Saved name" style="flex:1;min-width:0"><button id="keepgif">Save played GIF</button></div><small>Save up to 24 frames / 5 seconds for Home Assistant. Saved pictures and animations share 8 slots and the clock’s storage.</small><div class="gres" id="gres"></div><div class="row" id="gpages" hidden><button id="gprev">Previous</button><small id="gpage"></small><button id="gnext">Next</button></div><small id="gcredit">Powered by KLIPY.</small>
@@ -258,7 +258,7 @@ async function slots() {
     row.append(label, load, del); list.append(row); target.append(new Option(s.id + 1 + '. ' + s.name, s.id));
   }
   if (!info.slots.length) list.textContent = 'Nothing saved yet.';
-  const left = document.createElement('small'); left.textContent = 'Storage left on the clock: ' + Math.floor(info.free / 1024) + ' KB of ' + Math.round((info.total || 0) / 1024) + ' KB (it is shared with other data; remove drawings with × to make room).'; list.append(left);
+  const left = document.createElement('small'); left.textContent = 'Storage left on the clock: ' + Math.floor(info.free / 1024) + ' KB of ' + Math.round((info.total || 0) / 1024) + ' KB (it is shared with other data; remove drawings with × to make room, or clear cached data under Advanced in Settings).'; list.append(left);
   const used = new Set(info.slots.map(s => s.id)); window.freeSlot = [0, 1, 2, 3, 4, 5, 6, 7].find(i => !used.has(i)) ?? -1;
   window.freeBytes = info.free; window.slotList = info.slots;
 }
