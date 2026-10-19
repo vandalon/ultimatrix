@@ -114,7 +114,8 @@ void kilowatts(char *out, size_t size, bool ok, float value) {
 }
 
 void kilowattHours(char *out, size_t size, bool ok, float value) {
-  if (ok) snprintf(out, size, "%.1f", value < 0 ? -value : value);
+  const float kwh = value < 0 ? -value : value;
+  if (ok) snprintf(out, size, kwh < 9.95f ? "%.1f" : "%.0f", kwh);  // from 10 up no decimal: a second whole digit would run into the icon
   else strlcpy(out, "-", size);
 }
 

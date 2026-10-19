@@ -478,7 +478,7 @@ void Mqtt::publishState(uint32_t now) {
   }
 }
 
-// One indexed RGB332 image per MQTT message (512x512 PNG, bounded BMP fallback).
+// One indexed RGB332 image per MQTT message (192x192 PNG, bounded BMP fallback).
 // No permanent framebuffer, no retained image,
 // and no image backlog: leave space for commands, notices and GIF uploads.
 void Mqtt::publishScreen(uint32_t now) {

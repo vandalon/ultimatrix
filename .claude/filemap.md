@@ -43,7 +43,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - PanelTier.h: panel colour quality levels (depth, I2S clock, refresh), the NVS state and the retry rule
 - DisplayControl, PanelLayout, BootScreen, ScreenTimer, FlipDigits, NumericFont, LapFonts: display/panel helpers, fonts
 - TelnetConsole.cpp/.h, Console.h: remote logging console
-- ScreenPng.h: bounded 512x512 indexed PNG encoder from 64x64 display rows; square LED gaps, fixed DEFLATE runs/repeated cells/rows, no large framebuffer or zlib window
+- ScreenPng.h: bounded 192x192 indexed PNG encoder (kScale 3) from 64x64 display rows; square LED gaps, fixed DEFLATE runs/repeated cells/rows, no large framebuffer or zlib window
 - Mqtt.cpp/.h: optional MQTT link to Home Assistant (default off): config in NVS, discovery entities, commands queued by the esp-mqtt task and applied by poll(), state publishing, 10-second CPU task/refill diagnostics and changed-screen MQTT camera snapshots
 - Notice.cpp/.h: full-panel text message (wrapped, paged) sent from Home Assistant, drawn over any face by main.cpp
 - DiskCache.h: mounts LittleFS; formats only genuinely erased cache flash
@@ -73,8 +73,6 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - wled.html: effects/presets controls and navigation; canvas.html: canvas and GIF views, visible-only live screen in the drawing editor, LED dot styling and pause-on-edit; opening a page does not take over the panel
 
 ### tools/
-- mqtt-broker.py: standalone anonymous LAN MQTT test broker on port 1883 (amqtt), without camera/HTTP viewer
-- mqtt-camera.py: standalone MQTT test broker/subscriber, saves BMP/PNG captures and serves a localhost browser preview (amqtt/paho-mqtt/Pillow)
 - idf.sh, setup-idf.sh: per-mode IDF command wrapper and SDK setup
 - build-bridge.sh: builds/packages the migration bridge image
 - build-webflasher.sh: merges full-flash images and ESP Web Tools manifests into web-flasher/firmware/ (generated)
