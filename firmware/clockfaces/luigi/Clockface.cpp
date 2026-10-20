@@ -345,7 +345,7 @@ void drawCastleDecor(MatrixPanel_I2S_DMA &d, uint32_t now, int windowX, int torc
 
 void drawFlakes(MatrixPanel_I2S_DMA &d, uint32_t now) {
   for (int i = 0; i < 14; i++) {
-    const int y = (hash(i * 11 + 3) % 52 + (int)(now * (6 + i % 4) / 1000)) % 52;
+    const int y = (hash(i * 11 + 3) % 52 + (int)((uint64_t)now * (6 + i % 4) / 1000)) % 52;
     const int x = (hash(i * 5 + 2) % 64 + (int)(2.0f * sinf(now / 700.0f + i))) & 63;
     put(d, x, y, rgb(255, 255, 255));
   }
@@ -366,7 +366,7 @@ void drawUnderwater(MatrixPanel_I2S_DMA &d, uint32_t now) {
   for (const int x : {20, 28, 50, 84})
     for (int y = 0; y < 14; y++) put(d, plumberworld::sceneryX(x, course.camera) + 1 + (int)lroundf(sinf(y / 2.0f + now / 400.0f)), kGround - 1 - y, rgb(32, 184, 88));
   for (int i = 0; i < 7; i++) {
-    const int y = 50 - (int)((now * 8 / 1000 + hash(i * 3 + 9) % 48) % 48);
+    const int y = 50 - (int)(((uint64_t)now * 8 / 1000 + hash(i * 3 + 9) % 48) % 48);
     box(d, hash(i * 5 + 1) % 60 + 2 + (int)lroundf(sinf(now / 500.0f + i)), y, 2, 2, rgb(168, 216, 255));
   }
   static const char *const BLOOPER[9] = {"..wwww..", ".wwwwww.", "wwkwwkww", "wwwwwwww", ".wwwwww.", "..wwww..", ".w.ww.w.", "w..ww..w", "w.w..w.w"};
@@ -425,7 +425,7 @@ void drawVolcano(MatrixPanel_I2S_DMA &d, uint32_t now) {
   box(d, vx + 11, 28, 6, 2, rgb(255, 112, 24)); box(d, vx + 12, 27, 4, 1, rgb(255, 192, 64));
   box(d, vx + 13, 30, 1, 10, rgb(232, 64, 16)); box(d, vx + 9, 34, 1, 8, rgb(232, 64, 16)); box(d, vx + 18, 36, 1, 10, rgb(232, 64, 16));
   for (int i = 0; i < 14; i++) {
-    const int y = 50 - (int)((now * 10 / 1000 + hash(i * 3 + 9) % 50) % 50);
+    const int y = 50 - (int)(((uint64_t)now * 10 / 1000 + hash(i * 3 + 9) % 50) % 50);
     put(d, hash(i * 5 + 1) % 64, y, (now / 140 + i) % 2 ? rgb(255, 176, 48) : rgb(255, 112, 24));
   }
 }
@@ -907,7 +907,7 @@ void Clockface::update() {
     if (wt >= 2 * kSwipeHalfMs) wiping = false;
   }
   for (int i = 0; i < 2; i++) {
-    if (now >= blocks[i].bumpAt + 150) { blocks[i].shown[0] = blocks[i].target[0]; blocks[i].shown[1] = blocks[i].target[1]; }
+    if ((int32_t)(now - blocks[i].bumpAt) >= 150) { blocks[i].shown[0] = blocks[i].target[0]; blocks[i].shown[1] = blocks[i].target[1]; }
   }
 
   d.fillScreen(theme.sky);

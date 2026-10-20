@@ -13,7 +13,11 @@ static void timeSynced(struct timeval *) { synced = true; }
 
 void begin(const char *ntpServer, const char *posix) {
   // Sets TZ and starts (or restarts) the SNTP client; the core resyncs about once an hour by itself
-  synced = false;
+  // The time stays valid when only the zone or format changed: only a new server (or the first start) waits for a sync
+  static uint32_t lastServer = 0;  // a hash, not the name: static RAM is tight
+  uint32_t hash = 2166136261u;
+  for (const char *c = ntpServer ? ntpServer : ""; *c; ++c) hash = (hash ^ (uint8_t)*c) * 16777619u;
+  if (hash != lastServer) { synced = false; lastServer = hash; }
   esp_sntp_set_time_sync_notification_cb(timeSynced);
   configTzTime(posix, ntpServer, "time.google.com", "pool.ntp.org");
 }

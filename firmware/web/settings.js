@@ -866,6 +866,7 @@ async function loadStorage() {
   const summary = document.querySelector('#storage-summary'), list = document.querySelector('#storage-list'), clear = document.querySelector('#storage-clear');
   try {
     const state = await (await fetch('/api/storage', { cache: 'no-store' })).json(), kb = bytes => Math.ceil(bytes / 1024) + ' KB';
+    if (state.available === false) { summary.textContent = 'The flash disk cannot be read. Formatting it below fixes that, but removes saved drawings.'; list.replaceChildren(); clear.hidden = true; return; }
     summary.textContent = kb(state.free) + ' free of ' + kb(state.total) + '. Saved drawings: ' + state.drawings.files + ' (' + kb(state.drawings.bytes) + '). Cached data: ' + state.other.files + ' file' + (state.other.files === 1 ? '' : 's') + ' (' + kb(state.other.bytes) + ').';
     list.replaceChildren(...state.other.list.map(file => { const line = document.createElement('small'); line.style.display = 'block'; line.textContent = file.n + ' · ' + (file.b / 1024).toFixed(1) + ' KB'; return line; }));
     clear.hidden = !state.other.files; clear.dataset.count = state.other.files; clear.dataset.bytes = state.other.bytes;
@@ -876,5 +877,10 @@ document.querySelector('#storage-clear').addEventListener('click', async event =
   const button = event.currentTarget;
   if (!confirm('Remove ' + button.dataset.count + ' cached item(s), ' + Math.ceil(button.dataset.bytes / 1024) + ' KB? Saved drawings stay.')) return;
   try { const response = await fetch('/api/storage/clear', { method: 'POST' }); if (!response.ok) throw new Error('Could not clear the cached data.'); message('Cleared'); await loadStorage(); }
+  catch (error) { message(error.message, true); }
+});
+document.querySelector('#storage-reformat').addEventListener('click', async () => {
+  if (!confirm('Format the flash disk? Every saved drawing and cached file is deleted and the clock restarts. This cannot be undone.')) return;
+  try { const response = await fetch('/api/storage/reformat', { method: 'POST' }); if (!response.ok) throw new Error('Could not format the flash disk.'); message('Formatted. The clock restarts.'); }
   catch (error) { message(error.message, true); }
 });

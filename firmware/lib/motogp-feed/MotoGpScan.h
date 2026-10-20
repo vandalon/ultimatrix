@@ -7,6 +7,7 @@
 #pragma once
 
 #include <algorithm>
+#include <new>
 #include "F1Ticker.h"
 #include "JsonScan.h"
 #include "MotoGpRiders.h"
@@ -107,9 +108,10 @@ struct Sess {
   time_t start = 0;
 };
 
-Event events[kMaxEvents];
+// On the heap, allocated when the calendar is first read: 2.3 KB less static RAM in every boot (the MotoGP build is close to the budget)
+Event *events = nullptr;
 uint8_t eventCount = 0;
-Sess sessions[kMaxSessions];
+Sess *sessions = nullptr;
 uint8_t sessionCount = 0;
 char seasonId[40] = "", categoryId[40] = "";
 char weekendEvent[40] = "";           // the event the sessions were downloaded for

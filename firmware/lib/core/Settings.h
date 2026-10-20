@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include <algorithm>
+#include <atomic>
 #include "PacmanColors.h"
 
 #define UM_DEFAULT_FOOTBALL_LEAGUES "ned.1,ned.cup"
@@ -53,6 +54,7 @@ struct Settings {
   uint16_t pacmanColor(uint8_t choice) const { return pacmancolors::sprite(choice); }
   uint32_t pacmanColorKey() const { return pacmancolors::key(color, ghostColors, dotColor); }
 
+  static std::atomic<uint32_t> &counter() { static std::atomic<uint32_t> n{0}; return n; }
   static Settings *getInstance() { static Settings value; return &value; }
   static bool validClockName(const String &name) {
     if (name.isEmpty() || name.length() > 48) return false;
@@ -61,4 +63,6 @@ struct Settings {
   }
   void load();
   bool save();
+  // Counts the settings saved by this firmware (web page, MQTT): lets a reader that polls skip the flash read when nothing was saved
+  static uint32_t saveCount() { return counter().load(); }
 };

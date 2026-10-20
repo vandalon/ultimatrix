@@ -126,7 +126,7 @@ void poll(uint32_t now) {
   if (!state) return;
   State &n = *state;
   if (!n.on) { n.image.reset(); n.current.picture.reset(); if (!n.hasNext) n.next.picture.reset(); holdFeeds(HOLD_NOTICE, false); return; }
-  holdFeeds(HOLD_NOTICE, !n.imageDone || n.current.picture);  // the feeds make room while the picture loads, and while a sent picture shows
+  holdFeeds(HOLD_NOTICE, !n.imageDone || (n.current.picture && n.started));  // the feeds make room while the picture loads, and while a sent picture shows (not while it waits for the morning)
   if (n.imageDone) return;
   if (n.image && n.image->status != Image::LOADING) n.imageDone = true;
   else if (!n.image && now - n.imageAt < 30000) n.image = loadImage(n.current.image, n.current.imageFill);

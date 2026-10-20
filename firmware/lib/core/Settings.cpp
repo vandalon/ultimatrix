@@ -4,15 +4,6 @@
 
 namespace {
 constexpr uint32_t kMagic = 0x554D5331;
-struct RecordV1 {
-  uint32_t magic;
-  uint16_t version, size;
-  uint32_t flags;
-  uint8_t brightness, rotation, matchSecs, timeStyle, numberFont, ldrPin, minimumBrightness, nightBrightness;
-  uint16_t resultMins, ldrDark, ldrLight, nightStart, nightEnd;
-  char timezone[81], ntpServer[129], leagues[401], teams[401], drivers[401];
-  uint32_t crc;
-};
 // Version 2 holds everything that is saved together: the face options each face keeps for itself, the Pac-Man
 // clock colour and the location, so one write commits all of it.
 struct Record {
@@ -26,7 +17,7 @@ struct Record {
   char timezone[81], ntpServer[129], leagues[401], teams[401], drivers[401];
   uint32_t crc;
 };
-static_assert(sizeof(RecordV1) < 1800 && sizeof(Record) < 1800, "Keep the settings record bounded");
+static_assert(sizeof(Record) < 1800, "Keep the settings record bounded");
 template <typename T> uint32_t checksum(const T &record) {
   return esp_crc32_le(0, reinterpret_cast<const uint8_t *>(&record), offsetof(T, crc));
 }
@@ -78,31 +69,6 @@ void Settings::load() {
       terminated(record.timezone, sizeof(record.timezone)) && terminated(record.ntpServer, sizeof(record.ntpServer)) &&
       terminated(record.leagues, sizeof(record.leagues)) && terminated(record.teams, sizeof(record.teams)) &&
       terminated(record.drivers, sizeof(record.drivers));
-  if (valid && p.isKey("settingsV1")) p.remove("settingsV1");  // migrated already: its flash is needed for the face settings that keep their own record
-  RecordV1 old{};
-  bool migrate = !valid && p.isKey("settingsV1") && p.getBytesLength("settingsV1") == sizeof(old) &&
-      p.getBytes("settingsV1", &old, sizeof(old)) == sizeof(old) &&
-      old.magic == kMagic && old.version == 1 && old.size == sizeof(old) && old.crc == checksum(old) &&
-      terminated(old.timezone, sizeof(old.timezone)) && terminated(old.ntpServer, sizeof(old.ntpServer)) &&
-      terminated(old.leagues, sizeof(old.leagues)) && terminated(old.teams, sizeof(old.teams)) &&
-      terminated(old.drivers, sizeof(old.drivers));
-  if (migrate) {  // the first start on version 2: the old shared bytes belong to the face that is running now
-    record.flags = old.flags;
-    record.brightness = old.brightness; record.rotation = old.rotation; record.matchSecs = old.matchSecs;
-    record.ldrPin = old.ldrPin; record.minimumBrightness = old.minimumBrightness; record.nightBrightness = old.nightBrightness;
-    record.resultMins = old.resultMins; record.ldrDark = old.ldrDark; record.ldrLight = old.ldrLight;
-    record.nightStart = old.nightStart; record.nightEnd = old.nightEnd;
-    memcpy(record.timezone, old.timezone, sizeof(record.timezone)); memcpy(record.ntpServer, old.ntpServer, sizeof(record.ntpServer));
-    memcpy(record.leagues, old.leagues, sizeof(record.leagues)); memcpy(record.teams, old.teams, sizeof(record.teams));
-    memcpy(record.drivers, old.drivers, sizeof(record.drivers));
-    memcpy(record.faceOptions, faceOptions, sizeof(faceOptions));
-    record.faceOptions[kNumberSlot] = old.numberFont; record.faceOptions[kStyleSlot] = old.timeStyle;
-    const uint32_t clockColour = p.isKey("pacClockColor") ? p.getUInt("pacClockColor", 0) : 0;
-    record.pacmanClockColor = clockColour < pacmancolors::COLOR_COUNT ? clockColour : 0;
-    if (p.isKey("lat") && p.isKey("lon")) { record.latitude = p.getFloat("lat", 0); record.longitude = p.getFloat("lon", 0); record.flags |= kLocationFlag; }
-    else record.flags &= ~kLocationFlag;
-    valid = true;
-  }
   if (valid) {
     brightness = record.brightness; rotation = record.rotation; matchSecs = record.matchSecs;
     memcpy(faceOptions, record.faceOptions, sizeof(faceOptions));
@@ -124,32 +90,18 @@ void Settings::load() {
     timezone = record.timezone; ntpServer = record.ntpServer;
     footballLeagues = record.leagues; footballTeams = record.teams; f1Drivers = record.drivers;
   } else {
-    // Legacy keys remain intact. A first save writes one versioned NVS blob;
-    // the old firmware can still read its old settings after a rollback.
-    rotation = std::min<uint32_t>(p.getUInt("rotation", 0), 3U);
-    matchSecs = constrain(p.getUInt("matchSecs", 8), 3U, 60U);
-    resultMins = min(p.getUInt("resultMins", 120), (uint32_t)1440);
-    timeStyle = std::min<uint32_t>(p.getUInt("timeStyle", 2), 5U);
-    numberFont = p.getUInt("numberFont", 1) == 1 ? 1 : 0;
-    // Light sensor keys from the previous firmware: auto brightness was on when the bright threshold was above 1.
-    uint32_t pin = p.getUInt("ldrPin", 35), dark = p.getUInt("autoBrightMin", 0), light = p.getUInt("autoBrightMax", 0);
-    if (pin >= 32 && pin <= 39 && pin != 37 && pin != 38) ldrPin = pin;
-    if (light > 1 && light > dark && light <= 4095) { autoBrightness = true; ldrDark = std::min<uint32_t>(dark, 4094); ldrLight = light; }
-    minimumBrightness = constrain(p.getUInt("displayBrMin", 3), 1U, 255U);
-    if (!p.isKey("autoBrightMax")) autoBrightness = lightSensorReadable(ldrPin);  // a fresh or factory-reset clock: auto brightness on when a light sensor answers
-    brightness = constrain(p.getUInt("brightness", autoBrightness ? 255 : 128), 1U, 255U);  // default: full with auto brightness, otherwise half
-    swapBlueGreen = p.getBool("swapBlueGreen", false); ballRoll = p.getBool("ballRoll", true);
-    showRankings = p.getBool("showRankings", true); f1Flags = p.getBool("f1Flags", false); telnet = p.getBool("telnet", false);
-    f1Drivers = p.isKey("f1Drivers") ? p.getString("f1Drivers") : "";
-    footballLeagues = p.isKey("fbLeagues") ? p.getString("fbLeagues") : UM_DEFAULT_FOOTBALL_LEAGUES;
-    footballTeams = p.isKey("fbTeams") ? p.getString("fbTeams") : UM_DEFAULT_FOOTBALL_TEAMS;
-    timezone = p.isKey("timezone") ? p.getString("timezone") : "Europe/Amsterdam";
-  }
-  if (!valid) {  // legacy keys: the settings before any record
-    const uint32_t clockColour = p.isKey("pacClockColor") ? p.getUInt("pacClockColor", 0) : 0;
-    pacmanClockColor = clockColour < pacmancolors::COLOR_COUNT ? clockColour : 0;
-    hasLocation = p.isKey("lat") && p.isKey("lon");
-    if (hasLocation) { latitude = p.getFloat("lat", 0); longitude = p.getFloat("lon", 0); }
+    // No valid record (a fresh or factory-reset clock; the keys of firmware before version 2 are erased at every start): the defaults
+    rotation = 0; matchSecs = 8; resultMins = 120; timeStyle = 2; numberFont = 1;
+    autoBrightness = lightSensorReadable(ldrPin);  // auto brightness on when a light sensor answers
+    minimumBrightness = 3;
+    brightness = autoBrightness ? 255 : 128;  // full with auto brightness, otherwise half
+    swapBlueGreen = false; ballRoll = true; showRankings = true; f1Flags = false; telnet = false;
+    f1Drivers = "";
+    footballLeagues = UM_DEFAULT_FOOTBALL_LEAGUES;
+    footballTeams = UM_DEFAULT_FOOTBALL_TEAMS;
+    timezone = "Europe/Amsterdam";
+    pacmanClockColor = 0;
+    hasLocation = false;
     faceOptions[kNumberSlot] = numberFont; faceOptions[kStyleSlot] = timeStyle;
   }
   p.end();
@@ -190,6 +142,6 @@ bool Settings::save() {
   if (saved) p.putBool("autoUpdate", autoUpdate);  // own key, so records saved before this setting keep it on
   if (saved) p.putString("birthdays", birthdays);  // own key as well: the record stays as it is
   p.end();
-  if (saved) memcpy(faceOptions, options, sizeof(options));
+  if (saved) { memcpy(faceOptions, options, sizeof(options)); counter()++; }
   return saved;
 }

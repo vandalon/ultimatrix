@@ -8,6 +8,7 @@
 #include <NetworkBudget.h>
 #include <NoticeImage.h>
 #include <errno.h>
+#include <unistd.h>
 #include <esp_crt_bundle.h>
 #include <esp_random.h>
 #include <lwip/netdb.h>
@@ -529,6 +530,7 @@ void save() {
   Header h{kMagic, 1, 0, (uint16_t)constrain(srv->arg("delay").toInt() ? srv->arg("delay").toInt() : 100, 20, 60000), {}};
   File f;
   const uint16_t *prev = nullptr;
+  size_t oldSize = 0;  // append: where the new frame starts, so a failed write leaves the earlier frames intact
   if (append) {
     f = LittleFS.open(file, "r+");
     Header old;
@@ -544,7 +546,8 @@ void save() {
     }
     if (last && lastSlot == id && lastFrames == old.frames) prev = last;
     h = old; ++h.frames;
-    f.seek(0, SeekEnd);
+    oldSize = f.size();
+    f.seek(oldSize);
   }
   int mode;
   const size_t need = frameSize(buf, prev, mode) + 4096;
@@ -557,9 +560,15 @@ void save() {
     if (f) f.write((const uint8_t *)&h, sizeof(h));
   }
   bool ok = f && writeFrame(f, buf, prev);
-  if (ok && append) { f.seek(0); ok = f.write((const uint8_t *)&h, sizeof(h)) == sizeof(h); }
+  bool headerTorn = false;
+  if (ok && append) { f.seek(0); ok = f.write((const uint8_t *)&h, sizeof(h)) == sizeof(h); headerTorn = !ok; }
   if (f) f.close();
-  if (!ok) { LittleFS.remove(file); message(500, "Could not store the drawing."); return; }
+  // A failed new drawing is removed. A failed append is cut back to the frames it had; only when that is not possible (or the header itself was torn) is the drawing removed
+  if (!ok) {
+    const String full = String(LittleFS.mountpoint()) + file;
+    if (!append || headerTorn || truncate(full.c_str(), oldSize) != 0) LittleFS.remove(file);
+  }
+  if (!ok) { message(500, "Could not store the drawing."); return; }
   if (!last && heap_caps_get_free_size(MALLOC_CAP_8BIT) >= kBufferBytes + kHeadroom) last = (uint16_t *)malloc(kBufferBytes);
   if (last) { memcpy(last, buf, kBufferBytes); lastSlot = id; lastFrames = h.frames; lastAt = millis(); }
   shown = id; options().paintSlot = id; touched();

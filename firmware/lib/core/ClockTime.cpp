@@ -21,11 +21,26 @@ void ClockTime::begin(const char *timeZone, bool use24format, const char *ntpSer
   ultime::begin(ntpServer, rule);
 }
 
+// The fields are read one call at a time, so the time is kept for a few milliseconds: a face that reads hour, minute and second in
+// one frame always sees the same instant, also across a minute rollover (it would otherwise draw 12:00 for 13:00 for a frame).
 struct tm ClockTime::localTm() const
 {
-  time_t t = ultime::now();
+  static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
+  static struct tm cached;
+  static uint32_t cachedAt = 0;
+  static bool have = false;
+  const uint32_t now = millis();
   struct tm tm;
+  portENTER_CRITICAL(&lock);
+  const bool fresh = have && (uint32_t)(now - cachedAt) < 30;
+  if (fresh) tm = cached;
+  portEXIT_CRITICAL(&lock);
+  if (fresh) return tm;
+  time_t t = ultime::now();
   localtime_r(&t, &tm);
+  portENTER_CRITICAL(&lock);
+  cached = tm; cachedAt = now; have = true;
+  portEXIT_CRITICAL(&lock);
   return tm;
 }
 

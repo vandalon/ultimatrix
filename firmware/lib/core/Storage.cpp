@@ -46,7 +46,8 @@ String json() {
   int drawingFiles = 0;
   Totals other;
   size_t freeBytes = 0, totalBytes = 0;
-  if (beginDiskCache()) {
+  const bool available = beginDiskCache();
+  if (available) {
     File root = LittleFS.open("/");
     for (File f = root.openNextFile(); f; f = root.openNextFile()) {
       if (f.isDirectory()) continue;
@@ -57,7 +58,7 @@ String json() {
     freeBytes = totalBytes - LittleFS.usedBytes();
   }
   f1Entries(other);
-  return String("{\"free\":") + (unsigned)freeBytes + ",\"total\":" + (unsigned)totalBytes +
+  return String("{\"available\":") + (available ? "true" : "false") + ",\"free\":" + (unsigned)freeBytes + ",\"total\":" + (unsigned)totalBytes +
          ",\"drawings\":{\"files\":" + drawingFiles + ",\"bytes\":" + (unsigned)drawingBytes + "},\"other\":{\"files\":" + other.files + ",\"bytes\":" + (unsigned)other.bytes + ",\"list\":[" + other.list + "]}}";
 }
 
@@ -85,5 +86,11 @@ int clear() {
   }
   consoleLog("[Storage] Cleared %d items\n", removed);
   return removed;
+}
+
+bool reformat() {
+  const bool ok = formatDiskCache();
+  consoleLog("[Storage] Flash disk formatted: %s\n", ok ? "ok" : "failed");
+  return ok;
 }
 }  // namespace storage

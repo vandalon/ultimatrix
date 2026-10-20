@@ -599,19 +599,21 @@ unsigned long FootballTicker::refresh() {
   // duplicate, so it keeps the favourite's colour. A club whose league is followed anyway is on
   // that league's board already.
   std::vector<String> keys;
-  bool ok = true;
+  int boards = 0, failed = 0;  // one failing board (a bad team id, one league down) must not hold up the others
   for (Favourite &fav : _favourites) {
     if (fav.day != todayNr || (!fav.national && followsLeague(fav.league))) continue;
     String key = fav.league + "/" + fav.abbreviation;
-    ok &= updateBoard(key, fav.league.c_str(), today, fav.abbreviation.c_str(),
+    boards++;
+    failed += !updateBoard(key, fav.league.c_str(), today, fav.abbreviation.c_str(),
                       favouriteColor(fav.abbreviation, fav.national, fav.league), fav.abbreviation.c_str());
     keys.push_back(key);
   }
   for (const FootballLeague *league : _leagues) {
-    ok &= updateBoard(league->code, league->code, today, league->label, league->color, nullptr);
+    boards++;
+    failed += !updateBoard(league->code, league->code, today, league->label, league->color, nullptr);
     keys.push_back(league->code);
   }
-  if (!ok) {  // keep showing the previous data
+  if (boards && failed == boards) {  // nothing came in: keep showing the previous data
     setStatus(FAILED);
     _footballNextAt = millis() + RETRY_MS;
     return RETRY_MS;
@@ -849,6 +851,9 @@ bool FootballTicker::loadConfig() {
 #ifdef UM_FOOTBALL_ONLY
   static int lastShowRankings = -1;
 #endif
+  static uint32_t seenSaves = UINT32_MAX;  // nothing saved since the last look: skip the flash read
+  if (seenSaves == Settings::saveCount()) return false;
+  seenSaves = Settings::saveCount();
   Settings config;
   config.load();
   strlcpy(leagues, config.footballLeagues.c_str(), 401);
@@ -901,7 +906,7 @@ bool FootballTicker::loadConfig() {
     if (!leaguesChanged && !favouritesChanged) _footballNextAt = 0;
   }
 #endif
-  logf("[Football] Following %d leagues and %d favourites\n", _leagues.size(), _favourites.size());
+  logf("[Football] Following %u leagues and %u favourites\n", (unsigned)_leagues.size(), (unsigned)_favourites.size());
   return leaguesChanged || favouritesChanged;
 }
 
@@ -947,7 +952,8 @@ void FootballTicker::checkFavourites(time_t today) {
     logf("[Football] %s next match: %s, %s\n", fav.abbreviation.c_str(), league.c_str(),
                   playsToday ? "today" : "not today");
   }
-  if (ok) _nationalCheckedAt = millis();
+  // A failure (a wrong team id, ESPN down) is asked again in BOARD_RETRY_MS, not every round
+  _nationalCheckedAt = ok ? millis() : millis() - NATIONAL_CHECK_MS + BOARD_RETRY_MS;
 }
 
 bool FootballTicker::fetchNextMatch(const char *teamId, String &league, time_t &kickoff) {
@@ -972,6 +978,8 @@ bool FootballTicker::updateBoard(const String &key, const char *league, time_t t
   Board &board = _boards[key];
   uint32_t todayNr = today / SECS_PER_DAY;
   time_t nowUtc = ultime::now();
+  if (board.retryAt && (long)(millis() - board.retryAt) < 0) return board.day == todayNr;  // failed lately: wait before asking again
+  board.retryAt = 0;
 
   bool busy = false;
   for (const Match &m : board.matches)
@@ -987,12 +995,12 @@ bool FootballTicker::updateBoard(const String &key, const char *league, time_t t
   }
 
   std::vector<Match> matches;
-  if (!fetchScoreboard(league, today, label, color, onlyTeam, matches)) return board.day == todayNr;
+  if (!fetchScoreboard(league, today, label, color, onlyTeam, matches)) { board.retryAt = millis() + (board.day == todayNr ? RETRY_MS : BOARD_RETRY_MS); return board.day == todayNr; }
   if (onlyTeam) {
     // ESPN files a match under its US Eastern date, which starts at 06:00 in
     // Europe: a national team playing abroad overnight (00:00-06:00 here) is
     // under yesterday's date. Look there too, and keep what is on today.
-    if (!fetchScoreboard(league, today - SECS_PER_DAY, label, color, onlyTeam, matches)) return board.day == todayNr;
+    if (!fetchScoreboard(league, today - SECS_PER_DAY, label, color, onlyTeam, matches)) { board.retryAt = millis() + (board.day == todayNr ? RETRY_MS : BOARD_RETRY_MS); return board.day == todayNr; }
   }
   matches.erase(std::remove_if(matches.begin(), matches.end(),
                                [&](const Match &m) {

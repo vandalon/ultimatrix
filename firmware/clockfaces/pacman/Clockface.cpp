@@ -257,11 +257,7 @@ void chooseGhostDir(int index, uint32_t now) {
   if (g.mode == Mode::Scatter) scatterTarget(index, tc, tr);
   else chaseTarget(index, tc, tr);
   int best = -1, bestDistance = 1 << 20;
-  for (int i = 0; i < n; i++) {   // the order up, left, down, right breaks ties, as in the arcade
-    static const int8_t ORDER[4] = {Up, Left, Down, Right};
-    (void)ORDER;
-  }
-  static const int8_t ORDER[4] = {Up, Left, Down, Right};
+  static const int8_t ORDER[4] = {Up, Left, Down, Right};  // this order breaks ties, as in the arcade
   for (int k = 0; k < 4; k++)
     for (int i = 0; i < n; i++) {
       if (options[i] != ORDER[k]) continue;
@@ -282,8 +278,10 @@ void startScare(uint32_t now) {
   }
 }
 
+int scheduleMode(uint32_t clockMs);
+
 void endScare() {
-  for (Ghost &g : ghosts) if (g.mode == Mode::Scared) g.mode = (modeClock / 1000) % 2 == 0 ? Mode::Scatter : Mode::Chase;
+  for (Ghost &g : ghosts) if (g.mode == Mode::Scared) g.mode = scheduleMode(modeClock) == 0 ? Mode::Scatter : Mode::Chase;
 }
 
 int scheduleMode(uint32_t clockMs) {   // 0 scatter, 1 chase
@@ -313,7 +311,7 @@ void moveGhost(int index, float dt, uint32_t now) {
     g.c = (g.c + DX[g.dir] + COLS) % COLS;
     g.r += DY[g.dir];
     if (g.mode == Mode::Leaving) {   // out of the door: hunting
-      g.mode = (modeClock / 1000) % 2 == 0 && scheduleMode(modeClock) == 0 ? Mode::Scatter : Mode::Chase;
+      g.mode = scheduleMode(modeClock) == 0 ? Mode::Scatter : Mode::Chase;
       if (now < scaredUntil && !g.eaten) g.mode = Mode::Scared;
       g.dir = g.c <= COLS / 2 - 1 ? Left : Right;
       chooseGhostDir(index, now);

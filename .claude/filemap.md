@@ -81,6 +81,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - build-bridge.sh: builds/packages the migration bridge image
 - build-webflasher.sh: merges full-flash images and ESP Web Tools manifests into web-flasher/firmware/ (generated)
 - package-firmware.py: packages application images and signed OTA manifests into dist/ (generated)
+- check-nvs-keys.py: fails when a key stored in the "ultimatrix" NVS namespace is missing from kKnownKeys (main.cpp) or the Home cleanup list; runs in CI
 - check-static-ram.py: post-build check that fails a face above the 60 KB static RAM budget (hooked in firmware/CMakeLists.txt)
 
 - img2base64.py: JPEG/PNG -> 64x64 rgb565_base64 JSON payload for MQTT pixels/set (Pillow)

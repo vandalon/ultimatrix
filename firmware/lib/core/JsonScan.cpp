@@ -56,6 +56,7 @@ struct Scanner {
           continue;
         } else if (c == 'n') c = '\n';
         else if (c == 't') c = '\t';
+        else if (c == 'r' || c == 'b' || c == 'f') c = ' ';  // \r \b \f: not drawable, and not the letters r, b, f
         else if (c < 0) { failed = true; break; }
       }
       if (at + 1 < size) to[at++] = c;

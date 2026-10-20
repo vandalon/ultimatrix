@@ -152,6 +152,7 @@ class FootballTicker {
       std::vector<Match> matches;
       uint32_t day = 0;            // local day number the matches are for
       unsigned long fetchedAt = 0;
+      unsigned long retryAt = 0;   // after a failed download: not before this time (0 = no wait)
     };
     std::map<String, Board> _boards;
     bool _haveScores = false;

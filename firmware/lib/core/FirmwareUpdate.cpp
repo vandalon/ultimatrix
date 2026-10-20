@@ -11,6 +11,7 @@
 #include <cJSON.h>
 #include <esp_heap_caps.h>
 #include <memory>
+#include <time.h>
 #include <Preferences.h>
 
 extern "C" bool verifyRollbackLater() { return true; }
@@ -41,6 +42,19 @@ void fileUrl(char *url, size_t size, const char *mode, const char *name) {
 void historyKey(char *key, size_t size, const char *mode) {
   char server[kServerMax];
   snprintf(key, size, customServer(server, sizeof(server)) ? "%s-p" : "%s", mode);
+}
+// Releases are numbered by packaging time, so none can be older than the running build. This floor survives a factory
+// reset (which wipes the history above), so a stale signed image cannot be replayed to a clock that has no entry for it.
+// The margin covers build-machine and device time zones.
+uint32_t releaseFloor() {
+  struct tm built = {};
+  const esp_app_desc_t *app = esp_app_get_description();
+  char stamp[40]; snprintf(stamp, sizeof(stamp), "%s %s", app->date, app->time);
+  if (!strptime(stamp, "%b %d %Y %H:%M:%S", &built)) return 0;
+  built.tm_isdst = 0;
+  time_t at = mktime(&built);
+  const time_t kMargin = 2 * 24 * 3600;
+  return at > kMargin ? (uint32_t)(at - kMargin) : 0;
 }
 size_t minFreeBlock() {
   char url[9]; fileUrl(url, sizeof(url), "", "");
@@ -168,7 +182,7 @@ const char *fetchManifest(const char *target, Manifest &out, const esp_partition
     uint8_t digest[32]; char digestKey[28]; snprintf(digestKey, sizeof(digestKey), "%sd", key);
     bool known = history.getBytes(digestKey, digest, sizeof(digest)) == sizeof(digest);
     // The same authenticated release may be installed again (switching back to a face); older ones, or other content under the same number, may not
-    out.replayed = out.release < accepted || (out.release == accepted && known && memcmp(digest, out.elfSha256, sizeof(digest)));
+    out.replayed = out.release < releaseFloor() || out.release < accepted || (out.release == accepted && known && memcmp(digest, out.elfSha256, sizeof(digest)));
     history.end();
   }
   return nullptr;

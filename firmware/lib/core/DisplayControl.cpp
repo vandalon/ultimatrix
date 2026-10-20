@@ -30,10 +30,21 @@ uint8_t DisplayControl::update(const Settings &s, uint32_t now, bool synced, uns
   } else _dark = false;
   _night = s.nightEnabled && synced && s.nightStart != s.nightEnd &&
       (s.nightStart < s.nightEnd ? minute >= s.nightStart && minute < s.nightEnd : minute >= s.nightStart || minute < s.nightEnd);
-  // Sunset to sunrise at the clock's location, once it is known; until then the fixed hours above still apply
-  if (s.nightEnabled && s.nightSun && s.hasLocation && synced) _night = sun::isNight(s.latitude, s.longitude, time(nullptr), minute);
+  // Sunset to sunrise at the clock's location, once it is known; until then the fixed hours above still apply.
+  // The sun moves slowly: worked out once a minute (and again when the location changes), not at the frame rate.
+  static bool sunDown = false;
+  static long sunMinute = -1;
+  static float sunLat = 0, sunLon = 0;
+  if (s.hasLocation && synced) {
+    const long thisMinute = (long)(time(nullptr) / 60);
+    if (thisMinute != sunMinute || s.latitude != sunLat || s.longitude != sunLon) {
+      sunDown = sun::isNight(s.latitude, s.longitude, time(nullptr), minute);
+      sunMinute = thisMinute; sunLat = s.latitude; sunLon = s.longitude;
+    }
+  } else sunMinute = -1;
+  if (s.nightEnabled && s.nightSun && s.hasLocation && synced) _night = sunDown;
   _clock = s.nightClock;  // switched off: the face stays up at night, still dimmed to the minimum brightness
-  _sunDown = s.hasLocation && synced && sun::isNight(s.latitude, s.longitude, time(nullptr), minute);
+  _sunDown = s.hasLocation && synced && sunDown;
   // The red night clock follows the minimum brightness; a face that paints its own night keeps its brightness until the room is dark
   if (faceHandlesNight ? _dark : nightActive()) value = std::min(s.minimumBrightness, s.brightness);
   // Keep provisioning QR and startup text readable, even during scheduled dimming.

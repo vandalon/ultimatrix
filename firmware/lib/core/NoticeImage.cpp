@@ -194,6 +194,7 @@ void holdFeeds(FeedHolder who, bool hold) {
   }
 }
 std::shared_ptr<Image> loadImage(const char *url, bool fill) {
+  if (!url || strlen(url) > kDownloadUrlMax) return {};  // before busy is taken: a refusal here must not leave it set
   const size_t need = url && !strncmp(url, "https://", 8) ? 48000 : 40000;  // TLS needs the bigger reserve
   const size_t freeHeap = heap_caps_get_free_size(MALLOC_CAP_8BIT), largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
   if (firmwareUpdating || liveDataActive() || WiFi.status() != WL_CONNECTED || freeHeap < need || largest < 16000 || busy.exchange(true)) {
@@ -205,7 +206,6 @@ std::shared_ptr<Image> loadImage(const char *url, bool fill) {
     }
     return {};
   }
-  if (!url || strlen(url) > kDownloadUrlMax) return {};
   auto *f = new (std::nothrow) Fetch;
   auto *image = new (std::nothrow) Image;
   if (!f || !image) { delete f; delete image; busy = false; return {}; }

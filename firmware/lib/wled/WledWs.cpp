@@ -67,7 +67,7 @@ void readFrames() {
   int n = client.available();
   if (n > 0) {
     if ((size_t)n > kBuffer - have) n = kBuffer - have;
-    if (n > 0) have += client.read(buf.get() + have, n);
+    if (n > 0) { const int got = client.read(buf.get() + have, n); if (got > 0) have += got; }  // a read error returns -1
   }
   for (;;) {
     if (have < 2) return;
@@ -97,8 +97,8 @@ void readFrames() {
 
 void wsAttach(WebServer &server) {
   srv = &server;
-  static const char *keys[] = {"Sec-WebSocket-Key", "User-Agent"};
-  server.collectHeaders(keys, 2);
+  static const char *keys[] = {"Sec-WebSocket-Key", "User-Agent", "Origin", "Sec-Fetch-Site"};
+  server.collectHeaders(keys, 4);
   server.on("/ws", HTTP_GET, handshake);
 }
 

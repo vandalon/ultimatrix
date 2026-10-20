@@ -12,6 +12,8 @@
 #include <esp_app_desc.h>
 #include <esp_random.h>
 #include <memory>
+#include <utility>
+#include <vector>
 #include <stdarg.h>
 #include <stdlib.h>
 
@@ -380,6 +382,8 @@ void postJson() {
 
 // The query API: /win?A=128&FX=9&SX=100&R=255&G=0&B=0&T=1 ...
 void win() {
+  // /win changes state on a GET, which any web page can fire with an <img> tag: browsers label that cross-site
+  if (srv->header("Sec-Fetch-Site") == "cross-site") { srv->send(403, "text/plain", "Cross-site request refused."); return; }
   if (srv->args()) inputActivity();
   if (!enabled()) { srv->send(404, "text/plain", "WLED is off in the settings"); return; }
   State &s = state();
@@ -535,20 +539,32 @@ void backupRestore() {
     srv->send(400, "application/json", "{\"message\":\"That is not a backup file from this clock face.\"}");
     return;
   }
+  // Parse the presets first: nothing is touched when none of them is usable (a damaged file must not wipe what the clock has)
+  const cJSON *presets = cJSON_GetObjectItem(root.get(), "presets");
+  std::vector<std::pair<int, Preset>> parsed;
+  if (cJSON_IsObject(presets)) {
+    int slots = 0;  // entries with a real preset number (the "0" placeholder of an empty list does not count)
+    for (const cJSON *entry = presets->child; entry; entry = entry->next) {
+      const int id = entry->string ? atoi(entry->string) : 0;
+      Preset p;
+      if (id < 1 || id > kPresets) continue;
+      slots++;
+      if (parsePreset(entry, p)) parsed.emplace_back(id, p);
+    }
+    if (slots && parsed.empty()) {
+      srv->send(400, "application/json", "{\"message\":\"The presets in that file are not usable. Nothing was changed.\"}");
+      return;
+    }
+  }
   const cJSON *op = cJSON_GetObjectItem(root.get(), "options");
   if (cJSON_IsObject(op)) {
     options().timeoutMin = (uint8_t)constrain(number(cJSON_GetObjectItem(op, "timeoutMin"), 0), 0, 255);
     const int fx = number(cJSON_GetObjectItem(op, "bootEffect"), -1);
     options().bootEffect = fx >= 0 && effectKnown(fx) ? fx : 255;
   }
-  const cJSON *presets = cJSON_GetObjectItem(root.get(), "presets");
   if (cJSON_IsObject(presets)) {
     for (int id = 1; id <= kPresets; ++id) deletePreset(id);
-    for (const cJSON *entry = presets->child; entry; entry = entry->next) {
-      const int id = entry->string ? atoi(entry->string) : 0;
-      Preset p;
-      if (id >= 1 && id <= kPresets && parsePreset(entry, p)) setPreset(id, p);
-    }
+    for (const auto &entry : parsed) setPreset(entry.first, entry.second);
     ++presetStamp;
   }
   const cJSON *timers = cJSON_GetObjectItem(root.get(), "timers");
@@ -585,7 +601,6 @@ void apiAttach(WebServer &server, void (*postRoute)(const char *, WebServer::THa
   srv = &server;
   // Browsers and the WLED app's web view ask OPTIONS before a JSON POST: answer it like WLED does
   server.onNotFound([]() {
-    Serial.printf("[Http] not found: %d %s\n", (int)srv->method(), srv->uri().c_str());
     if (srv->method() == HTTP_OPTIONS) {
       srv->sendHeader("Access-Control-Allow-Origin", "*");
       srv->sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -645,7 +660,6 @@ namespace wled {
 bool wantsLightPage(WebServer &server) {
   if (!enabled() || server.hasArg("settings")) return false;
   String agent = server.header("User-Agent");
-  Serial.printf("[Http] / from %s\n", agent.c_str());
   agent.toLowerCase();
   return agent.indexOf("wled") >= 0;
 }

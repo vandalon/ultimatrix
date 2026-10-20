@@ -15,8 +15,10 @@
 // dropped (it still counts as activity, so the stream brings the overlay up and the next frame is drawn). The
 // main loop owns the panel; `owns` is only changed under the lock, so a handler that sees it set may draw.
 namespace wled {
+static bool blockedByLive();  // below
 namespace {
 constexpr uint16_t kDdpPort = 4048, kWledPort = 21324, kArtNetPort = 6454, kE131Port = 5568;
+constexpr uint32_t kMaxHoldMs = 30000;        // however long a sender asks (WLED's 255 means an hour): a stream that stops gives the panel back
 constexpr uint32_t kDefaultHoldMs = 3000;     // a stream with no timeout of its own ends this long after its last packet
 constexpr uint8_t kPushFlag = 0x01, kTimecodeFlag = 0x10;
 constexpr int kArtUniversePixels = 170;       // 510 channels per universe
@@ -49,6 +51,8 @@ inline void put(int index, uint8_t r, uint8_t g, uint8_t b) {
 class Draw {
 public:
   Draw(Source from, uint32_t holdMs) {
+    if (blockedByLive()) return;  // "ignore WLED while a match or session is live": streams too, not just commands
+    if (holdMs > kMaxHoldMs) holdMs = kMaxHoldMs;
     activeUntil.store(millis() + holdMs, std::memory_order_relaxed);
     source.store(from, std::memory_order_relaxed);
     packets.fetch_add(1, std::memory_order_relaxed);

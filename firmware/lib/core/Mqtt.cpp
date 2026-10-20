@@ -2,6 +2,7 @@
 // Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #include "Mqtt.h"
+#include <cmath>
 #include "Console.h"
 #include "ScreenPng.h"
 #include "NetworkBudget.h"
@@ -260,6 +261,8 @@ void Mqtt::handle(int32_t id, esp_mqtt_event_handle_t event) {
       for (int i = 0; i < E_COUNT; i++)
         if ((kEntities[i].flags & COMMAND) && (int)strlen(kEntities[i].key) == nameLen && strncmp(kEntities[i].key, key, nameLen) == 0) { entity = i; break; }
       if (entity < 0) break;
+      // A retained message is replayed at every reconnect: never let it restart, update or switch the clock
+      if (event->retain && (entity == E_RESTART || entity == E_CHECK_UPDATE || entity == E_UPDATE || entity == E_FACE)) break;
       char value[sizeof(_noticeText)];
       if (entity == E_NOTIFY && event->data_len >= (int)sizeof(value)) break;  // never treat truncated JSON as a text notice
       const int n = min(event->data_len, (int)sizeof(value) - 1);
@@ -267,7 +270,7 @@ void Mqtt::handle(int32_t id, esp_mqtt_event_handle_t event) {
       value[n] = 0;
       std::lock_guard<std::mutex> guard(_lock);
       if (entity == E_NOTIFY) { strlcpy(_noticeText, value, sizeof(_noticeText)); _hasNotice = true; }
-      else if (_queued < kQueue) {
+      else if (_queued < kQueue && strlen(value) < sizeof(_queue[0].value)) {  // a longer value would be cut short and still applied (a wrong host name)
         _queue[_queued].entity = entity;
         strlcpy(_queue[_queued].value, value, sizeof(_queue[_queued].value));
         _queued++;
@@ -340,7 +343,11 @@ constexpr FaceChoice kFaces[] = {{"Home", "home"}, {"Football", "football"}, {"F
 void Mqtt::applyCommand(const Command &command, Settings &s) {
   const char *value = command.value;
   const int8_t on = onOff(value);
-  int number = atoi(value);
+  // A whole number (Home Assistant may send 128.0); anything else is no number and the command is ignored
+  char *end = nullptr;
+  const float parsed = strtof(value, &end);
+  const bool numeric = end != value && !*end && isfinite(parsed) && fabsf(parsed) < 100000;
+  const int number = numeric ? (int)lroundf(parsed) : 0;
   uint16_t minutes;
   switch (command.entity) {
 #ifdef UM_WLED_OVERLAY
@@ -364,15 +371,15 @@ void Mqtt::applyCommand(const Command &command, Settings &s) {
         return;
       }
       return;
-    case E_BRIGHTNESS: s.brightness = constrain(number, 1, 255); break;
-    case E_MIN_BRIGHTNESS: s.minimumBrightness = constrain(number, 1, 255); break;
+    case E_BRIGHTNESS: if (numeric) s.brightness = constrain(number, 1, 255); break;
+    case E_MIN_BRIGHTNESS: if (numeric) s.minimumBrightness = constrain(number, 1, 255); break;
     case E_AUTO_BRIGHTNESS: if (on >= 0) s.autoBrightness = on; break;
     case E_NIGHT_CLOCK: if (on >= 0) s.nightClock = on; break;
     case E_NIGHT_MODE: if (on >= 0) s.nightEnabled = on; break;
     case E_NIGHT_SUN: if (on >= 0) s.nightSun = on; break;
     case E_NIGHT_START: if (clockMinutes(value, minutes)) s.nightStart = minutes; break;
     case E_NIGHT_END: if (clockMinutes(value, minutes)) s.nightEnd = minutes; break;
-    case E_ROTATION: if (number >= 0 && number <= 270 && number % 90 == 0) s.rotation = number / 90; break;
+    case E_ROTATION: if (numeric && number >= 0 && number <= 270 && number % 90 == 0) s.rotation = number / 90; break;
     case E_TIME_24H: if (on >= 0) s.use24h = on; break;
     case E_AUTO_TIMEZONE: if (on >= 0) s.manualTimezone = !on; break;
     case E_TIMEZONE:
@@ -384,8 +391,8 @@ void Mqtt::applyCommand(const Command &command, Settings &s) {
       if (valid) s.ntpServer = value;
       break;
     }
-    case E_LDR_DARK: if (number >= 0 && number <= 4094 && number < s.ldrLight) s.ldrDark = number; break;
-    case E_LDR_LIGHT: if (number >= 1 && number <= 4095 && number > s.ldrDark) s.ldrLight = number; break;
+    case E_LDR_DARK: if (numeric && number >= 0 && number <= 4094 && number < s.ldrLight) s.ldrDark = number; break;
+    case E_LDR_LIGHT: if (numeric && number >= 1 && number <= 4095 && number > s.ldrDark) s.ldrLight = number; break;
     case E_SWAP: if (on >= 0) s.swapBlueGreen = on; break;
     case E_AUTO_UPDATE: if (on >= 0) s.autoUpdate = on; break;
     case E_TELNET: if (on >= 0) s.telnet = on; break;

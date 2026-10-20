@@ -18,6 +18,12 @@ jobs:
         mode: [football, f1, motogp, tetris, word, mario, luigi, pacman, home]
     steps:
       - uses: actions/checkout@v7
+      - name: Check that every stored settings key is in the boot allowlist
+        run: python3 firmware/tools/check-nvs-keys.py
+      - name: Add the KLIPY key for GIF search (repository secret KLIPY_KEY; skipped when it is not set, e.g. pull requests from forks)
+        env:
+          KLIPY_KEY: ${{ secrets.KLIPY_KEY }}
+        run: '[ -z "$KLIPY_KEY" ] || python3 firmware/tools/obfuscate-key.py'
       - name: Build ${{ matrix.mode }}
         uses: espressif/esp-idf-ci-action@v1
         with:

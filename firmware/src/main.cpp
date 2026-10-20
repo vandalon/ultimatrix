@@ -3,6 +3,7 @@
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_timer.h>
+#include <esp_mac.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
@@ -183,11 +184,9 @@ static void setBootScale(unsigned scale) {
 
 // The panel brightness for a user setting, rescaling the boot screens to match
 static uint8_t panelBrightness(uint8_t userBrightness) {
-  if (bootDone) { setBootScale(256); return userBrightness; }
-  if (bootKind == boot::Kind::Welcome) { setBootScale(256); return kBootPanelBrightness; }  // the welcome QR code is always at full brightness, whatever the setting
-  if (portalActive) { setBootScale(256); return kBootPanelBrightness; }  // the setup QR is shown at full brightness whatever the setting, so phones scan it reliably
-  setBootScale(256);  // every boot screen is at full brightness until the clock is synced and the face takes over
-  return kBootPanelBrightness;
+  // The boot screens, the welcome and the setup QR codes are at full brightness whatever the setting (phones then scan the QR reliably), until the clock is synced and the face takes over
+  setBootScale(256);
+  return bootDone ? userBrightness : kBootPanelBrightness;
 }
 
 // The logo's gradient: the wanted output level is kept fractional and ordered-dithered across the lattice (8x8 Bayer),
@@ -871,6 +870,11 @@ static void checkFirmware() {
 
 // The colour quality level for the settings page: what runs, why it was lowered, and the lock
 static void storageState() { server.send(200, "application/json", storage::json()); }
+static void storageReformat() {
+  if (!storage::reformat()) { server.send(500, "application/json", "{\"message\":\"Could not format the flash disk.\"}"); return; }
+  server.send(200, "application/json", "{\"restarting\":true}");
+  restartAt = millis() + 1000;  // every face and cache starts again on the empty disk
+}
 static void storageClear() { storage::clear(); server.send(200, "application/json", storage::json()); }
 
 static void displayStatus() {
@@ -961,6 +965,7 @@ static void mqttSave() {
   long port = server.arg("port").length() ? server.arg("port").toInt() : 1883;
   if (port < 1 || port > 65535) { settingsResponse(400, "The port must be between 1 and 65535."); return; }
   if (user.length() >= sizeof(c.user) || password.length() >= sizeof(c.pass)) { settingsResponse(400, "That username or password is too long."); return; }
+  if (strcmp(c.host, host.c_str()) != 0 && password.isEmpty()) c.pass[0] = 0;  // a new broker never receives the saved password
   strlcpy(c.host, host.c_str(), sizeof(c.host));
   strlcpy(c.user, user.c_str(), sizeof(c.user));
   c.port = (uint16_t)port;
@@ -1301,6 +1306,7 @@ static void haSave() {
       if (!(isalnum((unsigned char)token[i]) || token[i] == '.' || token[i] == '_' || token[i] == '-')) { settingsResponse(400, "The token contains characters a Home Assistant token never has. Copy it again."); return; }
     strlcpy(c->token, token.c_str(), sizeof(c->token));
   }
+  if (token.isEmpty() && (strcmp(c->host, ha::config().host) != 0 || c->port != ha::config().port)) c->token[0] = 0;  // a new address never receives the saved token
   if (server.hasArg("clearToken")) c->token[0] = 0;
   if (server.hasArg("pages")) {
     if (!number("pages", 1, 31, value) || !(value & 15)) { settingsResponse(400, "Choose at least one page."); return; }
@@ -1391,10 +1397,20 @@ public:
   void raw(WebServer &, const String &, HTTPRaw &) override {}
   bool handle(WebServer &web, HTTPMethod, const String &) override {
     if (web.clientContentLength() > kMaxBody) { web.send(413, "text/plain", "Request too large."); return true; }
+    if (!sameOrigin(web)) { web.send(403, "text/plain", "Cross-site request refused."); return true; }
     _fn();
     return true;
   }
 private:
+  // A browser sends Origin on cross-site POSTs: refuse it unless it names this clock. Requests without Origin
+  // (Home Assistant, curl, the WLED app) pass, as they are not driven by a web page.
+  static bool sameOrigin(WebServer &web) {
+    String origin = web.header("Origin");
+    if (!origin.length()) return true;
+    int scheme = origin.indexOf("://");
+    if (scheme < 0) return false;  // "null" (sandboxed or file pages)
+    return origin.substring(scheme + 3).equalsIgnoreCase(web.hostHeader());
+  }
   static constexpr int kMaxBody = 8192;  // the largest settings form (selections are capped at 400 characters each) with room to spare
   String _uri;
   WebServer::THandlerFunction _fn;
@@ -1606,7 +1622,8 @@ static void tidyNvs(bool force = false) {
 #endif
 #if !defined(UM_HOME)
   if (crowded) {  // the Home Assistant face's own records (settings, token, tiles, alert and media options)
-    static const char *const homeKeys[] = {"haCfg", "haTile4", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather"};
+    static const char *const homeKeys[] = {"haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather",
+                                         "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5"};
     nvsEraseKeys("ultimatrix", homeKeys, sizeof(homeKeys) / sizeof(homeKeys[0]));
   }
 #endif
@@ -1707,7 +1724,13 @@ void setup() {
     }
     FirmwareUpdate::rollbackIfPending();
   }
-  WiFi.setHostname("ultimatrix");
+  {  // the router lists each clock under its own name: two clocks would otherwise both be "ultimatrix"
+    uint8_t mac[6] = {};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    char dhcpName[24];
+    snprintf(dhcpName, sizeof(dhcpName), "ultimatrix-%02x%02x", mac[4], mac[5]);
+    WiFi.setHostname(dhcpName);
+  }
   WiFi.setAutoReconnect(true);
   WiFi.setSleep(false);  // as Clockwise does, before any mode change; the STA event handler below re-applies it
   // Modem power saving (the default) delays packets by up to a beacon interval; disable it on every (re)connect.
@@ -1796,6 +1819,8 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   }
   if (forceSetup || setupRefreshRestart) wifi.startConfigPortal(kApName);  // after the restart for the fast display, go straight to the portal
   else wifi.autoConnect(kApName);
+  static const char *headerKeys[] = {"Origin", "Sec-Fetch-Site", "Sec-WebSocket-Key", "User-Agent"};
+  server.collectHeaders(headerKeys, 4);  // Origin: see BoundedPost, Sec-Fetch-Site: /win; the others are read by the WLED overlay
   server.on("/", HTTP_GET, settingsPage);
   postRoute("/settings", saveSettings);
   server.on("/theme.css", HTTP_GET, []() { sendGzip(server, "text/css; charset=utf-8", themeCssGz, themeCssGzEnd); });
@@ -1834,6 +1859,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/firmware/server", saveUpdateServer);
   server.on("/api/storage", HTTP_GET, storageState);
   postRoute("/api/storage/clear", storageClear);
+  postRoute("/api/storage/reformat", storageReformat);
   server.on("/api/display", HTTP_GET, displayStatus);
   postRoute("/api/display", displaySave);
   server.on("/api/mqtt", HTTP_GET, mqttState);

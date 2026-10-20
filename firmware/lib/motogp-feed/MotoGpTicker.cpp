@@ -103,6 +103,8 @@ unsigned long F1Ticker::fetchSeason() {
   }
   strlcpy(seasonId, season, sizeof(seasonId));
   strlcpy(categoryId, category, sizeof(categoryId));
+  if (!events) events = new (std::nothrow) Event[kMaxEvents];
+  if (!events) return kRetryMs;
   EventScan scan;
   scan.now = ultime::now();
   eventCount = 0;
@@ -185,6 +187,8 @@ unsigned long F1Ticker::fetchWeekend() {
     SessionScan scan;
     if (!getScan(url, SessionScan::leaf, &scan)) return kRetryMs;
     scan.finish();
+    if (!sessions) sessions = new (std::nothrow) Sess[kMaxSessions];
+    if (!sessions) return kRetryMs;
     sessionCount = scan.count;
     for (int i = 0; i < sessionCount; i++) sessions[i] = scan.found[i];
     std::sort(sessions, sessions + sessionCount, [](const Sess &a, const Sess &b) { return a.start < b.start; });

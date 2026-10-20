@@ -56,7 +56,10 @@ class MazeBuilder {
       if (valid(m)) return;
     }
     _state = FALLBACK_SEED;
-    do { attempt(m); } while (!valid(m));
+    for (int tries = 0; tries < 100; tries++) {  // seed 1 is valid at once; the bound only keeps a future generator change from hanging the clock
+      attempt(m);
+      if (valid(m)) return;
+    }
   }
 
  private:

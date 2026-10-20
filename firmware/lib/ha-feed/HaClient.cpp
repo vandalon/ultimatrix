@@ -123,6 +123,16 @@ bool stringAfter(const char *message, const char *key, char *out, size_t size) {
   return true;
 }
 
+// Whether the message's own "type" is `name`. Home Assistant writes it before any payload, so the first one is the message's:
+// searching the whole text would also match a sensor name or template result that happens to contain the same words.
+bool typeIs(const char *message, const char *name) {
+  const char *at = strstr(message, "\"type\":\"");
+  if (!at) return false;
+  at += 8;
+  const size_t length = strlen(name);
+  return !strncmp(at, name, length) && at[length] == '"';
+}
+
 }  // namespace
 
 HaClient &HaClient::instance() {
@@ -406,16 +416,16 @@ bool HaClient::session(uint32_t version) {
     }
     const char *text = message.get();
     if (heard < 6) { heard++; char head[72]; strlcpy(head, text, sizeof(head)); consoleLog("[HA] received %d bytes: %s\n", n, head); }  // Home Assistant's own words, never what we send
-    if (strstr(text, "\"auth_required\"")) {
+    if (typeIs(text, "auth_required")) {
       int length = snprintf(nullptr, 0, "{\"type\":\"auth\",\"access_token\":\"%s\"}", config->token);
       std::unique_ptr<char[]> auth(new (std::nothrow) char[length + 1]);
       if (!auth) { set(FAILED, "Out of memory"); break; }
       snprintf(auth.get(), length + 1, "{\"type\":\"auth\",\"access_token\":\"%s\"}", config->token);
       socket.text(auth.get(), length);
-    } else if (strstr(text, "\"auth_invalid\"")) {
+    } else if (typeIs(text, "auth_invalid")) {
       set(FAILED, "Home Assistant refused the token");
       break;
-    } else if (strstr(text, "\"auth_ok\"")) {
+    } else if (typeIs(text, "auth_ok")) {
       // Energy fields set to "auto" are the sensors of the Energy dashboard: ask for them first, then subscribe
       bool wantsAuto = false;
       for (int i = 0; i < ha::E_COUNT; i++) wantsAuto |= !strcmp(config->energy[i], "auto");
@@ -517,7 +527,7 @@ bool HaClient::session(uint32_t version) {
       }
       _todayOk = got;
       _updates++;
-    } else if (strstr(text, "\"type\":\"result\"") && templateId && (uint32_t)idOf(text) == templateId) {
+    } else if (typeIs(text, "result") && templateId && (uint32_t)idOf(text) == templateId) {
       if (strstr(text, "\"success\":false")) {
         char reason[48];
         if (!stringAfter(text, "\"message\":\"", reason, sizeof(reason))) strlcpy(reason, "request refused", sizeof(reason));
@@ -528,7 +538,7 @@ bool HaClient::session(uint32_t version) {
       }
     } else if (mediaId && (uint32_t)idOf(text) == mediaId) {
       const char *result = strstr(text, "\"result\":\"");
-      if (result && strstr(text, "\"type\":\"event\"")) {
+      if (result && typeIs(text, "event")) {
         std::unique_ptr<char[]> line(new (std::nothrow) char[1800]);
         std::unique_ptr<ha::media::Snapshot> found(new (std::nothrow) ha::media::Snapshot);
         if (line && found) {
@@ -539,7 +549,7 @@ bool HaClient::session(uint32_t version) {
       }
     } else if (devicesId && (uint32_t)idOf(text) == devicesId) {
       const char *result = strstr(text, "\"result\":\"");
-      if (result && strstr(text, "\"type\":\"event\"")) {
+      if (result && typeIs(text, "event")) {
         std::unique_ptr<char[]> line(new (std::nothrow) char[600]);
         std::unique_ptr<ha::devices::Snapshot> found(new (std::nothrow) ha::devices::Snapshot);
         if (line && found) {
@@ -548,7 +558,7 @@ bool HaClient::session(uint32_t version) {
           ha::devices::publish(*found);
         }
       }
-    } else if (strstr(text, "\"type\":\"event\"") && templateId && (uint32_t)idOf(text) == templateId) {
+    } else if (typeIs(text, "event") && templateId && (uint32_t)idOf(text) == templateId) {
       const char *result = strstr(text, "\"result\":\"");
       if (result) {
         result += 10;

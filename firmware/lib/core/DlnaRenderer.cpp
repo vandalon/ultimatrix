@@ -28,7 +28,8 @@ struct State {
   WiFiUDP ssdp;
   bool listening = false, playing = false, failed = false, painted = false;
   uint32_t loadAt = 0, announceAt = 0, nextPacketAt = 0, retryAt = 0;
-  IPAddress boundIp, replyIp;
+  IPAddress boundIp, replyIp, lastSearchIp;
+  uint32_t lastSearchAt = 0;  // one answer per sender every few seconds: a spoofed M-SEARCH cannot make the clock flood a victim
   uint16_t replyPort = 0;
   int announceIndex = -1, replyIndex = -1, replyOnly = -1;
 };
@@ -236,12 +237,14 @@ void poll(uint32_t now, bool ready) {
       const int count = size <= 1024 ? st->ssdp.read(buffer, size) : 0;
       st->ssdp.clear(); buffer[count > 0 ? count : 0] = 0;
       String request(buffer);
-      if (st->replyIndex < 0 && request.startsWith("M-SEARCH * HTTP/1.1") && header(request, "MAN").equalsIgnoreCase("\"ssdp:discover\"")) {
+      const bool repeat = remote == st->lastSearchIp && now - st->lastSearchAt < 5000;
+      if (st->replyIndex < 0 && !repeat && request.startsWith("M-SEARCH * HTTP/1.1") && header(request, "MAN").equalsIgnoreCase("\"ssdp:discover\"")) {
         const String search = header(request, "ST");
         consoleLog("[DLNA] M-SEARCH from %s for %s\n", remote.toString().c_str(), search.c_str());
         int match = -1;
         for (int i = 0; i < 6; i++) if (search == target(i)) { match = i; break; }
         if (search == "ssdp:all" || match >= 0) {
+          st->lastSearchIp = remote; st->lastSearchAt = now;
           st->replyIp = remote; st->replyPort = port; st->replyOnly = match; st->replyIndex = match < 0 ? 0 : match;
           const int mx = constrain(header(request, "MX").toInt(), 1L, 3L);
           st->nextPacketAt = now + esp_random() % (mx * 1000);
