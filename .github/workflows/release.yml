@@ -24,12 +24,25 @@ jobs:
         env:
           KLIPY_KEY: ${{ secrets.KLIPY_KEY }}
         run: '[ -z "$KLIPY_KEY" ] || python3 firmware/tools/obfuscate-key.py'
+      - name: Cache the downloaded Arduino component (shared by every face)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: firmware/managed_components
+          key: components-${{ hashFiles('firmware/main/idf_component.yml', 'firmware/dependencies.lock') }}
+      - name: Cache the compiler results of ${{ matrix.mode }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-${{ matrix.mode }}-${{ github.sha }}
+          restore-keys: ccache-${{ matrix.mode }}-
       - name: Build ${{ matrix.mode }}
         uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
         with:
           esp_idf_version: v5.5.5
           target: esp32
           path: firmware
+          # The fresh checkout has new file times, so ccache compares the preprocessed source instead.
+          extra_docker_args: -e CCACHE_DIR=/app/${{ github.repository }}/.ccache -e CCACHE_NODIRECT=1 -e CCACHE_MAXSIZE=120M
           command: idf.py -B build/${{ matrix.mode }} -DULTIMATRIX_MODE=${{ matrix.mode }} -DULTIMATRIX_VERSION=${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'dev' }} build
       - name: Merge the full-flash image for the web flasher
         uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
