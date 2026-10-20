@@ -17,7 +17,7 @@ jobs:
       matrix:
         mode: [football, f1, motogp, tetris, word, mario, luigi, pacman, home]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Check that every stored settings key is in the boot allowlist
         run: python3 firmware/tools/check-nvs-keys.py
       - name: Add the KLIPY key for GIF search (repository secret KLIPY_KEY; skipped when it is not set, e.g. pull requests from forks)
@@ -25,27 +25,53 @@ jobs:
           KLIPY_KEY: ${{ secrets.KLIPY_KEY }}
         run: '[ -z "$KLIPY_KEY" ] || python3 firmware/tools/obfuscate-key.py'
       - name: Build ${{ matrix.mode }}
-        uses: espressif/esp-idf-ci-action@v1
+        uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
         with:
           esp_idf_version: v5.5.5
           target: esp32
           path: firmware
           command: idf.py -B build/${{ matrix.mode }} -DULTIMATRIX_MODE=${{ matrix.mode }} -DULTIMATRIX_VERSION=${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'dev' }} build
       - name: Merge the full-flash image for the web flasher
-        uses: espressif/esp-idf-ci-action@v1
+        uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
         with:
           esp_idf_version: v5.5.5
           target: esp32
           command: bash firmware/tools/build-webflasher.sh ${{ matrix.mode }}
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: build-${{ matrix.mode }}
           path: |
             firmware/build/${{ matrix.mode }}/ultimatrix.bin
             web-flasher/firmware/${{ matrix.mode }}
-  release:
+  sign:
+    # Only this job holds the signing key. It installs hash-pinned packages and runs nothing but the packaging script.
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')  # only an approved release tag signs and publishes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: build-*
+          merge-multiple: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - run: pip install --require-hashes -r firmware/tools/requirements-sign.txt
+      - name: Sign and package update images
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          mkdir -p .tools
+          (umask 077; printf '%s\n' "$UPDATE_SIGNING_KEY" > .tools/update-signing.pem)
+          python firmware/tools/package-firmware.py --flat --out dist/release
+          rm .tools/update-signing.pem
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: signed-release
+          path: dist/release
+  release:
+    needs: sign
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -55,23 +81,15 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: build-*
           merge-multiple: true
-      - uses: actions/setup-python@v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          python-version: '3.12'
-      - run: pip install cryptography
-      - name: Sign and package update images
-        env:
-          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
-        run: |
-          mkdir -p .tools
-          (umask 077; printf '%s\n' "$UPDATE_SIGNING_KEY" > .tools/update-signing.pem)
-          python firmware/tools/package-firmware.py --flat --out dist/release
-          rm .tools/update-signing.pem
+          name: signed-release
+          path: dist/release
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -81,9 +99,9 @@ jobs:
           mkdir -p web-flasher/updates
           cp dist/release/* web-flasher/updates/
           python firmware/tools/build-updates-page.py web-flasher/updates "$GITHUB_REF_NAME"
-      - uses: actions/configure-pages@v6
-      - uses: actions/upload-pages-artifact@v5
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: web-flasher
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

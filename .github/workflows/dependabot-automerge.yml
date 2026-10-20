@@ -1,0 +1,23 @@
+name: Merge Dependabot updates
+# Squash-merges Dependabot's GitHub Actions updates that stay within the same major version, once the required checks pass.
+# Python (signing job) updates and major bumps are left for a manual review.
+on: pull_request
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  merge:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ github.event.pull_request.title }}
+          URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          case "$TITLE" in *"Bump "*" from "*" to "*) ;; *) exit 0 ;; esac
+          [ "$(gh pr view "$URL" --json files --jq '[.files[].path | select(startswith(".github/workflows/") | not)] | length')" = 0 ] || exit 0
+          from=$(printf '%s' "$TITLE" | sed -E 's/.* from v?([0-9]+).* to .*/\1/')
+          to=$(printf '%s' "$TITLE" | sed -E 's/.* to v?([0-9]+).*/\1/')
+          [ "$from" = "$to" ] || exit 0
+          gh pr merge "$URL" --auto --squash
