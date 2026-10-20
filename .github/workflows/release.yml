@@ -7,6 +7,11 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      test_signing:
+        description: Also run the signing job (nothing is published)
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -59,7 +64,7 @@ jobs:
   sign:
     # Only this job holds the signing key. It installs hash-pinned packages and runs nothing but the packaging script.
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')  # only an approved release tag signs and publishes
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.test_signing  # a release tag, or a manual signing test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -85,6 +90,7 @@ jobs:
           path: dist/release
   release:
     needs: sign
+    if: startsWith(github.ref, 'refs/tags/v')  # only a release tag publishes
     runs-on: ubuntu-latest
     permissions:
       contents: write
