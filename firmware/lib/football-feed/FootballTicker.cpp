@@ -818,7 +818,7 @@ unsigned long FootballTicker::fetchRace() {
   }
   logf("[F1] %s %c %s %s %s, %d finished today\n", live.live ? "live" : "no session running",
                 live.tag ? live.tag : 'R', live.top[0].c_str(), live.top[1].c_str(), live.top[2].c_str(),
-                results.size());
+                (int)results.size());
 
   {
     std::lock_guard<std::mutex> guard(_lock);

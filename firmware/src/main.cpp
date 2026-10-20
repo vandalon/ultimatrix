@@ -1408,7 +1408,11 @@ static void haSave() {
   ha::config() = *c;
   strlcpy(ha::weatherEntity(), weather, ha::kEntity);
   memcpy(ha::mediaPlayers(), rooms, sizeof(rooms));
-  if (!ha::save()) { settingsResponse(500, (String("The settings could not be saved (") + ha::saveFailure() + ", flash full?).").c_str()); return; }
+  if (!ha::save()) {
+    ha::load();  // the clock keeps running on what is stored, not on settings that were refused
+    settingsResponse(500, (String("The settings could not be saved (") + ha::saveFailure() + ", flash full?).").c_str());
+    return;
+  }
   settingsResponse(200, "Saved.");
 }
 #endif

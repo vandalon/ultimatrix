@@ -19,7 +19,11 @@ struct Totals {
   size_t bytes = 0;
   String list;
   void add(const String &name, size_t size) {
-    if (files < 24) list += String(files ? "," : "") + "{\"n\":\"" + name + "\",\"b\":" + (unsigned)size + "}";
+    if (files < 24) {
+      String safe;  // file names and cache keys are ours, but the list is JSON: keep a quote or backslash from breaking it
+      for (char c : name) { if (c == '"' || c == '\\') safe += '\\'; if ((uint8_t)c >= ' ') safe += c; }
+      list += String(files ? "," : "") + "{\"n\":\"" + safe + "\",\"b\":" + (unsigned)size + "}";
+    }
     bytes += size;
     files++;
   }

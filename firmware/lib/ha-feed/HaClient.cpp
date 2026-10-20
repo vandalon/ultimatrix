@@ -144,7 +144,7 @@ void HaClient::begin() {
   static uint32_t retryAt = 0;
   if (_started || (int32_t)(millis() - retryAt) < 0) return;
   _started = true;
-  if (xTaskCreatePinnedToCore(task, "homeassistant", 8192, this, 1, nullptr, 0) != pdPASS) {
+  if (createFeedTask(task, "homeassistant", 8192, this, 1, nullptr, 0) != pdPASS) {
     _started = false;
     retryAt = millis() + 5000;  // poll() asks every frame: try again in a few seconds
     consoleLog("[HA] could not start the connection task\n");
@@ -205,8 +205,8 @@ void HaClient::run() {
       set(IDLE, "Waiting for Wi-Fi");
     } else if (feedsHalted()) {
       set(IDLE, firmwareUpdating ? "Paused for an update" : "Paused for a picture or WLED");
-      _started = false;  // the task ends and gives back its 8 KB stack; Clockface::poll() calls begin() again when the hold is over
-      vTaskDelete(nullptr);
+      _started = false;  // the task parks and is deleted by reapFeedTasks(), which gives back its 8 KB stack; Clockface::poll() calls begin() again when the hold is over
+      stopFeedTask();
     } else if (!rejected) {
       const bool ended = session(version);
       ha::media::clear();  // the Now playing page must not outlive the connection that said something was playing
@@ -262,15 +262,21 @@ bool HaClient::session(uint32_t version) {
            config->host, (unsigned)config->port);
   client->print(request);
   {
-    // Status line, then headers up to the empty line
+    // Status line, then headers up to the empty line. A line is read to its end whatever its length (the part
+    // that does not fit is dropped), so a long header is not taken for the empty line that ends them.
     char line[96];
     bool upgraded = false, first = true;
     for (;;) {
-      size_t n = client->readBytesUntil('\n', line, sizeof(line) - 1);
-      if (n == 0 && !client->connected()) break;
-      line[n] = 0;
+      size_t stored = 0;
+      bool ended = false;
+      for (char c; client->readBytes(&c, 1) == 1;) {
+        if (c == '\n') { ended = true; break; }
+        if (stored < sizeof(line) - 1) line[stored++] = c;
+      }
+      if (!ended) break;  // closed or timed out
+      line[stored] = 0;
       if (first) { upgraded = strstr(line, " 101") != nullptr; first = false; if (!upgraded) break; continue; }
-      if (n <= 1) break;  // "\r"
+      if (stored == 0 || (stored == 1 && line[0] == '\r')) break;  // the empty line
     }
     if (!upgraded) { set(FAILED, "Not a Home Assistant WebSocket"); client->stop(); return false; }
   }
