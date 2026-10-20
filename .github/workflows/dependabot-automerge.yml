@@ -1,7 +1,7 @@
 name: Merge Dependabot updates
-# Squash-merges Dependabot's GitHub Actions updates that stay within the same major version, once the required checks pass.
-# Python (signing job) updates and major bumps are left for a manual review.
-on: pull_request
+# Squash-merges Dependabot's GitHub Actions updates that stay within the same major version, once every check on the PR has passed.
+# Python (signing job) updates and major bumps are left for a manual review. Nothing from the PR is checked out or run here.
+on: pull_request_target
 permissions:
   contents: write
   pull-requests: write
@@ -9,6 +9,7 @@ jobs:
   merge:
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - env:
           GH_TOKEN: ${{ github.token }}
@@ -20,4 +21,6 @@ jobs:
           from=$(printf '%s' "$TITLE" | sed -E 's/.* from v?([0-9]+).* to .*/\1/')
           to=$(printf '%s' "$TITLE" | sed -E 's/.* to v?([0-9]+).*/\1/')
           [ "$from" = "$to" ] || exit 0
-          gh pr merge "$URL" --auto --squash
+          sleep 60  # let the PR's own checks appear
+          gh pr checks "$URL" --watch --interval 30
+          gh pr merge "$URL" --squash
