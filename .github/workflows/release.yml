@@ -30,12 +30,12 @@ jobs:
           KLIPY_KEY: ${{ secrets.KLIPY_KEY }}
         run: '[ -z "$KLIPY_KEY" ] || python3 firmware/tools/obfuscate-key.py'
       - name: Cache the downloaded Arduino component (shared by every face)
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: firmware/managed_components
           key: components-${{ hashFiles('firmware/main/idf_component.yml', 'firmware/dependencies.lock') }}
       - name: Cache the compiler results of ${{ matrix.mode }}
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .ccache
           key: ccache-${{ matrix.mode }}-${{ github.sha }}
