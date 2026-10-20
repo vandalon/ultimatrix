@@ -269,9 +269,17 @@ bool HaClient::session(uint32_t version) {
     for (;;) {
       size_t stored = 0;
       bool ended = false;
-      for (char c; client->readBytes(&c, 1) == 1;) {
-        if (c == '\n') { ended = true; break; }
-        if (stored < sizeof(line) - 1) line[stored++] = c;
+      for (;;) {
+        // One byte at a time with its own wait: readBytes() on the TLS client gives up as soon as nothing is pending.
+        int got = -1;
+        for (uint32_t waited = millis(); got < 0 && millis() - waited < 8000;) {
+          if (client->available()) got = client->read();
+          else if (!client->connected()) break;
+          else delay(2);
+        }
+        if (got < 0) break;
+        if (got == '\n') { ended = true; break; }
+        if (stored < sizeof(line) - 1) line[stored++] = (char)got;
       }
       if (!ended) break;  // closed or timed out
       line[stored] = 0;
