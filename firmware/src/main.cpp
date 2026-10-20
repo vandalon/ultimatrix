@@ -16,6 +16,7 @@
 #include <PanelLayout.h>
 #include <ClockTime.h>
 #include <Settings.h>
+#include <Tlds.h>
 #include <DisplayControl.h>
 #include <SunTimes.h>
 #include <NightClock.h>
@@ -532,7 +533,7 @@ static void settingsState() {
       json += ",\"sunTimes\":" + jsonText("Today: sunrise " + minuteText(rise) + ", sunset " + minuteText(set) + ".");
   }
   json += ",\"network\":{\"ssid\":" + jsonText(WiFi.SSID()) + ",\"ip\":" + jsonText(WiFi.localIP().toString()) + ",\"hostname\":" + jsonText(String(mdnsHost) + ".local") + "},\"welcomeHidden\":" + String(welcomeHidden() ? "true" : "false") + ",\"welcomeMode\":" + String(welcomeMode ? "true" : "false") + ",\"settings\":{";
-  json += "\"mdnsUseName\":" + String(s.mdnsUseName ? "true" : "false") + ",\"clockName\":" + jsonText(s.clockName) + ",";
+  json += "\"accessScope\":" + String(s.accessScope) + ",\"anyHost\":" + String(s.anyHost ? "true" : "false") + ",\"mdnsUseName\":" + String(s.mdnsUseName ? "true" : "false") + ",\"clockName\":" + jsonText(s.clockName) + ",";
   json += "\"brightness\":" + String(s.brightness) + ",\"rotation\":" + String(s.rotation);
   json += ",\"use24h\":" + String(s.use24h ? "true" : "false") + ",\"ntpServer\":" + jsonText(s.ntpServer);
   json += ",\"autoBrightness\":" + String(s.autoBrightness ? "true" : "false") + ",\"ldrPin\":" + String(s.ldrPin);
@@ -707,6 +708,20 @@ static bool clockMinute(const char *key, uint16_t &minute) {
   return true;
 }
 
+static bool privateAddress(IPAddress ip) {
+  return ip[0] == 10 || (ip[0] == 172 && (ip[1] & 0xF0) == 16) || (ip[0] == 192 && ip[1] == 168) || (ip[0] == 169 && ip[1] == 254);
+}
+
+// Who may reach the web interface (setting "accessScope"): everything, the private networks (RFC 1918, plus link-local), or the clock's own subnet.
+static bool accessAllowed(IPAddress ip, uint8_t scope) {
+  if (scope == 0 || ip == IPAddress(127, 0, 0, 1)) return true;
+  if (scope == 2) {
+    const uint32_t mask = (uint32_t)WiFi.subnetMask();
+    return ((uint32_t)ip & mask) == ((uint32_t)WiFi.localIP() & mask);
+  }
+  return privateAddress(ip) || !privateAddress(WiFi.localIP());  // on a network with public addresses (some universities) "private only" cannot mean anything: everything may reach it
+}
+
 static void saveSettings() {
   long bright, rotation;
 #ifndef UM_SIMPLE_FACE
@@ -738,6 +753,13 @@ static void saveSettings() {
     if (!Settings::validClockName(name)) { settingsResponse(400, "Enter a clock name of 1 to 48 bytes, without control characters."); return; }
     s.clockName = name;
     s.mdnsUseName = server.hasArg("mdnsUseName");
+    s.anyHost = server.hasArg("anyHost");
+    if (server.hasArg("accessScope")) {
+      long scope;
+      if (!number("accessScope", 0, 2, scope)) { settingsResponse(400, "Choose who may reach the clock."); return; }
+      if (!accessAllowed(server.client().remoteIP(), (uint8_t)scope)) { settingsResponse(400, "That would lock this computer out of the clock. Save it from a computer inside that network."); return; }
+      s.accessScope = (uint8_t)scope;
+    }
   }
   if (server.hasArg("use24h")) {
     long format;
@@ -1417,6 +1439,47 @@ static void haSave() {
 }
 #endif
 
+// DNS rebinding: a web page on another domain can point its name at this clock, and then Origin and Host agree. The page's owner needs a
+// real domain, so a host name under a real top-level domain (IANA's list, lib/core/Tlds.h) is refused. Addresses, .local, single words and
+// internal names with a made-up ending (.lan, .home, joris.panel) pass; so does AVM's fritz.box. Settings: "Allow public host names" turns it off.
+static bool publicHostName(String host) {
+  if (host.startsWith("[")) return false;  // an IPv6 address
+  const int colon = host.indexOf(':');
+  if (colon >= 0) host = host.substring(0, colon);
+  host.toLowerCase();
+  if (host.endsWith(".")) host.remove(host.length() - 1);
+  const int dot = host.lastIndexOf('.');
+  if (dot < 0 || host == "fritz.box" || host.endsWith(".fritz.box")) return false;
+  const String needle = "|" + host.substring(dot + 1) + "|";
+  return strstr(kTlds, needle.c_str()) != nullptr;
+}
+// The WebServer picks a request's handler when it has read the request line only, before the headers (so Host is still the previous
+// request's). The guard therefore takes every request that has a route, remembers the real handler, and decides in handle(), when the
+// headers are known: it answers 403, or passes the request on to the real handler (body limits and raw reads are forwarded too).
+class HostGuard : public RequestHandler {
+public:
+  bool canHandle(WebServer &web, HTTPMethod method, const String &uri) override {
+    _target = next();
+    while (_target && !_target->canHandle(web, method, uri)) _target = _target->next();
+    return _target != nullptr;  // no route: the not-found answer (404, OPTIONS) needs no guard
+  }
+  bool canUpload(WebServer &web, const String &uri) override { return _target && _target->canUpload(web, uri); }
+  bool canRaw(WebServer &web, const String &uri) override { return _target && _target->canRaw(web, uri); }
+  void upload(WebServer &web, const String &uri, HTTPUpload &up) override { if (_target) _target->upload(web, uri, up); }
+  void raw(WebServer &web, const String &uri, HTTPRaw &raw) override { if (_target) _target->raw(web, uri, raw); }
+  bool handle(WebServer &web, HTTPMethod method, const String &uri) override {
+    const bool clientOk = accessAllowed(web.client().remoteIP(), Settings::getInstance()->accessScope);
+    if (!clientOk || (!Settings::getInstance()->anyHost && publicHostName(web.hostHeader()))) {
+      web.send(403, "text/plain", clientOk ? "This clock does not answer to public host names. Open it by its address or its .local name."
+                                           : "This clock only answers to computers inside its network.");
+      return true;
+    }
+    return _target && _target->process(web, method, uri);
+  }
+private:
+  RequestHandler *_target = nullptr;
+};
+
 // POST route with a body limit. The WebServer buffers a whole body before dispatch, so an oversized request is
 // answered through its raw-body path instead: the bytes are read in small chunks and dropped.
 class BoundedPost : public RequestHandler {
@@ -1626,10 +1689,10 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
-  "settingsV2", "clockName", "mdnsUseName", "autoUpdate", "nightClock", "birthdays",                          // Settings.cpp
+  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "birthdays",                          // Settings.cpp
   "mqOn", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
-  "wledS", "wledP", "wledT",                                                                                      // WledState.cpp
+  "wledS", "wledP", "wledT", "searchId",                                                                                    // WledState.cpp
   "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather",  // HaConfig.cpp
   "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5",
 };
@@ -1686,6 +1749,7 @@ void setup() {
   Serial.begin(115200);
   heap_caps_register_failed_alloc_callback(allocationFailed);
   telnet.setWatcher(telnetWatch);
+  telnet.setFilter([](IPAddress ip) { return accessAllowed(ip, Settings::getInstance()->accessScope); });
   if (FirmwareUpdate::takeScheduled(scheduledMode, sizeof(scheduledMode))) { firmwareUpdating = true; scheduledSince = millis(); bootWasScheduled = true; updateOnly = true; }  // keeps the feeds off until the update has run
   tidyNvs();
   auto &s = *Settings::getInstance();
@@ -1871,6 +1935,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   if (forceSetup || setupRefreshRestart) wifi.startConfigPortal(kApName);  // after the restart for the fast display, go straight to the portal
   else wifi.autoConnect(kApName);
   static const char *headerKeys[] = {"Origin", "Sec-Fetch-Site", "Sec-WebSocket-Key", "User-Agent", "X-Token"};
+  server.addHandler(new HostGuard());  // first: every request, GET and POST
   server.collectHeaders(headerKeys, 5);  // Origin and X-Token: see BoundedPost, Sec-Fetch-Site: /win; the others are read by the WLED overlay
   server.on("/", HTTP_GET, settingsPage);
   postRoute("/settings", saveSettings);

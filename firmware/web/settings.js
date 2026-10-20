@@ -200,6 +200,14 @@ bdayList.addEventListener('change', event => {
 });
 bdayList.addEventListener('click', event => { if (event.target.classList.contains('x')) { event.target.closest('.bday').remove(); bdaySync(); field('birthdays').dispatchEvent(new Event('input', { bubbles: true })); } });
 bdayAdd.addEventListener('click', () => { const now = new Date(); bdayList.append(bdayRow({ month: now.getMonth() + 1, day: now.getDate(), name: '', year: '' })); bdayCount(); bdayList.lastChild.querySelector('.n').focus(); });
+// The sections are shown, hidden and filled after the settings arrive, so the browser's own jump to #network lands before the layout is final: jump once more when it is.
+let jumped = false;
+function jumpToHash() {
+  if (jumped || !location.hash) return;
+  jumped = true;
+  const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+  if (target && !target.hidden) requestAnimationFrame(() => target.scrollIntoView());
+}
 async function load() {
   try {
     const response = await fetch('/api/settings', { cache: 'no-store' });
@@ -254,6 +262,7 @@ async function load() {
     }
     controls.disabled = false; save.disabled = false; savedSwap = field('swapBlueGreen').checked; ownNight = data.mode === 'Mario' || data.mode === 'Luigi'; brightness(); sensor(); timezoneMode(); countLeagues(); initial = payload(false).toString(); dirty();
     if (sessionStorage.getItem('ultimatrix-saved')) { sessionStorage.removeItem('ultimatrix-saved'); message('Settings saved. Your clock is ready.'); }
+    jumpToHash();
   } catch (error) { message(error.message, true); document.querySelector('#save-status').textContent = 'Settings could not load'; saveBar.hidden = false; }
 }
 form.addEventListener('input', event => { brightness(event); sensor(event); timezoneMode(); if (!/^(text|search|url)$/.test(event.target.type)) dirty(); });  // typed text saves on change (blur)

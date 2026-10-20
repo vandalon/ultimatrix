@@ -16,14 +16,20 @@
 #include <mbedtls/ssl.h>
 #include <esp_heap_caps.h>
 #include <mbedtls/base64.h>
+#include <mbedtls/sha256.h>
+#include <esp_mac.h>
+#include <esp_chip_info.h>
+#include <esp_rom_sys.h>
+#include <esp_flash.h>
+#include <Preferences.h>
+#include "SearchVm.h"
 #include <algorithm>
 #include <memory>
 #include <new>
 #include <stdlib.h>
-#if __has_include("klipy_key.h")
-#include "klipy_key.h"
-#define UM_KLIPY_KEY 1
-#endif
+// GIF search goes through a Cloudflare Worker (repo ultimatrix-gifs-worker) that holds the KLIPY key; forks point this at their own Worker.
+static const char kSearchHost[] = "ultimatrix-gifs.joris-05e.workers.dev";
+void umSha256(const uint8_t *data, size_t len, uint8_t out[32]) { mbedtls_sha256(data, len, out, 0); }  // for SearchVm.h
 
 // The canvas: a 64x64 RGB565 buffer that the pixel editor (/canvas), the segment's "i" array and saved drawings write to,
 // shown by the Paint effect. Its own small API (/api/canvas/...), independent of WLED's JSON protocol. Drawings are
@@ -836,98 +842,129 @@ struct Tls {
   }
 };
 
-// GIF search: the clock asks KLIPY with the key kept in firmware and hands the browser only the GIF addresses, /api/canvas/search?q=...&page=...
-// The answer is read as a stream (one page runs to about 90 KB): every string that is a .gif address is kept under the size name seen last.
-void search() {
-#ifndef UM_KLIPY_KEY
-  message(501, "This firmware has no KLIPY key.");
-#else
-  const String q = srv->arg("q");
-  if (q.isEmpty() || q.length() > 60) { message(400, "Type something to search for."); return; }
-  struct FeedPark { ~FeedPark() { notice::holdFeeds(notice::HOLD_GIF_SEARCH, false); } } feedPark;  // the feeds resume when the search is over
-  for (int i = 0; i < 40 && heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 32000; i++) {
-    notice::holdFeeds(notice::HOLD_GIF_SEARCH, true);  // park the feeds and wait (up to 2 s) for their memory
-    vTaskDelay(pdMS_TO_TICKS(50));
+// GIF search is done by the browser, straight with the search Worker (repo ultimatrix-gifs-worker), which holds the KLIPY key. The Worker only answers clocks
+// that have signed in: the clock makes a random id once, answers a challenge (a small program, run over facts about this clock, see SearchVm.h)
+// and gets a token that lasts 5 to 10 hours. The page asks for it here, /api/canvas/auth, and signs every search with it.
+struct SearchAuth {
+  char id[33], token[65];
+  uint32_t until = 0, lastTry = 0;  // millis: the token is good until, the last sign-in attempt
+  bool have = false;
+} searchAuth;
+
+bool loadSearchId() {
+  Preferences prefs;
+  if (!prefs.begin("ultimatrix", false)) return false;
+  String id = prefs.getString("searchId", "");
+  if (id.length() != 32) {
+    uint8_t raw[16];
+    esp_fill_random(raw, sizeof(raw));
+    id = "";
+    for (uint8_t b : raw) { char hex[3]; snprintf(hex, sizeof(hex), "%02x", b); id += hex; }
+    if (prefs.putString("searchId", id) == 0) { prefs.end(); return false; }
   }
-  if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 32000) {
-    // a loaded GIF holds the memory: the page repeats the search with &free=1, which removes it from the clock (the same call as deleting an import)
-    if (ram.frames && !srv->hasArg("free")) { json(503, "{\"message\":\"A loaded GIF is using the memory the search needs.\",\"needsFree\":true}"); return; }
-    if (ram.frames) { freeRam(); freeLast(); }
-    if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 32000) { message(503, "Not enough memory to search right now."); return; }
+  prefs.end();
+  strlcpy(searchAuth.id, id.c_str(), sizeof(searchAuth.id));
+  return true;
+}
+
+String base64url(const uint8_t *data, size_t len) {
+  unsigned char out[160];
+  size_t n = 0;
+  if (mbedtls_base64_encode(out, sizeof(out), &n, data, len)) return String();
+  String text;
+  for (size_t i = 0; i < n && out[i] != '='; ++i) text += out[i] == '+' ? '-' : out[i] == '/' ? '_' : (char)out[i];
+  return text;
+}
+
+size_t unbase64url(String text, uint8_t *out, size_t cap) {
+  text.trim();
+  text.replace('-', '+');
+  text.replace('_', '/');
+  while (text.length() % 4) text += '=';
+  size_t n = 0;
+  return mbedtls_base64_decode(out, cap, &n, (const unsigned char *)text.c_str(), text.length()) ? 0 : n;
+}
+
+// One HTTPS request to the search Worker. Returns the status (0 = no answer) and the start of the body.
+int workerCall(const String &request, String &body) {
+  std::unique_ptr<Tls> tls(new (std::nothrow) Tls);
+  if (!tls || !tls->open(kSearchHost, 443, MBEDTLS_SSL_MAX_FRAG_LEN_4096, 8000) || !tls->write(request.c_str())) return 0;
+  String raw;
+  raw.reserve(512);
+  unsigned char chunk[256];
+  for (int n; raw.length() < 1500 && (n = tls->read(chunk, sizeof(chunk))) > 0;) raw.concat((const char *)chunk, (unsigned)n);
+  const int split = raw.indexOf("\r\n\r\n");
+  body = split >= 0 ? raw.substring(split + 4) : String();
+  return raw.startsWith("HTTP/1.") ? raw.substring(9, 12).toInt() : 0;
+}
+
+// Sign in with the Worker. Returns an error text, or nullptr when searchAuth holds a fresh token.
+const char *signIn() {
+  if (!loadSearchId()) return "Could not save the clock's search identity.";
+  struct FeedPark { ~FeedPark() { notice::holdFeeds(notice::HOLD_GIF_SEARCH, false); } } feedPark;  // the feeds resume when this is over
+  notice::holdFeeds(notice::HOLD_GIF_SEARCH, true);  // their memory is what the secure connection needs
+  for (int i = 0; i < 40 && heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 24000; i++) vTaskDelay(pdMS_TO_TICKS(50));
+  if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 24000) return "Not enough memory to sign in right now.";
+
+  String body;
+  if (workerCall(String("GET /c HTTP/1.0\r\nHost: ") + kSearchHost + "\r\nUser-Agent: ultimatrix\r\nConnection: close\r\n\r\n", body) != 200) return "Could not reach the search service.";
+  uint8_t challenge[300];
+  const size_t cl = unbase64url(body, challenge, sizeof(challenge));
+  if (cl < 31 || (cl - 28) % 3) return "The search service answered something unexpected.";
+
+  uint32_t flashBytes = 0;
+  esp_flash_get_size(nullptr, &flashBytes);
+  uint8_t facts[25];
+  uint8_t mac[6];
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  esp_chip_info_t chip;
+  esp_chip_info(&chip);
+  memcpy(facts, mac, 3);
+  facts[3] = (uint8_t)chip.model;
+  facts[4] = (uint8_t)std::min(255, (chip.revision / 100) * 16 + (chip.revision % 100 & 15));
+  facts[5] = (uint8_t)std::min<uint32_t>(255, flashBytes >> 20);
+  facts[6] = (uint8_t)std::min<uint32_t>(255, esp_rom_get_cpu_ticks_per_us() / 10);
+  facts[7] = (uint8_t)std::min<uint32_t>(255, heap_caps_get_free_size(MALLOC_CAP_8BIT) >> 12);
+  facts[8] = (uint8_t)std::min<uint32_t>(255, millis() / 60000 / 8);
+  for (int i = 0; i < 16; i++) { unsigned v = 0; sscanf(searchAuth.id + 2 * i, "%2x", &v); facts[9 + i] = (uint8_t)v; }
+  uint8_t answer[32];
+  if (!searchvm::run(challenge + 28, cl - 28, challenge, facts, sizeof(facts), answer)) return "The search service answered something unexpected.";
+
+  uint8_t reply[28 + 32 + 25 + 8], mixed[32 + 16], mask[32];
+  memcpy(reply, challenge, 28);
+  memcpy(reply + 28, answer, 32);
+  memcpy(mixed, answer, 32);
+  memcpy(mixed + 32, challenge, 16);
+  umSha256(mixed, sizeof(mixed), mask);
+  for (int i = 0; i < 25; i++) reply[60 + i] = facts[i] ^ mask[i];
+  const size_t filler = esp_random() % 8;
+  esp_fill_random(reply + 85, filler);
+  const String payload = base64url(reply, 85 + filler);
+  if (payload.isEmpty()) return "Could not prepare the sign-in.";
+
+  const int status = workerCall(String("POST /r HTTP/1.0\r\nHost: ") + kSearchHost + "\r\nUser-Agent: ultimatrix\r\nContent-Type: text/plain\r\nContent-Length: " +
+                                payload.length() + "\r\nConnection: close\r\n\r\n" + payload, body);
+  if (status == 403) return "Too many new devices from this network, try again later.";
+  if (status == 429) return "Too many sign-ins, try again later.";
+  const int space = body.indexOf(' ');
+  const long ttl = space == 64 ? body.substring(space + 1).toInt() : 0;
+  if (status != 200 || ttl <= 120) return "Could not sign in to the search service.";
+  for (int i = 0; i < 64; i++) if (!isxdigit(body[i])) return "Could not sign in to the search service.";  // the token goes into JSON as it is
+  strlcpy(searchAuth.token, body.substring(0, 64).c_str(), sizeof(searchAuth.token));
+  searchAuth.until = millis() + (uint32_t)(ttl - 120) * 1000;
+  searchAuth.have = true;
+  return nullptr;
+}
+
+// POST /api/canvas/auth[?force=1] -> {"id", "token", "ttl"}: the page's key for the search Worker. force: the Worker did not accept the token.
+void auth() {
+  if (!searchAuth.have || srv->hasArg("force") || (int32_t)(millis() - searchAuth.until) >= 0) {
+    if (searchAuth.lastTry && millis() - searchAuth.lastTry < 60000) { message(429, "Try again in a minute."); return; }
+    searchAuth.lastTry = millis() | 1;
+    searchAuth.have = false;
+    if (const char *error = signIn()) { message(error[0] == 'N' ? 503 : 502, error); return; }
   }
-  char key[sizeof(kKlipyKey) + 1];
-  for (size_t i = 0; i < sizeof(kKlipyKey); ++i) key[i] = kKlipyKey[i] ^ "ultimatrix"[i % 10];
-  key[sizeof(kKlipyKey)] = 0;
-  String request = String("GET /api/v1/") + key + "/gifs/search?per_page=24&customer_id=clock&page=" + constrain(srv->arg("page").toInt(), 1, 50) + "&q=";
-  memset(key, 0, sizeof(key));
-  for (size_t i = 0; i < q.length(); ++i) {
-    char c = q[i], hex[4];
-    if (isalnum((unsigned char)c)) request += c; else { snprintf(hex, sizeof(hex), "%%%02X", (unsigned char)c); request += hex; }
-  }
-  request += " HTTP/1.0\r\nHost: api.klipy.com\r\nUser-Agent: ultimatrix\r\nConnection: close\r\n\r\n";
-  static const char *const sizes[] = {"xs", "sm", "md", "hd"};
-  constexpr int kMax = 24;
-  String found[4];
-  int counts[4] = {0, 0, 0, 0}, size = 3, status = 0;
-  unsigned bytes = 0;
-  {
-    std::unique_ptr<Tls> tls(new (std::nothrow) Tls);
-    if (!tls) { message(503, "Not enough memory to search right now."); return; }
-    if (!tls->open("api.klipy.com", 443, MBEDTLS_SSL_MAX_FRAG_LEN_4096, 8000)) { message(502, "Could not reach KLIPY."); return; }
-    const bool sent = tls->write(request.c_str());
-    request = String();
-    if (!sent) { message(502, "Could not reach KLIPY."); return; }
-    std::unique_ptr<unsigned char[]> chunk(new (std::nothrow) unsigned char[512]);
-    if (!chunk) { message(503, "Not enough memory to search right now."); return; }
-    String token, field, slug;
-    bool inString = false, escape = false, afterString = false, body = false;
-    char head[16] = {0};
-    int headLen = 0;
-    uint32_t tail = 0;  // the last four header bytes
-    for (int n; bytes < 600000 && !firmwareUpdating.load() && (n = tls->read(chunk.get(), 512)) > 0;) {
-      bytes += n;
-      vTaskDelay(1);
-      for (int i = 0; i < n; ++i) {
-        const char c = chunk[i];
-        if (!body) {  // the status line, then the headers up to the empty line
-          if (headLen < 12) head[headLen++] = c;
-          tail = tail << 8 | (uint8_t)c;
-          if (tail == 0x0D0A0D0A) { body = true; status = atoi(head + 9); if (status != 200) break; }
-          continue;
-        }
-        if (inString) {
-          if (escape) { escape = false; if (c != '/') token += '\\'; token += c; }  // \/ is a plain slash, other escapes stay as they are
-          else if (c == '\\') escape = true;
-          else if (c == '"') { inString = false; afterString = true; }
-          else if (token.length() < 300) token += c;
-          continue;
-        }
-        if (afterString) {
-          if (c == ' ' || c == '\n' || c == '\r') continue;
-          afterString = false;
-          if (c == ':') {
-            field = token;
-            for (int k = 0; k < 4; ++k) if (token == sizes[k]) size = k;
-          } else if (field == "slug") {
-            slug = token;
-            for (size_t k = 0; k < slug.length(); k++) if (!isalnum((unsigned char)slug[k]) && slug[k] != '-' && slug[k] != '_') { slug = ""; break; }
-            field = "";
-          } else if (token.startsWith("https://") && token.endsWith(".gif") && token.indexOf(' ') < 0 && counts[size] < kMax) {
-            if (counts[size]) found[size] += ',';
-            found[size] += "{\"url\":\""; found[size] += token; found[size] += "\",\"slug\":\""; found[size] += slug; found[size] += "\"}";
-            counts[size]++;
-          }
-        }
-        if (c == '"') { inString = true; token = ""; }
-      }
-      if (body && status != 200) break;
-    }
-  }
-  if (status != 200) { message(status == 429 ? 429 : 502, status == 429 ? "KLIPY rate limit: try again later." : status ? "KLIPY refused the search." : "Could not reach KLIPY."); return; }
-  int best = 3;  // the smallest size that has results: the clock panel is 64x64
-  for (int i = 3; i >= 0; --i) if (counts[i]) best = i;
-  json(200, String("{\"gifs\":[") + found[best] + "]}");
-#endif
+  json(200, String("{\"id\":\"") + searchAuth.id + "\",\"token\":\"" + searchAuth.token + "\",\"ttl\":" + (searchAuth.until - millis()) / 1000 + "}");
 }
 
 void cycle() {
@@ -1084,7 +1121,7 @@ void attach(WebServer &server, void (*postRoute)(const char *, WebServer::THandl
   postRoute("/api/canvas/keep", keep);
   postRoute("/api/canvas/frame", frameChunk);
   postRoute("/api/canvas/slot", slot);
-  server.on("/api/canvas/search", HTTP_GET, search);
+  postRoute("/api/canvas/auth", auth);
   postRoute("/api/canvas/cycle", cycle);
 }
 

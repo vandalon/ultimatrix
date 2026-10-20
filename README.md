@@ -148,6 +148,8 @@ The page and its assets are stored in firmware flash. A new setting only appears
 
 **Admin PIN** (Advanced) is optional and also asked once during the first Wi-Fi setup. With a PIN set, the settings page asks for it before it changes anything; everything WLED (the apps, Home Assistant's WLED link, presets, timers, backup and the drawing editor with saving) keeps working without it. If you forget it, flash the clock again.
 
+**Who may open the clock** (Advanced) limits the settings pages, the APIs (including Home Assistant and the WLED app) and the telnet console to **private networks** (10.x, 172.16-31.x, 192.168.x; the default), **only the clock's own network**, or **everything that can reach it**. If the clock sits on a network with public addresses (some universities), private-only allows everything. Saving a choice that would lock out the computer you save from is refused. **Allow public host names** is off by default: the clock then refuses requests that arrive under a public domain name (a name under a real top-level domain), which stops a web page on the internet from steering your browser at the clock (DNS rebinding). Addresses, `.local`, `fritz.box` and internal names such as `joris.panel` keep working. Turn it on only if you reach the clock through a public name, for example a reverse proxy.
+
 **Change Wi-Fi** opens provisioning again. The saved network stays available until you choose another one.
 
 ### Brightness and night display
@@ -251,6 +253,8 @@ Canvas has a **Download picture** button for the current editor image. It export
 
   Replace the entity ID and option with those shown in HA. Select `Off` with the same action to return to the face. KLIPY search results also show their copyable slug for identification; notifications cannot yet fetch a GIF by slug. Saving converted frames once avoids needing an HA conversion helper for later playback.
 
+  **GIF search and earlier versions.** From v0.7.3 the GIF search goes through a small Cloudflare Worker that holds the KLIPY key, so the key is no longer inside the firmware. Versions before v0.7.3 searched with a key built into the firmware, and that key has been retired: **GIF search no longer works in v0.7.2 and earlier. Update to v0.7.3 or later.** Everything else in those versions is unaffected. A clock registers itself with the Worker the first time you search (the Home Assistant connection pauses for a few seconds), and the Worker limits searches per clock. If you fork the firmware, run your own Worker and point `kSearchHost` in `lib/wled/WledCanvas.cpp` and `SEARCH` in `web/canvas.html` at it.
+
 - **Wi-Fi signal** and **Free memory**, as diagnostics.
 
 The link is plain MQTT on your local network, without encryption, and costs the clock roughly 10 KB of memory while it is on.
@@ -301,7 +305,7 @@ The telnet console is off by default. Enable **Remote console** in settings, the
 telnet ultimatrix.local
 ```
 
-It accepts one client at a time and has no password or encryption. Enable it only on a network you trust.
+It accepts one client at a time and has no password or encryption. Enable it only on a network you trust. It follows the same **Who may open the clock** setting as the settings pages.
 
 Use `help` for the available commands. Shared commands include `status`, `heap`, `log on`, `log off`, `reboot`, `update`, `update-status`, `birthday` and `quit`. Arrow-key history and tab completion are supported; `q` or Ctrl-D on an empty line closes the session.
 

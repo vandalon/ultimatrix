@@ -13,7 +13,7 @@ used = {}
 for path in list((root / "src").glob("*.cpp")) + list((root / "lib").rglob("*.cpp")) + list((root / "lib").rglob("*.h")):
     text = path.read_text(errors="ignore")
     # FirmwareUpdate keeps its keys in "um-updates"; Settings.cpp keeps one CRC'd blob plus the legacy V1 keys of the migration (not scanned)
-    if '"ultimatrix"' not in text or path.name in ("klipy_key.h", "FirmwareUpdate.cpp", "Settings.cpp"): continue
+    if '"ultimatrix"' not in text or path.name in ("FirmwareUpdate.cpp", "Settings.cpp"): continue
     for m in call.finditer(text): used.setdefault(m.group(1), path.name)
     for m in fmt.finditer(text): used.setdefault(m.group(1) + "%d", path.name)
 bad = []

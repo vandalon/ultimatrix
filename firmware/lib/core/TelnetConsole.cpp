@@ -81,6 +81,11 @@ void TelnetConsole::stop() {
 void TelnetConsole::accept() {
   WiFiClient incoming = server_.accept();
   if (!incoming) return;
+  if (filter_ && !filter_(incoming.remoteIP())) {
+    incoming.print("This clock only answers to computers inside its network.\r\n");
+    incoming.stop();
+    return;
+  }
   if (client_ && client_.connected()) {
     incoming.print("Console in use.\r\n");
     incoming.stop();

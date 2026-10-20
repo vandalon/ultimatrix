@@ -56,6 +56,9 @@ void Settings::load() {
   Preferences p;
   if (!p.begin("ultimatrix", false)) return;
   mdnsUseName = p.getBool("mdnsUseName", false);
+  anyHost = p.getBool("anyHost", false);
+  accessScope = p.getUChar("accessScope", 1);
+  if (accessScope > 2) accessScope = 1;
   clockName = p.getString("clockName", "Ultimatrix");
   if (!validClockName(clockName)) clockName = "Ultimatrix";
   autoUpdate = p.getBool("autoUpdate", true);
@@ -138,6 +141,8 @@ bool Settings::save() {
   bool saved = p.putBytes("settingsV2", &record, sizeof(record)) == sizeof(record);  // one write commits everything
   if (saved) saved = p.putString("clockName", clockName) == clockName.length();
   if (saved) saved = p.putBool("mdnsUseName", mdnsUseName) == 1;
+  if (saved) p.putBool("anyHost", anyHost);
+  if (saved) p.putUChar("accessScope", accessScope);
   if (saved) p.putBool("nightClock", nightClock);  // own key too: the record stays as it is
   if (saved) p.putBool("autoUpdate", autoUpdate);  // own key, so records saved before this setting keep it on
   if (saved) p.putString("birthdays", birthdays);  // own key as well: the record stays as it is

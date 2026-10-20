@@ -21,6 +21,9 @@ class TelnetConsole {
   // It prints its own prompt after anything it says.
   using Watcher = void (*)(Print *out);
   void setWatcher(Watcher watcher) { watcher_ = watcher; }
+  // Who may connect: called with the client's address; false refuses it (the same network filter as the web interface)
+  using Filter = bool (*)(IPAddress);
+  void setFilter(Filter filter) { filter_ = filter; }
 
   void begin(Handler handler, const char *modeHelp);
   void poll();
@@ -40,6 +43,7 @@ class TelnetConsole {
   WiFiClient client_;
   Handler handler_ = nullptr;
   Watcher watcher_ = nullptr;
+  Filter filter_ = nullptr;
   const char *modeHelp_ = "";
   bool started_ = false;
   bool locked_ = false;  // waiting for the admin PIN (only when one is set)

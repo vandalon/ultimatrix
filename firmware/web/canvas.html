@@ -5,7 +5,7 @@ html,body{overscroll-behavior-x:none}
 :root{color-scheme:light;--bg:var(--paper);--text:var(--ink)}
 body{background:var(--paper);color:var(--ink);font-size:14px;line-height:1.6}
 main{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(260px,1fr);gap:18px;align-items:start}
-main>header,main>nav,#status{grid-column:1/-1}
+main>header,main>nav{grid-column:1/-1}
 main>header h1{margin-bottom:8px}
 main>header .intro{margin:0}
 .card{min-width:0;margin:0;padding:22px}
@@ -25,13 +25,13 @@ input[type=text],input[type=number],select{padding:9px 12px;font-size:13px}
 input[type=file]{padding:12px;background:var(--paper);border-style:dashed;font-size:13px}
 label{font-size:13px}label:has(input[type=checkbox]){display:flex;align-items:center;gap:10px}
 #gifContrast{width:150px}output{padding:3px 9px;background:#e8f4f9;border-radius:7px;font-size:12px}
-#status{margin:0;padding:12px 16px;background:#e8f4f9;border:1px solid #d2e7ef;border-radius:12px;font-size:12px}
+#status{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:50;max-width:min(92vw,520px);margin:0;padding:12px 18px;background:#e8f4f9;border:1px solid #d2e7ef;border-radius:12px;font-size:13px;color:var(--ink);box-shadow:0 6px 24px #0002;cursor:pointer}#status:empty,#status.gone{display:none}
 .gif-page main{grid-template-columns:minmax(0,1fr)}
 input[type=color]{width:44px;height:36px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
-#newcolor[hidden]{display:none}
+#newcolor[hidden],#gnext[hidden]{display:none}
 .sw{width:26px;height:26px;padding:0;border-radius:6px}
 .slot{display:flex;gap:6px;align-items:center;margin:6px 0}.slot span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-small,#status{color:var(--muted)}small{line-height:1.7}main a{color:#1f6a85}summary{cursor:pointer}details{padding:10px 14px;background:var(--paper);border-radius:10px}
+small{color:var(--muted)}small{line-height:1.7}main a{color:#1f6a85}summary{cursor:pointer}details{padding:10px 14px;background:var(--paper);border-radius:10px}
 .gres{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:6px;margin:8px 0}.gres img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;background:#000;image-rendering:auto}
 .crop{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:10;padding:16px}.crop.open{display:flex}
 .crop .box{background:var(--card,#fff);color:var(--text);border-radius:20px;padding:22px;width:min(100%,420px);display:grid;gap:10px}
@@ -71,7 +71,7 @@ html.fs-open,html.fs-open body{overflow:hidden}
 <h2 style="margin-top:14px">Cycle drawings</h2><div class="row"><input type="number" id="cycle" value="0" min="0" max="3600" style="width:6em"><small>seconds (0 = off)</small><button id="setcycle">Set</button></div>
 </div></section><section class="card gif-only"><h2>Search GIFs</h2>
 <details style="margin-bottom:8px"><summary><small>How this works</small></summary><small><ol style="margin:6px 0;padding-left:20px">
-<li>The clock does the search for you with a KLIPY key built into its firmware, so it needs internet access.</li>
+<li>The clock does the search for you through a small online search service, so it needs internet access.</li>
 
 <li>Search, then tap a GIF. A crop square opens first (GIFs are cropped on their first frame), or tick <b>Always fill the screen</b> to skip it and crop to the middle. Animated GIFs are loaded as frames (up to 64, as many as fit) into the clock's memory and play at once. Use Previous/Next for more results.</li>
 <li>An imported GIF is temporary until you press <b>Save played GIF</b>. Saved animations keep up to 24 frames / 5 seconds and can be selected from Home Assistant. Pictures and drawings you press <b>Save as new</b> for are also kept on the clock.</li>
@@ -375,21 +375,80 @@ function gifFrames(buf, range = null, timingOnly = false, previewFrame = -1) {
   });
   return { frames, totalMs: total };
 }
-// GIF search with KLIPY: the clock asks KLIPY (the key stays in the firmware) and returns the GIF addresses
+// GIF search with KLIPY: the page asks the search Worker directly (it holds the KLIPY key). The clock only hands over a sign-in token for it,
+// valid for 5 to 10 hours, and every search is signed with that token. SHA-256 and HMAC are here because crypto.subtle needs https.
+const SEARCH = 'https://ultimatrix-gifs.joris-05e.workers.dev';  // the Worker (repo ultimatrix-gifs-worker)
+// sha256.js from the Worker repo
+const hmacHex = (() => {
+const K = new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+const ror = (x, n) => (x >>> n) | (x << (32 - n));
+function sha256(data) {
+  const h = new Uint32Array([0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]);
+  const l = data.length, n = ((l + 9 + 63) >> 6) << 6;
+  const m = new Uint8Array(n);
+  m.set(data); m[l] = 0x80;
+  const dv = new DataView(m.buffer);
+  dv.setUint32(n - 4, (l << 3) >>> 0); dv.setUint32(n - 8, Math.floor(l / 0x20000000));
+  const w = new Uint32Array(64);
+  for (let o = 0; o < n; o += 64) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(o + i * 4);
+    for (let i = 16; i < 64; i++) {
+      const s0 = ror(w[i - 15], 7) ^ ror(w[i - 15], 18) ^ (w[i - 15] >>> 3), s1 = ror(w[i - 2], 17) ^ ror(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+      w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+    let a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+    for (let i = 0; i < 64; i++) {
+      const t1 = (hh + (ror(e, 6) ^ ror(e, 11) ^ ror(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) | 0;
+      const t2 = ((ror(a, 2) ^ ror(a, 13) ^ ror(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+      hh = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+  }
+  const out = new Uint8Array(32), ov = new DataView(out.buffer);
+  for (let i = 0; i < 8; i++) ov.setUint32(i * 4, h[i]);
+  return out;
+}
+const bytes = x => (typeof x === "string" ? new TextEncoder().encode(x) : x);
+function hmac(key, msg) {
+  key = bytes(key); msg = bytes(msg);
+  if (key.length > 64) key = sha256(key);
+  const ik = new Uint8Array(64 + msg.length), ok = new Uint8Array(96);
+  for (let i = 0; i < 64; i++) { const k = i < key.length ? key[i] : 0; ik[i] = k ^ 0x36; ok[i] = k ^ 0x5c; }
+  ik.set(msg, 64);
+  ok.set(sha256(ik), 64);
+  return sha256(ok);
+}
+const hex = b => Array.from(b, x => x.toString(16).padStart(2, "0")).join("");
+return (key, msg) => hex(hmac(key, msg));
+})();
+let auth = null, skew = 0;  // the token for the Worker; how many seconds the Worker's clock is ahead of this one
+async function signIn(force) {
+  const r = await fetch('/api/canvas/auth' + (force ? '?force=1' : ''), { method: 'POST', cache: 'no-store' }), j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.message || 'Could not sign in to the search service.');
+  auth = { id: j.id, token: j.token, until: Date.now() + j.ttl * 1000 };
+}
+async function workerSearch(q) {
+  if (!auth || Date.now() > auth.until) await signIn(false);
+  const t = Math.floor(Date.now() / 1000 + skew), g = hmacHex(auth.token, q + '\n' + page + '\n' + t);
+  return fetch(SEARCH + '/s?q=' + encodeURIComponent(q) + '&p=' + page + '&i=' + auth.id + '&t=' + t + '&g=' + g, { cache: 'no-store' });
+}
 const sources = { klipy: { name: 'KLIPY', credit: 'Powered by KLIPY.' } };
 let src = 'klipy';
 function showSource() { const o = sources[src]; $('gq').placeholder = 'Search ' + o.name; $('gcredit').textContent = o.credit; $('gres').replaceChildren(); }
-let page = 1, searched = '';
+let page = 1, shownPage = 1, searched = '';
 let more = false;
-function searching(on) { $('gspin').hidden = !on; $('gres').classList.toggle('searching', on); $('gsearch').disabled = on; $('gprev').disabled = on || page <= 1; $('gnext').disabled = on || !more; }
+function searching(on) { $('gspin').hidden = !on; $('gres').classList.toggle('searching', on); $('gsearch').disabled = on; $('gprev').disabled = on || page <= 1; $('gnext').disabled = on || !more; $('gnext').hidden = !on && !more; }
 async function gsearch(newSearch = true) {
   const o = sources[src], q = newSearch ? $('gq').value.trim() : searched; if (!q) return;
   if (newSearch) { searched = q; page = 1; }
   msg.textContent = 'Searching…'; searching(true);
   try {
-    const ask = free => fetch('/api/canvas/search?q=' + encodeURIComponent(q) + '&page=' + page + (free ? '&free=1' : ''), { cache: 'no-store' });
-    let r = await ask(false), j = await r.json().catch(() => ({}));
-    if (r.status === 503 && j.needsFree) { r = await ask(true); j = await r.json().catch(() => ({})); }  // the loaded GIF holds the memory the search needs: the clock removes it
+    let r = await workerSearch(q).catch(() => { throw new Error('Could not reach the search service.'); }), j = await r.json().catch(() => ({}));
+    for (let tries = 0; r.status === 403 && j.expired && tries < 2; tries++) {  // the Worker's clock differs from this one, or the token is no longer accepted
+      const drift = j.now - Date.now() / 1000;
+      if (Math.abs(drift - skew) > 100) skew = drift; else await signIn(true);
+      r = await workerSearch(q); j = await r.json().catch(() => ({}));
+    }
     if (!r.ok) throw new Error(j.message || o.name + ' answered ' + r.status + '.');
     const list = j.gifs || [];
     $('gres').replaceChildren(...list.map(item => {
@@ -404,9 +463,9 @@ async function gsearch(newSearch = true) {
       }
       return card;
     }));
-    $('gpages').hidden = !list.length && page === 1; $('gpage').textContent = 'Page ' + page; more = list.length >= 24;
-    msg.textContent = list.length ? 'Tap a GIF to load it.' : page > 1 ? 'No more results.' : 'Nothing found.';
-  } catch (e) { msg.textContent = e.message; }
+    shownPage = page; $('gpages').hidden = !list.length && page === 1; $('gpage').textContent = 'Page ' + page; more = list.length >= 24;
+    msg.textContent = list.length ? (more ? 'Tap a GIF to load it.' : 'Tap a GIF to load it. That is the last page: KLIPY shows at most 100 results per search.') : page > 1 ? 'No more results.' : 'Nothing found.';
+  } catch (e) { if (!newSearch) page = shownPage; msg.textContent = ''; msg.textContent = e.message; }
   searching(false);
 }
 $('keepgif').onclick = async () => {
@@ -687,6 +746,10 @@ async function storeAnimation(frames, totalMs, mine) {
   }
 }
 function showLoader(on) { $('loader').hidden = !on; document.querySelector('main').inert = on; if (on) $('loadtext').textContent = msg.textContent || 'Importing…'; }
+// The status line is a toast: messages that end in an ellipsis stay until replaced, the rest fade after 6 s; a click dismisses it.
+let toastTimer = 0;
+new MutationObserver(() => { msg.classList.remove('gone'); clearTimeout(toastTimer); if (msg.textContent && !/…$/.test(msg.textContent)) toastTimer = setTimeout(() => msg.classList.add('gone'), 6000); }).observe(msg, { childList: true, characterData: true, subtree: true });
+msg.onclick = () => msg.classList.add('gone');
 new MutationObserver(() => { if (!$('loader').hidden) $('loadtext').textContent = msg.textContent; }).observe(msg, { childList: true, characterData: true, subtree: true });
 // The placement for an import: "always fill" crops to the middle without asking, otherwise the crop square opens (for GIFs on their first frame); null = cancelled
 async function chooseView(file) {

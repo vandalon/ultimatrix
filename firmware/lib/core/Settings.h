@@ -9,6 +9,8 @@
 #define UM_DEFAULT_FOOTBALL_TEAMS "449:NED:n"
 
 struct Settings {
+  uint8_t accessScope = 1;  // who may reach the web interface: 0 everything, 1 private (RFC 1918) networks (default), 2 the clock's own subnet
+  bool anyHost = false;  // allow requests under public host names (off: refused, see main.cpp HostGuard)
   bool mdnsUseName = false;  // use a hostname-safe clock name instead of ultimatrix
   String clockName = "Ultimatrix";  // own NVS key, shared by all faces
   uint8_t displayHeight = 64;
