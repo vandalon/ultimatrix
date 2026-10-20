@@ -22,5 +22,13 @@ jobs:
           to=$(printf '%s' "$TITLE" | sed -E 's/.* to v?([0-9]+).*/\1/')
           [ "$from" = "$to" ] || exit 0
           sleep 60  # let the PR's own checks appear
-          gh pr checks "$URL" --watch --interval 30
-          gh pr merge "$URL" --squash
+          # Wait for every check except this job itself (--watch would wait for it forever).
+          for i in $(seq 1 50); do
+            state=$(gh pr checks "$URL" --json name,bucket --jq '[.[] | select(.name != "merge")] | if length == 0 or any(.bucket == "pending") then "wait" elif any(.bucket == "fail" or .bucket == "cancel") then "fail" else "pass" end')
+            case "$state" in
+              pass) gh pr merge "$URL" --squash; exit $? ;;
+              fail) echo "A check failed; leaving the PR for review."; exit 0 ;;
+            esac
+            sleep 30
+          done
+          echo "Checks did not finish in time."; exit 1
