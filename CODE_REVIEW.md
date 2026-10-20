@@ -81,7 +81,7 @@ Fix: trace the origin, add it to THIRD_PARTY_NOTICES, or regenerate the digits f
 Any new key added to code but not to `kKnownKeys` (main.cpp:1569) is silently erased at the next boot. Verified by grep that the list matches today's keys, but there is no guard against drift. Separately, when NVS has <100 free entries a non-Home build erases `haCfg, haTile4, haWasher, haMedia, haTok, haEn, haBarV, haIcnV, haWeather` but not `haTile5/6` or `haIcn0-5`, so a later switch back to Home finds orphan icon records but no config.
 Fix: keep key lists next to the code that owns them (one registry per module, compile-time asserted unique) and erase per module (all or none); log a warning instead of deleting for unknown keys older than N boots, or at least add a build-time check that greps `put*("key"` against the list.
 
-**M11. Telnet console has no authentication.**
+**M11. [PIN prompt added] Telnet console has no authentication.**
 Default off, but `/settings` can turn it on without auth (H2), and it offers `factory-reset yes`, `reboot`, `update`. Port 23 is cleartext.
 Fix: PIN prompt (same admin token), or drop `factory-reset` from telnet.
 

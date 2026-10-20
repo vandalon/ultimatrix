@@ -29,7 +29,7 @@ class TelnetConsole {
  private:
   void accept();
   void run(const char *line);
-  void prompt() { client_.print("> "); }
+  void prompt() { client_.print(locked_ ? "PIN: " : "> "); }
   void setLogging(bool on);
   void redraw();
   void complete();
@@ -42,6 +42,8 @@ class TelnetConsole {
   Watcher watcher_ = nullptr;
   const char *modeHelp_ = "";
   bool started_ = false;
+  bool locked_ = false;  // waiting for the admin PIN (only when one is set)
+  uint8_t tries_ = 0;
   bool logging_ = false;  // "log on": mirror the serial log to this session
   char line_[48] = {};
   uint8_t length_ = 0;

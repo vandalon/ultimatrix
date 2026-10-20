@@ -3,6 +3,7 @@
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #include "TelnetConsole.h"
 #include "Console.h"
+#include "AdminPin.h"
 #include "FirmwareUpdate.h"
 #include <esp_log.h>
 #include <esp_heap_caps.h>
@@ -94,7 +95,10 @@ void TelnetConsole::accept() {
   // We echo and read key by key (not line by line), so tab and the arrow keys reach us
   static const uint8_t kCharacterMode[] = {255, 251, 1, 255, 251, 3, 255, 253, 3};  // IAC WILL ECHO, WILL SGA, DO SGA
   client_.write(kCharacterMode, sizeof(kCharacterMode));
-  client_.printf("Ultimatrix %s console. Type help.\r\n", UM_MODE_NAME);
+  locked_ = adminpin::isSet();  // with a PIN set, nothing runs until it is entered
+  tries_ = 0;
+  if (locked_) client_.printf("Ultimatrix %s console. Enter the PIN.\r\n", UM_MODE_NAME);
+  else client_.printf("Ultimatrix %s console. Type help.\r\n", UM_MODE_NAME);
   prompt();
 }
 
@@ -113,7 +117,7 @@ void TelnetConsole::poll() {
     client_.stop();
     return;
   }
-  if (watcher_) {
+  if (watcher_ && !locked_) {
     watcher_(&client_);
     if (!client_) return;
   }
@@ -128,7 +132,8 @@ void TelnetConsole::poll() {
     if (esc_ == 2) {  // parameter bytes are skipped; the final byte says which key
       if (c >= 0x40 && c <= 0x7e) {
         esc_ = 0;
-        if (c == 'A') browseHistory(-1);
+        if (locked_) {}
+        else if (c == 'A') browseHistory(-1);
         else if (c == 'B') browseHistory(1);
       }
       continue;
@@ -136,19 +141,19 @@ void TelnetConsole::poll() {
     if (c == 27) { esc_ = 1; continue; }
     if (c == 4 && length_ == 0) { run("quit"); if (!client_) return; continue; }  // Ctrl-D on an empty line, as in a shell
     if (c == 3) { length_ = 0; historyPos_ = historyCount_; client_.print("^C\r\n"); prompt(); continue; }
-    if (c == 9) { complete(); continue; }
+    if (c == 9) { if (!locked_) complete(); continue; }
     if (c == '\n' || c == '\r') {
       if (c == '\n' && length_ == 0) continue;  // the LF of a CR LF pair
       line_[length_] = 0;
       length_ = 0;
       client_.print("\r\n");
-      remember(line_);
+      if (!locked_) remember(line_);  // a PIN is not kept in the history
       run(line_);
       if (!client_) return;
       continue;
     }
     if ((c == 8 || c == 127) && length_) { --length_; client_.print("\b \b"); continue; }
-    if (c >= 32 && c < 127 && length_ < sizeof(line_) - 1) { line_[length_++] = (char)c; client_.write((uint8_t)c); }
+    if (c >= 32 && c < 127 && length_ < sizeof(line_) - 1) { line_[length_++] = (char)c; client_.write((uint8_t)(locked_ ? '*' : c)); }
   }
 }
 
@@ -244,6 +249,17 @@ void TelnetConsole::run(const char *line) {
   memcpy(command, line, n);
   command[n] = 0;
   if (!n) { prompt(); return; }
+  if (locked_ && strcasecmp(command, "quit")) {  // the line is the PIN
+    char token[33];
+    uint32_t wait = 0;
+    const int result = adminpin::login(command, token, wait);
+    if (result == 0) { locked_ = false; client_.print("OK. Type help.\r\n"); prompt(); return; }
+    if (result == 2) { client_.printf("Too many wrong PINs. Try again in %u seconds.\r\n", (unsigned)wait); client_.stop(); return; }
+    if (++tries_ >= 3) { client_.print("Wrong PIN. Bye.\r\n"); client_.stop(); return; }
+    client_.print("Wrong PIN.\r\n");
+    prompt();
+    return;
+  }
   if (!strcasecmp(command, "help") || !strcmp(command, "?")) {
     client_.print("  help    this list\r\n  status  uptime, address, signal, mode, heap\r\n  heap    free, minimum and largest block\r\n"
                   "  log     log on / log off: show the serial log here\r\n"
