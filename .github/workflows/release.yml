@@ -61,18 +61,6 @@ jobs:
           path: |
             firmware/build/${{ matrix.mode }}/ultimatrix.bin
             web-flasher/firmware/${{ matrix.mode }}
-  scanner:
-    # The scanner face is not released; this only keeps it compiling.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Build scanner
-        uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
-        with:
-          esp_idf_version: v5.5.5
-          target: esp32
-          path: firmware
-          command: idf.py -B build/scanner -DULTIMATRIX_MODE=scanner -DULTIMATRIX_VERSION=dev build
   sign:
     # Only this job holds the signing key. It installs hash-pinned packages and runs nothing but the packaging script.
     needs: build
