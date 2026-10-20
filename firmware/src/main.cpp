@@ -1447,9 +1447,10 @@ private:
   }
   // With a PIN set, these stay open: the login itself and everything of the WLED side (the WLED app and Home
   // Assistant's WLED integration, the options, timers and backup, the drawing canvas with saving) plus DLNA control.
-  // None of it reaches Wi-Fi, firmware or the other settings.
+  // None of it reaches Wi-Fi, firmware or the other settings. /api/ha/detect only asks Home Assistant for the
+  // Energy dashboard's sensors (the page does it by itself on load) and stores nothing.
   static bool openRoute(const String &uri) {
-    return uri == "/api/auth" || uri == "/json" || uri == "/json/state" || uri.startsWith("/dlna/") ||
+    return uri == "/api/auth" || uri == "/api/ha/detect" || uri == "/json" || uri == "/json/state" || uri.startsWith("/dlna/") ||
            uri == "/api/wled" || uri.startsWith("/api/wled/") || uri.startsWith("/api/canvas/");
   }
   static constexpr int kMaxBody = 8192;  // the largest settings form (selections are capped at 400 characters each) with room to spare
