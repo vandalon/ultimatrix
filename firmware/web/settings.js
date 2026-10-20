@@ -207,6 +207,7 @@ async function load() {
     const data = await response.json();
     if (!window.wledStarted) { window.wledStarted = true; initWled(); }
     document.querySelector('#nvs-banner').hidden = !(data.nvsFree < 40);
+    showPin(data.pinSet);
     const racing = data.mode === 'F1' || data.mode === 'MotoGP', sporty = racing || data.mode === 'Football';
     const pacman = data.mode === 'Pac-Man';
     const homeFace = data.mode === 'Home'; document.querySelector('#homeassistant').hidden = !homeFace; document.querySelector('#nav-ha').hidden = !homeFace;
@@ -879,6 +880,29 @@ document.querySelector('#storage-clear').addEventListener('click', async event =
   try { const response = await fetch('/api/storage/clear', { method: 'POST' }); if (!response.ok) throw new Error('Could not clear the cached data.'); message('Cleared'); await loadStorage(); }
   catch (error) { message(error.message, true); }
 });
+function showPin(set) {
+  document.querySelector('#pin-status').textContent = set ? 'A PIN is set.' : 'No PIN is set. Anyone on your network can change this clock.';
+  document.querySelector('#pin-save').textContent = set ? 'Change PIN' : 'Set PIN';
+  document.querySelector('#pin-remove').hidden = !set;
+}
+async function savePin(pin) {
+  
+  try {
+    const response = await fetch('/api/pin', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'pin=' + encodeURIComponent(pin) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || 'Could not save the PIN.');
+    window.umToken(data.token || '');
+    document.querySelector('#pin-input').value = '';
+    showPin(data.pinSet);
+    message(data.message);
+  } catch (error) { message(error.message, true); }
+}
+document.querySelector('#pin-save').addEventListener('click', () => {
+  const pin = document.querySelector('#pin-input').value;
+  if (!/^[0-9]{4,8}$/.test(pin)) { message('The PIN is 4 to 8 digits.', true); return; }
+  savePin(pin);
+});
+document.querySelector('#pin-remove').addEventListener('click', () => { if (confirm('Remove the PIN? Anyone on your network can then change this clock.')) savePin(''); });
 document.querySelector('#storage-reformat').addEventListener('click', async () => {
   if (!confirm('Format the flash disk? Every saved drawing and cached file is deleted and the clock restarts. This cannot be undone.')) return;
   try { const response = await fetch('/api/storage/reformat', { method: 'POST' }); if (!response.ok) throw new Error('Could not format the flash disk.'); message('Formatted. The clock restarts.'); }

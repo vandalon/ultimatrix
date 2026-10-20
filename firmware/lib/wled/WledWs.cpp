@@ -97,8 +97,8 @@ void readFrames() {
 
 void wsAttach(WebServer &server) {
   srv = &server;
-  static const char *keys[] = {"Sec-WebSocket-Key", "User-Agent", "Origin", "Sec-Fetch-Site"};
-  server.collectHeaders(keys, 4);
+  static const char *keys[] = {"Sec-WebSocket-Key", "User-Agent", "Origin", "Sec-Fetch-Site", "X-Token"};  // the list main.cpp set is replaced by this one: keep both in step
+  server.collectHeaders(keys, 5);
   server.on("/ws", HTTP_GET, handshake);
 }
 

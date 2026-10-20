@@ -27,7 +27,7 @@ Method: read the HANDOFF/filemap, then read the code paths below line by line an
 
 ### High
 
-**H1. Configuration API is unauthenticated and CSRF-able; it can send stored secrets to an attacker.**
+**H1. [Optional admin PIN added, see docs/ARCHITECTURE.md] Configuration API is unauthenticated and CSRF-able; it can send stored secrets to an attacker.**
 `POST /api/ha` (main.cpp `haSave`) accepts a new `host` and keeps the saved long-lived token; `HaClient` then signs in to the new host with it (TLS is unverified, so even "https" gives no protection). `POST /api/mqtt` (`mqttSave`) does the same with the saved MQTT user/password (plain TCP). Any LAN host, or any web page the user opens (an urlencoded form POST is a "simple" request and needs no CORS), can trigger it.
 Fix: require a per-device admin PIN or token (set during welcome; sent as header, not cookie); reject requests whose `Origin`/`Host` do not match the clock; clear the stored token/password whenever the host changes unless the secret is re-entered; make state-changing routes POST-only with `Content-Type: application/json` and a custom header.
 

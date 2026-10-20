@@ -19,6 +19,7 @@ set(sources
     "${root}/lib/core/MqttPixels.cpp"
     "${root}/lib/core/Notice.cpp"
     "${root}/lib/core/Storage.cpp"
+    "${root}/lib/core/AdminPin.cpp"
     "${root}/lib/core/NoticeImage.cpp"
     "${root}/lib/core/NoticePng.cpp"
     "${root}/lib/core/DlnaRenderer.cpp"
@@ -136,7 +137,7 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
 
 # Serve the setup assets directly from flash rather than assembling a page on the heap. The text assets are gzip-compressed
 # at build time and sent with Content-Encoding: gzip (see lib/core/GzipAsset.h).
-set(web_assets settings.html theme.css settings.js)
+set(web_assets settings.html theme.css settings.js auth.js)
 if(ULTIMATRIX_WLED AND NOT ULTIMATRIX_MODE STREQUAL "bridge" AND NOT ULTIMATRIX_MODE STREQUAL "scanner")
     list(APPEND web_assets wled.html canvas.html)  # the light page the WLED app opens, and the pixel editor
 endif()

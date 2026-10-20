@@ -47,6 +47,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - MqttPixels.cpp/.h: bounded fragmented MQTT pixel uploads, validated coordinate/RGB565 commands and temporary frame overlay. docs/MQTT_PIXELS.md documents HA drawing with coordinates or base64 images.
 - Mqtt.cpp/.h: optional MQTT link to Home Assistant (default off): config in NVS, discovery entities, commands queued by the esp-mqtt task and applied by poll(), state publishing, 10-second CPU task/refill diagnostics, changed-screen MQTT camera snapshots, a dynamic Saved picture dropdown for Canvas slots, a Face select (signed face install), Display mode sensor
 - DlnaRenderer.cpp/.h, DlnaDescriptions.h: DLNA media renderer (HA Browse media/Play/Stop of pictures; SSDP + SOAP, polling only) and UPnP service descriptions; wired in main.cpp, untested on device
+- AdminPin.cpp/.h: optional admin PIN (salted hash in NVS key adminPin), login tokens in RAM and the lock-out; the guard is in main.cpp BoundedPost, the page side in web/auth.js
 - Storage.cpp/.h: lists the flash disk (saved drawings vs cached data: LittleFS files such as Football's, and the F1/MotoGP cache in NVS namespace um-f1cache) and clears the cached data; GET /api/storage, POST /api/storage/clear, Advanced → Storage in settings; drawings are never removed
 - Notice.cpp/.h: full-panel text/image notifications from Home Assistant, drawn over any face by main.cpp. NoticeImage.cpp/.h: bounded asynchronous HTTP(S) UMIMG/JPEG/PNG downloads and 64x64 fit/fill; NoticePng.cpp/.h decodes PNG with image-sized history and alpha over black; normal-priority images alternate with optional text
 - DiskCache.h: mounts LittleFS; formats only genuinely erased cache flash
@@ -73,7 +74,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - faces/: FaceKit.h, MiniFont.h, PlumberSprites.h (drawing helpers, small font and walking poses); PlumberWorld.h defines courses, mushroom drops, items and Piranha pipes
 
 ### web/ (settings UI served by device)
-- settings.html, settings.js, theme.css, manifest.webmanifest, icons/, faces/ (face thumbnails .png). The text pages (settings, js, css, wled, canvas) are gzip-compressed at build time by tools/gzip_asset.py (main/CMakeLists.txt) and served with Content-Encoding: gzip via lib/core/GzipAsset.h
+- auth.js (fetch wrapper: adds X-Token to POSTs and asks for the PIN on a 401; loaded by settings.html and canvas.html), settings.html, settings.js, theme.css, manifest.webmanifest, icons/, faces/ (face thumbnails .png). The text pages (settings, js, css, wled, canvas) are gzip-compressed at build time by tools/gzip_asset.py (main/CMakeLists.txt) and served with Content-Encoding: gzip via lib/core/GzipAsset.h
 - wled.html: effects/presets controls and navigation; canvas.html: canvas and GIF views, visible-only live screen in the drawing editor, LED dot styling and pause-on-edit; static panel-ready UMIMG download from the editor; opening a page does not take over the panel
 
 ### tools/

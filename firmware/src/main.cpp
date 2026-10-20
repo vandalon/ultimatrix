@@ -45,6 +45,7 @@
 #include <Mqtt.h>
 #include <Notice.h>
 #include <Storage.h>
+#include <AdminPin.h>
 #include <DlnaRenderer.h>
 #include <GzipAsset.h>
 #include <nvs.h>
@@ -450,6 +451,7 @@ static bool telnetCommand(const char *c, Print &out) {
 UM_GZIP_ASSET(settingsHtmlGz, "settings_html")
 UM_GZIP_ASSET(themeCssGz, "theme_css")
 UM_GZIP_ASSET(settingsJsGz, "settings_js")
+UM_GZIP_ASSET(authJsGz, "auth_js")
 extern const char manifestJson[] asm("_binary_manifest_webmanifest_start");
 #define UM_ICON(sym) \
   extern const uint8_t sym##Start[] asm("_binary_" #sym "_png_start"); \
@@ -522,6 +524,7 @@ static void settingsState() {
   json += ",\"lightReading\":" + String(displayControl.lightReading());
   json += ",\"nightActive\":" + String(displayControl.nightActive() ? "true" : "false");
   json += ",\"nvsFree\":" + String(nvsFreeEntries);
+  json += ",\"pinSet\":" + String(adminpin::isSet() ? "true" : "false");
   json += ",\"nightWhy\":\"" + String(!Settings::getInstance()->nightClock ? "" : displayControl.roomDark() ? "dark" : displayControl.nightScheduled() ? "schedule" : "") + "\"";
   {
     int rise = 0, set = 0;
@@ -876,6 +879,29 @@ static void storageReformat() {
   restartAt = millis() + 1000;  // every face and cache starts again on the empty disk
 }
 static void storageClear() { storage::clear(); server.send(200, "application/json", storage::json()); }
+
+// Admin PIN: POST /api/auth trades the PIN for a token, POST /api/pin sets, changes or removes it (pin empty = remove).
+static void pinLogin() {
+  char token[33];
+  uint32_t wait = 0;
+  int result = adminpin::login(server.arg("pin").c_str(), token, wait);
+  if (result == 2) { server.send(429, "application/json", "{\"message\":\"Too many wrong PINs. Try again in " + String(wait) + " seconds.\",\"wait\":" + String(wait) + "}"); return; }
+  if (result == 1) { server.send(401, "application/json", "{\"message\":\"Wrong PIN.\"}"); return; }
+  server.send(200, "application/json", String("{\"token\":\"") + token + "\"}");
+}
+static void pinSave() {
+  String pin = server.arg("pin");
+  if (!pin.length()) {
+    if (!adminpin::clear()) { settingsResponse(500, "Could not remove the PIN. Please try again."); return; }
+    server.send(200, "application/json", "{\"message\":\"PIN removed.\",\"pinSet\":false}");
+    return;
+  }
+  if (!adminpin::validFormat(pin.c_str())) { settingsResponse(400, "The PIN is 4 to 8 digits."); return; }
+  if (!adminpin::set(pin.c_str())) { settingsResponse(500, "Could not save the PIN. Please try again."); return; }
+  char token[33];
+  adminpin::newToken(token);  // setting the PIN logs everybody out, this browser stays in
+  server.send(200, "application/json", String("{\"message\":\"PIN saved.\",\"pinSet\":true,\"token\":\"") + token + "\"}");
+}
 
 static void displayStatus() {
   String json = "{\"level\":" + String(panelLevel + 1) + ",\"lock\":" + String(panelState.lock) + ",\"reason\":\"" +
@@ -1398,6 +1424,10 @@ public:
   bool handle(WebServer &web, HTTPMethod, const String &) override {
     if (web.clientContentLength() > kMaxBody) { web.send(413, "text/plain", "Request too large."); return true; }
     if (!sameOrigin(web)) { web.send(403, "text/plain", "Cross-site request refused."); return true; }
+    if (adminpin::isSet() && !openRoute(_uri) && !adminpin::tokenOk(web.header("X-Token"))) {
+      web.send(401, "application/json", "{\"message\":\"Enter the clock PIN.\",\"pin\":true}");
+      return true;
+    }
     _fn();
     return true;
   }
@@ -1411,6 +1441,9 @@ private:
     if (scheme < 0) return false;  // "null" (sandboxed or file pages)
     return origin.substring(scheme + 3).equalsIgnoreCase(web.hostHeader());
   }
+  // With a PIN set, these stay open: the login itself, and the endpoints other apps use without a browser
+  // (the WLED app and Home Assistant's WLED integration, DLNA control).
+  static bool openRoute(const String &uri) { return uri == "/api/auth" || uri == "/json" || uri == "/json/state" || uri.startsWith("/dlna/"); }
   static constexpr int kMaxBody = 8192;  // the largest settings form (selections are capped at 400 characters each) with room to spare
   String _uri;
   WebServer::THandlerFunction _fn;
@@ -1583,7 +1616,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Every key any face stores in the "ultimatrix" namespace (all faces, as settings survive a face switch).
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
-  "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh",                                   // main.cpp
+  "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
   "settingsV2", "clockName", "mdnsUseName", "autoUpdate", "nightClock", "birthdays",                          // Settings.cpp
   "mqOn", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
@@ -1807,6 +1840,15 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
       ESP.restart();
     }
   });
+  // Optional admin PIN, asked once during the first setup. Not offered again when one is set, so a nearby phone
+  // cannot replace it by forcing the setup page to open.
+  static WiFiManagerParameter pinField("pin", "Admin PIN (optional): 4 to 8 digits that protect the clock's settings. Leave empty for none.", "", 8, "inputmode='numeric' pattern='[0-9]*' autocomplete='off' placeholder='No PIN'");
+  if (!adminpin::isSet()) {
+    wifi.addParameter(&pinField);
+    wifi.setSaveConfigCallback([]() {
+      if (adminpin::validFormat(pinField.getValue()) && adminpin::set(pinField.getValue())) consoleLog("[WiFi] Admin PIN set during setup\n");
+    });
+  }
   wifi.setWaitCallback(bootTick);  // keep the connecting pulse going while a saved network is tried
   wifi.setConnectTimeout(40);  // seconds per attempt, as the core's own wait: without a timeout the wait does not call bootTick, so the pulse froze
   wifi.setConnectRetries(3);  // three attempts before the setup portal: a router that is still starting after a power cut should not bring up the QR code
@@ -1819,11 +1861,12 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   }
   if (forceSetup || setupRefreshRestart) wifi.startConfigPortal(kApName);  // after the restart for the fast display, go straight to the portal
   else wifi.autoConnect(kApName);
-  static const char *headerKeys[] = {"Origin", "Sec-Fetch-Site", "Sec-WebSocket-Key", "User-Agent"};
-  server.collectHeaders(headerKeys, 4);  // Origin: see BoundedPost, Sec-Fetch-Site: /win; the others are read by the WLED overlay
+  static const char *headerKeys[] = {"Origin", "Sec-Fetch-Site", "Sec-WebSocket-Key", "User-Agent", "X-Token"};
+  server.collectHeaders(headerKeys, 5);  // Origin and X-Token: see BoundedPost, Sec-Fetch-Site: /win; the others are read by the WLED overlay
   server.on("/", HTTP_GET, settingsPage);
   postRoute("/settings", saveSettings);
   server.on("/theme.css", HTTP_GET, []() { sendGzip(server, "text/css; charset=utf-8", themeCssGz, themeCssGzEnd); });
+  server.on("/auth.js", HTTP_GET, []() { sendGzip(server, "application/javascript; charset=utf-8", authJsGz, authJsGzEnd); });
   server.on("/settings.js", HTTP_GET, []() { sendGzip(server, "application/javascript; charset=utf-8", settingsJsGz, settingsJsGzEnd); });
   server.on("/manifest.webmanifest", HTTP_GET, []() { server.send_P(200, "application/manifest+json", manifestJson); });
   server.on("/icon-192.png", HTTP_GET, []() { sendIcon(icon_192Start, icon_192End); });
@@ -1850,6 +1893,8 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
 #endif
   server.on("/api/timezones", HTTP_GET, timezones);
   postRoute("/api/wifi/setup", openWifiSetup);
+  postRoute("/api/auth", pinLogin);
+  postRoute("/api/pin", pinSave);
   postRoute("/api/welcome/dismiss", dismissWelcome);
   postRoute("/api/welcome/start", startClock);
   server.on("/api/firmware", HTTP_GET, firmwareStatus);
