@@ -33,6 +33,7 @@ iframe.fs{position:fixed;inset:0;width:100%;height:100%!important;z-index:100;bo
 
 <section id="images"><h2>Animations</h2><iframe src="/gifs?embed" title="Image and GIF loading"></iframe></section>
 <section id="drawing"><h2>Drawing</h2><iframe src="/canvas?embed" title="Drawing canvas"></iframe></section>
+<section class="card" id="backupCard"><h2>Backup</h2><p class="hint">Saves the WLED options, presets and timers to a file, or puts them back from one. Restoring replaces all of them.</p><div class="field row"><button type="button" class="secondary" id="backupDownload">Download backup</button><button type="button" class="secondary" id="backupRestore">Restore from file</button></div><input type="file" id="backupFile" accept=".json,application/json" hidden><p class="hint" id="backupMsg" role="status"></p></section>
 <p class="foot"><a href="/?settings">Clock settings</a></p>
 <script>
 const $=id=>document.getElementById(id);
@@ -76,6 +77,19 @@ $('pal').onchange=()=>post({on:true,seg:[{pal:+$('pal').value}]});
 for(const k of['sx','ix']){$(k).oninput=()=>{busy=Date.now()+1500};$(k).onchange=()=>post({on:true,seg:[{[k]:+$(k).value}]})}
 for(const k of['c0','c1'])$(k).onchange=()=>post({on:true,seg:[{col:[rgb($('c0').value),rgb($('c1').value)]}]});
 addEventListener('message',e=>{if(e.origin!==location.origin||!e.data||typeof e.data.umFullscreen!=='boolean')return;document.querySelectorAll('iframe').forEach(f=>{if(f.contentWindow===e.source)f.classList.toggle('fs',e.data.umFullscreen)});document.documentElement.style.overflow=e.data.umFullscreen?'hidden':''});
+$('backupDownload').onclick=()=>{location.href='/api/wled/backup'};
+$('backupRestore').onclick=()=>$('backupFile').click();
+$('backupFile').onchange=async()=>{
+  const f=$('backupFile').files[0],msg=$('backupMsg');$('backupFile').value='';
+  if(!f)return;
+  if(!confirm('Replace all presets, timers and WLED options with the contents of '+f.name+'?'))return;
+  try{
+    const r=await fetch('/api/wled/backup',{method:'POST',headers:{'Content-Type':'application/json'},body:await f.text()});
+    let m='';try{m=(await r.json()).message||''}catch(_){}
+    if(r.ok){msg.textContent=m||'Restored.';load(true);setTimeout(()=>location.reload(),1200)}
+    else msg.textContent=m||(r.status===413?'That file is too large.':'Could not restore that file.');
+  }catch(_){msg.textContent='The clock did not answer.'}
+};
 document.querySelectorAll('iframe').forEach(frame=>frame.addEventListener('load',()=>{
   const doc=frame.contentDocument;
   const fit=()=>{frame.style.height=doc.body.scrollHeight+'px'};

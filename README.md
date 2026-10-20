@@ -146,7 +146,7 @@ The page has controls for brightness, rotation, time format, timezone, time serv
 
 The page and its assets are stored in firmware flash. A new setting only appears after installing firmware that contains it. If an updated page still looks old, reload it without using the browser cache.
 
-**Admin PIN** (Advanced) is optional and also asked once during the first Wi-Fi setup. With a PIN set, the settings page asks for it before it changes anything; the WLED apps and Home Assistant's WLED link keep working without it. If you forget it, flash the clock again.
+**Admin PIN** (Advanced) is optional and also asked once during the first Wi-Fi setup. With a PIN set, the settings page asks for it before it changes anything; everything WLED (the apps, Home Assistant's WLED link, presets, timers, backup and the drawing editor with saving) keeps working without it. If you forget it, flash the clock again.
 
 **Change Wi-Fi** opens provisioning again. The saved network stays available until you choose another one.
 

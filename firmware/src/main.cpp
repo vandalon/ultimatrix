@@ -1445,9 +1445,13 @@ private:
     if (scheme < 0) return false;  // "null" (sandboxed or file pages)
     return origin.substring(scheme + 3).equalsIgnoreCase(web.hostHeader());
   }
-  // With a PIN set, these stay open: the login itself, and the endpoints other apps use without a browser
-  // (the WLED app and Home Assistant's WLED integration, DLNA control).
-  static bool openRoute(const String &uri) { return uri == "/api/auth" || uri == "/json" || uri == "/json/state" || uri.startsWith("/dlna/"); }
+  // With a PIN set, these stay open: the login itself and everything of the WLED side (the WLED app and Home
+  // Assistant's WLED integration, the options, timers and backup, the drawing canvas with saving) plus DLNA control.
+  // None of it reaches Wi-Fi, firmware or the other settings.
+  static bool openRoute(const String &uri) {
+    return uri == "/api/auth" || uri == "/json" || uri == "/json/state" || uri.startsWith("/dlna/") ||
+           uri == "/api/wled" || uri.startsWith("/api/wled/") || uri.startsWith("/api/canvas/");
+  }
   static constexpr int kMaxBody = 8192;  // the largest settings form (selections are capped at 400 characters each) with room to spare
   String _uri;
   WebServer::THandlerFunction _fn;
