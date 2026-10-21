@@ -72,7 +72,8 @@ html.fs-open,html.fs-open body{overflow:hidden}
 </div></section><section class="card gif-only kind-gif" id="addCard"><h2>Add to the panel</h2>
 <div class="row" role="group" aria-label="What to add"><button type="button" id="kindGif" class="on" aria-pressed="true">GIF</button><button type="button" id="kindPhoto" aria-pressed="false">Photo</button></div>
 <div data-kind="gif"><h3>Find a GIF</h3>
-<div class="row"><input type="text" id="gq" placeholder="Search KLIPY" style="flex:1;min-width:0"><button id="gsearch">Search</button><span id="gspin" class="mini" hidden></span></div>
+<div class="row"><input type="text" id="gq" placeholder="Search KLIPY (empty: Trending)" style="flex:1;min-width:0"><button id="gsearch">Search</button><span id="gspin" class="mini" hidden></span></div>
+<div class="row" id="gcats" style="flex-wrap:wrap;gap:6px;margin-top:8px"></div>
 <div class="gres" id="gres"></div><div class="row" id="gpages" hidden><button id="gprev">Previous</button><small id="gpage"></small><button id="gnext">Next</button></div><small id="gcredit">Powered by KLIPY.</small></div>
 <h3 style="margin-top:14px"><span data-kind="gif">Upload a GIF</span><span data-kind="photo">Upload a photo</span></h3>
 <div class="row"><input type="file" id="file" accept="image/*"></div>
@@ -84,7 +85,7 @@ html.fs-open,html.fs-open body{overflow:hidden}
 <details style="margin-top:14px"><summary><small>Help</small></summary><small><ol style="margin:6px 0;padding-left:20px">
 <li>The clock does the search for you through a small online search service, so it needs internet access.</li>
 
-<li>Search, then tap a GIF. A crop square opens first (GIFs are cropped on their first frame), or tick <b>Always fill the screen</b> to skip it and crop to the middle. Animated GIFs are loaded as frames (up to 64, as many as fit) into the clock's memory and play at once. Use Previous/Next for more results.</li>
+<li>Search (or leave the box empty for Trending, or tap a category), then tap a GIF. A crop square opens first (GIFs are cropped on their first frame), or tick <b>Always fill the screen</b> to skip it and crop to the middle. Animated GIFs are loaded as frames (up to 64, as many as fit) into the clock's memory and play at once. Use Previous/Next for more results.</li>
 <li>An imported GIF is temporary until you press <b>Save played GIF</b>. Saved animations keep up to 24 frames / 5 seconds and can be selected from Home Assistant. Pictures and drawings you press <b>Save as new</b> for are also kept on the clock.</li>
 </ol>
 The search happens on the clock, the pictures load in this browser. Animated import needs Chrome or Edge; Safari and the WLED app load the first frame only.</small></details></section>
@@ -449,29 +450,33 @@ async function signIn(force) {
   }
   throw new Error('Could not sign in to the search service.');
 }
-async function workerSearch(q) {
+async function workerGet(route, what, q) {  // route /s (search, signed text = the words), /t (trending) or /k (categories)
   if (!auth || Date.now() > auth.until) await signIn(false);
-  const t = Math.floor(Date.now() / 1000 + skew), g = hmacHex(auth.token, q + '\n' + page + '\n' + t);
-  return fetch(SEARCH + '/s?q=' + encodeURIComponent(q) + '&p=' + page + '&i=' + auth.id + '&t=' + t + '&g=' + g, { cache: 'no-store' });
+  const p = route === '/k' ? 1 : page, t = Math.floor(Date.now() / 1000 + skew), g = hmacHex(auth.token, what + '\n' + p + '\n' + t);
+  return fetch(SEARCH + route + '?' + (q === undefined ? '' : 'q=' + encodeURIComponent(q) + '&') + 'p=' + p + '&i=' + auth.id + '&t=' + t + '&g=' + g, { cache: 'no-store' });
+}
+async function workerJson(route, what, q) {  // one Worker call; signs in again when the token or the clocks differ
+  let r = await workerGet(route, what, q).catch(() => { throw new Error('Could not reach the search service.'); }), j = await r.json().catch(() => ({}));
+  for (let tries = 0; r.status === 403 && j.expired && tries < 2; tries++) {  // the Worker's clock differs from this one, or the token is no longer accepted
+    const drift = j.now - Date.now() / 1000;
+    if (Math.abs(drift - skew) > 100) skew = drift; else await signIn(true);
+    r = await workerGet(route, what, q); j = await r.json().catch(() => ({}));
+  }
+  if (!r.ok) throw new Error(j.message || 'KLIPY answered ' + r.status + '.');
+  return j;
 }
 const sources = { klipy: { name: 'KLIPY', credit: 'Powered by KLIPY.' } };
 let src = 'klipy';
-function showSource() { const o = sources[src]; $('gq').placeholder = 'Search ' + o.name; $('gcredit').textContent = o.credit; $('gres').replaceChildren(); }
-let page = 1, shownPage = 1, searched = '';
+function showSource() { const o = sources[src]; $('gq').placeholder = 'Search ' + o.name + ' (empty: Trending)'; $('gcredit').textContent = o.credit; $('gres').replaceChildren(); }
+let page = 1, shownPage = 1, searched = '';  // searched: the words of the current search, or '' for Trending
 let more = false;
 function searching(on) { $('gspin').hidden = !on; $('gres').classList.toggle('searching', on); $('gsearch').disabled = on; $('gprev').disabled = on || page <= 1; $('gnext').disabled = on || !more; $('gnext').hidden = !on && !more; }
 async function gsearch(newSearch = true) {
-  const o = sources[src], q = newSearch ? $('gq').value.trim() : searched; if (!q) return;
+  const q = newSearch ? $('gq').value.trim() : searched;  // an empty box shows Trending
   if (newSearch) { searched = q; page = 1; }
-  msg.textContent = 'Searching…'; searching(true);
+  msg.textContent = q ? 'Searching…' : 'Loading Trending…'; searching(true);
   try {
-    let r = await workerSearch(q).catch(() => { throw new Error('Could not reach the search service.'); }), j = await r.json().catch(() => ({}));
-    for (let tries = 0; r.status === 403 && j.expired && tries < 2; tries++) {  // the Worker's clock differs from this one, or the token is no longer accepted
-      const drift = j.now - Date.now() / 1000;
-      if (Math.abs(drift - skew) > 100) skew = drift; else await signIn(true);
-      r = await workerSearch(q); j = await r.json().catch(() => ({}));
-    }
-    if (!r.ok) throw new Error(j.message || o.name + ' answered ' + r.status + '.');
+    const j = q ? await workerJson('/s', q, q) : await workerJson('/t', 'trending');
     const list = j.gifs || [];
     $('gres').replaceChildren(...list.map(item => {
       const u = typeof item === 'string' ? item : item.url, slug = item.slug || '';
@@ -486,7 +491,7 @@ async function gsearch(newSearch = true) {
       return card;
     }));
     shownPage = page; $('gpages').hidden = !list.length && page === 1; $('gpage').textContent = 'Page ' + page; more = list.length >= 24;
-    msg.textContent = list.length ? (more ? 'Tap a GIF to load it.' : 'Tap a GIF to load it. That is the last page: KLIPY shows at most 100 results per search.') : page > 1 ? 'No more results.' : 'Nothing found.';
+    msg.textContent = list.length ? (more ? 'Tap a GIF to load it.' : 'Tap a GIF to load it. That is the last page: KLIPY shows at most 100 results per search.') : page > 1 ? 'No more results.' : (q ? 'Nothing found.' : 'Trending is not available right now.');
   } catch (e) { if (!newSearch) page = shownPage; msg.textContent = ''; msg.textContent = e.message; }
   searching(false);
 }
@@ -511,6 +516,16 @@ $('gprev').onclick = () => { if (page > 1) { page--; gsearch(false); } };
 $('gnext').onclick = () => { page++; gsearch(false); };
 try { $('fillscreen').checked = localStorage.getItem('fillScreen') === '1'; } catch (_) {}
 $('fillscreen').onchange = () => { try { localStorage.setItem('fillScreen', $('fillscreen').checked ? '1' : '0'); } catch (_) {} };
+let catsLoaded = false;
+async function gcats() {  // Trending first, then the category chips: tapping one runs that search
+  if (catsLoaded) return; catsLoaded = true;
+  gsearch();
+  try {
+    const cats = (await workerJson('/k', 'categories')).cats || [];
+    $('gcats').replaceChildren(...cats.map(c => { const b = document.createElement('button'); b.textContent = c.name; b.onclick = () => { $('gq').value = c.q; gsearch(); }; return b; }));
+  } catch (e) { catsLoaded = false; }
+}
+try { new IntersectionObserver((e, o) => { if (e.some(x => x.isIntersecting)) { o.disconnect(); gcats(); } }).observe($('gq')); } catch (_) {}
 $('gsearch').onclick = () => gsearch(); $('gq').onkeydown = e => { if (e.key === 'Enter') gsearch(); }; showSource();
 // Import: draw the picture on a 64x64 canvas (contain, black bars) in the browser
 const tmp = document.createElement('canvas'); tmp.width = tmp.height = N; const tctx = tmp.getContext('2d', { willReadFrequently: true });
