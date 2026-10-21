@@ -383,12 +383,13 @@ document.querySelectorAll('.sidebar nav a').forEach(link => link.addEventListene
 load();
 
 let updatePolling = false, currentFace = '';
+const betaServer = 'https://raw.githubusercontent.com/vandalon/ultimatrix/beta-updates';
 async function refreshFirmware() {
   try {
     const response = await fetch('/api/firmware', {cache:'no-store'}); if (!response.ok) return;
     const state = await response.json();
     document.querySelector('#firmware-version').textContent = state.version;
-    { const field = document.querySelector('#update-server'); if (document.activeElement !== field) field.value = state.server || ''; }
+    { const field = document.querySelector('#update-server'); if (document.activeElement !== field) field.value = state.server || ''; document.querySelector('#update-beta').checked = (state.server || '') === betaServer; }
     document.querySelector('#firmware-memory').textContent = Math.round(state.freeHeap / 1024) + ' KiB';
     document.querySelector('#firmware-status').textContent = state.message;
     document.querySelector('#firmware-latest').textContent = state.checking ? 'Checking…' : state.available ? state.latest + ' available' : state.checkedAt ? 'Up to date' : '—';
@@ -435,11 +436,13 @@ async function startUpdate(question, mode, force) {
 const installQuestion = 'Download and install the signed update? Your clock will restart. Unsaved settings will be discarded.';
 document.querySelector('#firmware-update').addEventListener('click', () => startUpdate(installQuestion));
 document.querySelector('#update-banner-install').addEventListener('click', () => startUpdate(installQuestion));
-document.querySelector('#update-server-save').addEventListener('click', async () => {
-  const body = new URLSearchParams({url: document.querySelector('#update-server').value.trim()});
+async function saveUpdateServer(url) {
+  const body = new URLSearchParams({url});
   try { const response = await fetch('/api/firmware/server', {method:'POST', body}); const result = await response.json(); document.querySelector('#firmware-status').textContent = result.message; } catch (_) {}
   setTimeout(refreshFirmware, 500);
-});
+}
+document.querySelector('#update-server-save').addEventListener('click', () => saveUpdateServer(document.querySelector('#update-server').value.trim()));
+document.querySelector('#update-beta').addEventListener('change', event => saveUpdateServer(event.target.checked ? betaServer : ''));
 async function runCheck(force) {
   document.querySelector('#firmware-check').disabled = true;
   try {
