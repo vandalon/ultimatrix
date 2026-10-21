@@ -63,6 +63,7 @@ void Settings::load() {
   if (!validClockName(clockName)) clockName = "Ultimatrix";
   autoUpdate = p.getBool("autoUpdate", true);
   nightClock = p.getBool("nightClock", true);
+  dither = p.getBool("dither", false);
   birthdays = p.getString("birthdays", "");
   if (birthdays.length() > 260) birthdays = "";
   Record record{};
@@ -143,6 +144,7 @@ bool Settings::save() {
   if (saved) saved = p.putBool("mdnsUseName", mdnsUseName) == 1;
   if (saved) p.putBool("anyHost", anyHost);
   if (saved) p.putUChar("accessScope", accessScope);
+  if (saved) p.putBool("dither", dither);
   if (saved) p.putBool("nightClock", nightClock);  // own key too: the record stays as it is
   if (saved) p.putBool("autoUpdate", autoUpdate);  // own key, so records saved before this setting keep it on
   if (saved) p.putString("birthdays", birthdays);  // own key as well: the record stays as it is

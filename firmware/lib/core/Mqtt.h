@@ -20,6 +20,7 @@ class Mqtt {
 public:
   struct Config {
     bool enabled = false;
+    bool screenCamera = false;  // the changed-screen camera snapshot; off by default because preparing it can cost animation smoothness
     char host[64] = "";
     uint16_t port = 1883;
     char user[33] = "";

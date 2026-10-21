@@ -543,7 +543,7 @@ static void settingsState() {
   json += ",\"nightSun\":" + String(s.nightSun ? "true" : "false") + ",\"nightClock\":" + String(s.nightClock ? "true" : "false");
   json += ",\"timezone\":" + jsonText(s.timezone) + ",\"autoTimezone\":" + String(s.manualTimezone ? "false" : "true") + ",\"matchSecs\":" + String(s.matchSecs);
   json += ",\"resultMins\":" + String(s.resultMins) + ",\"timeStyle\":" + String(s.timeStyle);
-  json += ",\"swapBlueGreen\":" + String(s.swapBlueGreen ? "true" : "false") + ",\"telnet\":" + String(s.telnet ? "true" : "false") + ",\"autoUpdate\":" + String(s.autoUpdate ? "true" : "false");
+  json += ",\"dither\":" + String(s.dither ? "true" : "false") + ",\"swapBlueGreen\":" + String(s.swapBlueGreen ? "true" : "false") + ",\"telnet\":" + String(s.telnet ? "true" : "false") + ",\"autoUpdate\":" + String(s.autoUpdate ? "true" : "false");
   json += ",\"birthdays\":" + jsonText(s.birthdays);
   json += ",\"fbLeagues\":" + jsonText(s.footballLeagues) + ",\"fbTeams\":" + jsonText(s.footballTeams);
   json += ",\"f1Drivers\":" + jsonText(s.f1Drivers);
@@ -835,6 +835,7 @@ static void saveSettings() {
 #endif
   if (server.hasArg("birthdays")) s.birthdays = Birthdays::clean(server.arg("birthdays"));
   s.swapBlueGreen = server.hasArg("swapBlueGreen");
+  s.dither = server.hasArg("dither");
   s.telnet = server.hasArg("telnet");
   s.autoUpdate = server.hasArg("autoUpdate");
 #ifdef UM_FOOTBALL_ONLY
@@ -852,9 +853,15 @@ static void saveSettings() {
   bool restart = previous.swapBlueGreen != s.swapBlueGreen;
   bool timeChanged = previous.timezone != s.timezone || previous.use24h != s.use24h || previous.ntpServer != s.ntpServer;
   bool consoleChanged = previous.telnet != s.telnet;
+  bool ditherChanged = previous.dither != s.dither;
   bool nameChanged = previous.clockName != s.clockName || previous.mdnsUseName != s.mdnsUseName;
   *Settings::getInstance() = candidate;
   if (displayReady) display->setRotation(s.rotation);
+  if (displayReady && ditherChanged) {  // the gain table is rebuilt with or without the pattern, then the face repaints
+    display->setDither(s.dither);
+    display->setBrightness8(appliedBrightness);
+    nightClock.reset(); if (face) face->invalidate();
+  }
   if (timeChanged && face) clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (consoleChanged) {
     if (s.telnet && !telnetLow) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
@@ -953,6 +960,11 @@ static void displaySave() {
 static void mqttSettingsChanged(const Settings &previous) {
   auto &s = *Settings::getInstance();
   if (displayReady && previous.rotation != s.rotation) display->setRotation(s.rotation);
+  if (displayReady && previous.dither != s.dither) {  // the gain table is rebuilt with or without the pattern, then the face repaints
+    display->setDither(s.dither);
+    display->setBrightness8(appliedBrightness);
+    nightClock.reset(); if (face) face->invalidate();
+  }
   if ((previous.timezone != s.timezone || previous.use24h != s.use24h || previous.ntpServer != s.ntpServer) && face)
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (previous.telnet != s.telnet) {
@@ -998,7 +1010,7 @@ static void mqttState() {
   const Mqtt::Config &c = Mqtt::instance().config();
   char status[80];
   Mqtt::instance().status(status, sizeof(status));
-  server.send(200, "application/json", String("{\"enabled\":") + (c.enabled ? "true" : "false") + ",\"host\":" + jsonText(c.host) + ",\"port\":" + c.port +
+  server.send(200, "application/json", String("{\"enabled\":") + (c.enabled ? "true" : "false") + ",\"screenCamera\":" + (c.screenCamera ? "true" : "false") + ",\"host\":" + jsonText(c.host) + ",\"port\":" + c.port +
               ",\"user\":" + jsonText(c.user) + ",\"passwordSet\":" + (c.pass[0] ? "true" : "false") +
               ",\"connected\":" + (Mqtt::instance().connected() ? "true" : "false") + ",\"status\":" + jsonText(status) + "}");
 }
@@ -1006,6 +1018,7 @@ static void mqttState() {
 static void mqttSave() {
   Mqtt::Config c = Mqtt::instance().config();
   c.enabled = server.arg("enabled") == "1";
+  c.screenCamera = server.arg("screenCamera") == "1";
   String host = server.arg("host"), user = server.arg("user"), password = server.arg("password");
   host.trim();
   if (host.length() && !Mqtt::validHost(host.c_str())) { settingsResponse(400, "Enter the broker as an IP address or a host name."); return; }
@@ -1689,8 +1702,8 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
-  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "birthdays",                          // Settings.cpp
-  "mqOn", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
+  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays",                          // Settings.cpp
+  "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
   "wledS", "wledP", "wledT", "searchId",                                                                                    // WledState.cpp
   "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather",  // HaConfig.cpp
@@ -1811,6 +1824,7 @@ void setup() {
     bootScreen.setPlainBackdrop(setupRefresh);  // the setup display: no dim U behind the icons
     boot::setLevelMap(bootMap);
     appliedBrightness = panelBrightness(s.brightness);
+    display->setDither(s.dither);
     display->setBrightness8(appliedBrightness);
     display->setRotation(s.rotation);
     bootAt = millis();

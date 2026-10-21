@@ -707,6 +707,8 @@ public:
   uint8_t brightnessFloor() const { return oeFloor(); }
   /** true: the lowest brightness may narrow the output window below its safe width (night clock); takes effect on the next setBrightness8 */
   void setDeepDim(bool on) { m_deepDim = on; }
+  /** true: ordered dithering of the dimmed pixel values (below brightnessFloor()); takes effect on the next setBrightness8 */
+  void setDither(bool on) { m_dither = on; }
 
   void setBrightness8(const uint8_t b)
   {
@@ -879,6 +881,7 @@ private:
   uint8_t applyGain(uint8_t brt);  // sets or clears the pixel gain table, returns the brightness for the OE windows
   uint8_t oeFloor() const;
   bool m_deepDim = false;
+  bool m_dither = false;
 
   /**
    * @brief - transforms coordinates according to orientation

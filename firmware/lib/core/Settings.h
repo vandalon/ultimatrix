@@ -42,6 +42,7 @@ struct Settings {
   bool f1Flags = false;
   bool autoUpdate = true;  // check once a day and install a newer signed image by itself
   bool nightClock = true;  // off: the dim red night clock never replaces the face (not by schedule, not in a dark room); own NVS key
+  bool dither = false;  // smoother dark colours at low brightness (HUB75 ordered dithering); own NVS key
   bool telnet = false;  // LAN console on port 23, unauthenticated: off unless switched on
   String f1Drivers;
   String birthdays;  // "MMDD:NAME:YYYY" entries, comma separated (Birthdays.h); own NVS key, outside the settings record

@@ -629,7 +629,7 @@ async function initWled() {
     } catch (_) {}
   };
   const save = async () => {
-    const body = new URLSearchParams({ enabled: $('enabled').checked ? '1' : '0', timeoutMin: $('timeout').value || '0', ignoreLive: $('ignore').checked ? '1' : '0' });
+    const body = new URLSearchParams({ enabled: $('enabled').checked ? '1' : '0', screenCamera: $('screen-camera').checked ? '1' : '0', timeoutMin: $('timeout').value || '0', ignoreLive: $('ignore').checked ? '1' : '0' });
     try { const r = await fetch('/api/wled', { method: 'POST', body }); if (!r.ok) $('status').textContent = (await r.json()).message; else show(); } catch (_) {}
   };
   $('enabled').addEventListener('change', save); $('timeout').addEventListener('change', save); $('ignore').addEventListener('change', save);
@@ -853,7 +853,7 @@ async function initHomeAssistant() {
       const state = await (await fetch('/api/mqtt')).json();
       $('status').textContent = state.status;
       if (fill) {
-        $('enabled').checked = state.enabled; $('host').value = state.host; $('port').value = state.port === 1883 ? '' : state.port;
+        $('enabled').checked = state.enabled; $('screen-camera').checked = state.screenCamera; $('host').value = state.host; $('port').value = state.port === 1883 ? '' : state.port;
         $('user').value = state.user; $('password').placeholder = state.passwordSet ? 'Saved: leave empty to keep' : 'No password';
       }
       clearTimeout(timer);

@@ -161,6 +161,7 @@ void Mqtt::begin(const char *version, const Hooks &hooks) {
   Preferences p;
   if (!p.begin("ultimatrix", true)) return;
   _cfg.enabled = p.getBool("mqOn", false);
+  _cfg.screenCamera = p.getBool("mqCam", false);
   p.getString("mqHost", _cfg.host, sizeof(_cfg.host));
   _cfg.port = p.getUShort("mqPort", 1883);
   p.getString("mqUser", _cfg.user, sizeof(_cfg.user));
@@ -174,6 +175,7 @@ bool Mqtt::save(const Config &next) {
   Preferences p;
   if (!p.begin("ultimatrix", false)) return false;
   bool ok = p.putBool("mqOn", next.enabled) && p.putUShort("mqPort", next.port);  // an empty string stores 0 bytes, so only these count
+  p.putBool("mqCam", next.screenCamera);
   p.putString("mqHost", next.host);
   p.putString("mqUser", next.user);
   p.putString("mqPass", next.pass);
@@ -695,6 +697,7 @@ static bool snapRow(int16_t y, uint8_t *rgb) {
 // and no image backlog: leave space for commands, notices and GIF uploads.
 void Mqtt::publishScreen(uint32_t now) {
   if (!_hooks.screenRow) return;
+  if (!_cfg.screenCamera) { if (_snapPhase) { _snap.reset(); _snapPhase = 0; } return; }
   if (!_snapPhase && now - _screenAt < 1000) return;
   constexpr size_t headerSize = 54 + 256 * 4;  // header plus BGR0 palette
   constexpr size_t rowSize = 64;  // already aligned to four bytes
