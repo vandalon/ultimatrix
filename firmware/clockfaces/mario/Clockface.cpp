@@ -18,7 +18,7 @@ struct Theme {
   bool overground;  // false: darker block colour (and the night sky for the outdoor worlds)
 };
 const Theme kDay = {rgb(92, 148, 252), rgb(200, 76, 12), rgb(252, 152, 56), rgb(40, 8, 0), rgb(184, 100, 20), rgb(252, 188, 120), rgb(255, 255, 255), rgb(36, 82, 190), true};
-const Theme kCave = {rgb(0, 0, 28), rgb(0, 84, 176), rgb(60, 140, 232), rgb(0, 12, 44), rgb(72, 120, 200), rgb(176, 200, 240), rgb(170, 196, 244), rgb(36, 46, 110), false};
+const Theme kCave = {rgb(0, 0, 0), rgb(0, 84, 176), rgb(60, 140, 232), rgb(0, 12, 44), rgb(72, 120, 200), rgb(176, 200, 240), rgb(170, 196, 244), rgb(36, 46, 110), false};
 const Theme kUnder = {rgb(0, 0, 0), rgb(0, 84, 176), rgb(60, 140, 232), rgb(0, 12, 44), rgb(72, 120, 200), rgb(176, 200, 240), rgb(150, 180, 240), rgb(26, 36, 96), false};
 const Theme kCastle = {rgb(28, 12, 16), rgb(120, 120, 120), rgb(176, 176, 176), rgb(32, 32, 32), rgb(160, 120, 100), rgb(220, 200, 180), rgb(232, 232, 232), rgb(84, 48, 56), false};
 const Theme kSnow = {rgb(110, 160, 222), rgb(120, 144, 200), rgb(255, 255, 255), rgb(48, 64, 112), rgb(184, 100, 20), rgb(252, 188, 120), rgb(20, 52, 130), rgb(96, 140, 210), true};

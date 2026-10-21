@@ -20,7 +20,7 @@ const int kClockBand = kDigitH + 2 * kClockMargin, kBehindClockLevel = 64;
 const int MAZE_W = COLS * PITCH + 2, MAZE_H = ROWS * PITCH + 2;
 int OX = 0, OY = VIEW_TOP;
 float camX = 0, camY = 0;
-const uint16_t kBackground = rgb(4, 4, 18);
+const uint16_t kBackground = rgb(0, 0, 0);
 const uint16_t kWallFlash = rgb(230, 230, 255), kDoor = rgb(255, 184, 222);
 const uint16_t kPacman = rgb(255, 224, 0);
 uint16_t wallColour = 0x0016, pillColour = 0xB58C, ghostColours[4] = {};
