@@ -81,7 +81,7 @@ html.fs-open,html.fs-open body{overflow:hidden}
 <div class="row"><label><input type="checkbox" id="fillscreen"> Always fill the screen (crop to the middle, no crop window)</label></div>
 <div data-kind="gif"><details style="margin-top:8px"><summary><small>GIF options</small></summary><div class="row"><label for="gifContrast">Contrast</label><input id="gifContrast" type="range" min="80" max="160" step="5" value="120"><output id="gifContrastValue" for="gifContrast">120%</output><label for="gifColors">Colours</label><select id="gifColors"><option>256</option><option>128</option><option>64</option><option selected>32</option></select></div><small>GIFs are imported without dithering. More colours use more of the clock's memory, so fewer frames fit. Contrast and colours apply to the next import; 100% keeps the original contrast.</small></details>
 <div class="row" style="margin-top:8px"><input id="keepname" maxlength="15" placeholder="Saved name" style="flex:1;min-width:0"><button id="keepgif">Save played GIF</button></div><small>Save up to 24 frames / 5 seconds for Home Assistant. Saved pictures and animations share 8 slots and the clock’s storage.</small></div>
-<div class="row"><label for="showFor">Show for</label><select id="showFor"><option value="0">Until I stop it</option><option value="1">1 minute</option><option value="5">5 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="120">2 hours</option></select></div><small>Show for: how long the panel keeps showing a picture or animation after the last change; then the clock goes back to its face (the same setting as the WLED idle timeout in Settings).</small>
+<div class="row"><label for="showFor">Show for</label><select id="showFor"><option value="0">Until I stop it</option><option value="1">1 minute</option><option value="5">5 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="120">2 hours</option></select><button type="button" id="stopGif">Stop</button></div><small>Show for: how long the panel keeps showing a picture or animation after the last change; then the clock goes back to its face (the same setting as the WLED idle timeout in Settings).</small>
 <details style="margin-top:14px"><summary><small>Help</small></summary><small><ol style="margin:6px 0;padding-left:20px">
 <li>The clock does the search for you through a small online search service, so it needs internet access.</li>
 
@@ -202,6 +202,18 @@ $('clear').onclick = async () => {
     msg.textContent = 'Panel cleared.';
   } catch (e) { msg.textContent = 'Could not clear the panel: ' + e.message; }
   finally { abortPush = false; $('clear').disabled = false; }
+};
+$('stopGif').onclick = async () => {
+  importSerial++; abortPush = true; dirty = false;  // ends a running import, then clears the panel
+  $('stopGif').disabled = true;
+  try {
+    while (busy) await new Promise(resolve => setTimeout(resolve, 30));
+    await post('/api/canvas/clear');
+    await post('/json/state', '{"on":false}', 'application/json');  // light off: WLED lets go of the panel
+    px.fill(0); shadow.fill(0); snapshotPending = false; playbackBusy(false);
+    msg.textContent = 'Stopped. The panel is back on its face.';
+  } catch (e) { msg.textContent = 'Could not stop: ' + e.message; }
+  finally { abortPush = false; $('stopGif').disabled = false; }
 };
 $('undo').onclick = () => { if (undo.length) { redo.push(Uint32Array.from(px)); px = undo.pop(); render(); push(); } };
 $('redo').onclick = () => { if (redo.length) { undo.push(Uint32Array.from(px)); px = redo.pop(); render(); push(); } };
