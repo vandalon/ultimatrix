@@ -63,6 +63,7 @@ struct RingState
   volatile uint32_t own, lag;           // draw calls wait for the back buffer to be released; lower half lags one sweep
   volatile uint32_t pending;            // set by a flip, cleared once the drawing side has seen the back buffer released
   uint32_t nextFill;                    // next row to generate
+  uint32_t curRow;                      // row last reported sent; the chain has only n row groups, so the interrupt follows the absolute row itself
   volatile uint32_t filled, missed, maxCycles, calls;
   volatile uint64_t sumCycles;
 };
@@ -240,9 +241,19 @@ void IRAM_ATTR ringEof(void *, uint32_t descIndex)
     R.lateSeq = R.lateSeq + 1;
   }
   if (gap > 1000 * mhz) { R.late[0] = R.late[0] + 1; if (gap > 2000 * mhz) { R.late[1] = R.late[1] + 1; if (gap > 5000 * mhz) { R.late[2] = R.late[2] + 1; if (gap > 10000 * mhz) R.late[3] = R.late[3] + 1; } } }
-  const uint32_t cur = descIndex / R.descPerRow;
-  if (cur >= R.rows)
+  // The chain holds n row groups (one per slot) and loops, so the descriptor only gives the slot. The row is the next one after the
+  // previous interrupt whose slot matches; late by up to n-1 rows re-syncs, a whole lap (n rows) late cannot be told apart.
+  const uint32_t slot = descIndex / R.descPerRow;
+  if (slot >= R.n)
     return;
+  uint32_t k = slot + R.n - (R.curRow % R.n); // rows % n == 0, so slot == row % n
+  k %= R.n;
+  if (k == 0)
+    k = R.n;
+  uint32_t cur = R.curRow + k;
+  if (cur >= R.rows)
+    cur -= R.rows;
+  R.curRow = cur;
   uint32_t target = cur + R.n;
   if (target >= R.rows)
     target -= R.rows;
@@ -273,6 +284,36 @@ void IRAM_ATTR ringEof(void *, uint32_t descIndex)
   static uint8_t g_gainTable[256];
   static const uint8_t *g_gainLut = nullptr;
 
+  /* Bit planes up to the transition bit are each shown for one slot, the higher ones for twice as long as the one below (the descriptor
+   * chain). A value's light is the sum over its set bits, which is not monotonic in the value once the transition bit is above 0 (e.g.
+   * with 1: 3 shows 2 slots, 4 shows 1). The brightness tables are lifted so a higher input never shows less light than a lower one
+   * (same idea as adjust_lut_for_bcm in esphome-libs/esp-hub75). Values never decrease either: the screen readback searches the table. */
+  static unsigned bcmWeight(unsigned value, int depth, int transition)
+  {
+    unsigned weight = 0;
+    for (int bit = 0; bit < depth; bit++)
+      if (value & (1u << bit)) weight += bit <= transition ? 1u : 1u << (bit - transition - 1);
+    return weight;
+  }
+
+  static void bcmMonotonic(uint8_t *lut, int depth, int transition)
+  {
+    const unsigned max_val = (1u << depth) - 1;
+    unsigned prevValue = 0, prevWeight = 0;
+    for (int i = 0; i < 256; i++)
+    {
+      unsigned best = lut[i] > prevValue ? lut[i] : prevValue;
+      while (best < max_val && bcmWeight(best, depth, transition) < prevWeight) best++;
+      lut[i] = (uint8_t)best;
+      prevValue = best;
+      prevWeight = bcmWeight(best, depth, transition);
+    }
+  }
+
+  static uint8_t g_bcmTable[256];  // the full-brightness table with the correction above; valid once begin() has built it
+  static bool g_bcmReady = false;
+  static inline const uint8_t *baseLut(unsigned depth) { return g_bcmReady ? g_bcmTable : cie_lut_for_depth(depth); }
+
   /* LED Brightness Compensation */                                                               
 #ifndef NO_CIE1931                                                                                
   /* CIE 1931 correction with bit-depth-optimized LUTs*/                                            
@@ -281,7 +322,7 @@ void IRAM_ATTR ringEof(void *, uint32_t descIndex)
 
     // Optimized path: LUT maps 8-bit input (0-255) directly to target bit depth output
     #define DO_BRIGHTNESS_COMPENSATION()                                                              \
-      const uint8_t *lut_ = g_gainLut ? g_gainLut : cie_lut_for_depth(m_cfg.getPixelColorDepthBits()); \
+      const uint8_t *lut_ = g_gainLut ? g_gainLut : baseLut(m_cfg.getPixelColorDepthBits());          \
       auto red_val   = lut_[red];                                                                     \
       auto green_val = lut_[green];                                                                   \
       auto blue_val  = lut_[blue];                                                                    
@@ -451,6 +492,20 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
 
 #endif
 
+#if !defined(NO_CIE1931) && defined(LUT_NATIVE_BIT_DEPTH)
+  // The transition bit is final now: correct the full-brightness table for the plane weights
+  g_bcmReady = false;
+  if (m_cfg.getPixelColorDepthBits() >= 7)
+  {
+    if (const uint8_t *base = cie_lut_for_depth(m_cfg.getPixelColorDepthBits()))
+    {
+      memcpy(g_bcmTable, base, sizeof(g_bcmTable));
+      bcmMonotonic(g_bcmTable, m_cfg.getPixelColorDepthBits(), lsbMsbTransitionBit);
+      g_bcmReady = true;
+    }
+  }
+#endif
+
   /***
    * Step 2:  Calculate the DMA descriptors required, which is used for memory allocation of the DMA linked list memory structure.
    *          This determines the number of passes required to shift out the colour bits in the framebuffer.
@@ -482,8 +537,13 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
   //dma_descriptors_per_row = 1;
 
   // Allocate DMA descriptors 
-  int dma_descriptions_required = dma_descriptors_per_row * ROWS_PER_FRAME;
-  
+#ifdef HUB75_RING_STREAM
+  const int chainRows = ring_on ? slotRows : ROWS_PER_FRAME; // the ring chain has one row group per slot and loops over them
+#else
+  const int chainRows = ROWS_PER_FRAME;
+#endif
+  int dma_descriptions_required = dma_descriptors_per_row * chainRows;
+
   ESP_LOGV("I2S-DMA", "DMA descriptors per row: %d", dma_descriptors_per_row);  
   ESP_LOGV("I2S-DMA", "DMA descriptors required per buffer: %d", dma_descriptions_required);    
 
@@ -515,7 +575,7 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
 	
 	int _dmadescriptor_count = 0; // for tracking
 	
-    for (int row = 0; row < ROWS_PER_FRAME; row++)
+    for (int row = 0; row < chainRows; row++)
     {
 	  //ESP_LOGV("I2S-DMA", ">>> Linking DMA descriptors for output row %d", row);    	
 	  const int slotIdx = row % slotRows; // the ring reuses its slots, every row of a frame links to the slot it is generated into
@@ -1030,6 +1090,7 @@ uint8_t MatrixPanel_I2S_DMA::applyGain(uint8_t brt)
     unsigned out = (lumConvTab_12bit[v] * gain + (1u << (shift - 1))) >> shift;
     g_gainTable[v] = out > max_val ? max_val : out;
   }
+  bcmMonotonic(g_gainTable, depth, lsbMsbTransitionBit);
   g_gainLut = g_gainTable;
   return window;
 }
@@ -1221,6 +1282,7 @@ void MatrixPanel_I2S_DMA::ringPrefill()
   for (uint32_t r = 0; r < R.n; r++)
     ringFillRow(R, r);
   R.nextFill = R.n;
+  R.curRow = R.rows - 1; // the first row interrupt reports row 0
   // Default: the lower half switches one sweep after the upper half (no seam), and drawing waits for the buffer to be free.
   R.lag = (R.depth >= 7);
   R.own = R.lag;
@@ -1580,17 +1642,26 @@ bool MatrixPanel_I2S_DMA::readDisplayRow(int16_t y, uint8_t *rgb)
   const int front = m_cfg.double_buff ? (back_buffer_id ^ 1) : 0;
   const uint8_t depth = m_cfg.getPixelColorDepthBits();
   if (depth > 8) return false;
+#if !defined(NO_CIE1931) && defined(LUT_NATIVE_BIT_DEPTH)
+  // The smallest input that shows at least this output value, for every output value: built once per row instead of a
+  // binary search for each of the three channels of each pixel
+  uint8_t inverse[256];
+  {
+    const uint8_t *lut = g_gainLut ? g_gainLut : baseLut(depth);
+    unsigned input = 0;
+    for (unsigned value = 0; value < 256; ++value)
+    {
+      while (input < 255 && lut[input] < value) ++input;
+      inverse[value] = (uint8_t)input;
+    }
+  }
+  auto channel = [&](uint8_t value) -> uint8_t { return value ? inverse[value] : 0; };
+#else
   auto channel = [&](uint8_t value) -> uint8_t {
     if (!value) return 0;
-#if !defined(NO_CIE1931) && defined(LUT_NATIVE_BIT_DEPTH)
-    const uint8_t *lut = g_gainLut ? g_gainLut : cie_lut_for_depth(depth);
-    int lo = 0, hi = 255;
-    while (lo < hi) { const int mid = (lo + hi) / 2; if (lut[mid] < value) lo = mid + 1; else hi = mid; }
-    return lo;
-#else
     return (uint16_t)value * 255 / ((1u << depth) - 1);
-#endif
   };
+#endif
   for (int16_t x = 0; x < width(); ++x) {
     int16_t xx = x, yy = y, w = 1, h = 1;
     transform(xx, yy, w, h);
