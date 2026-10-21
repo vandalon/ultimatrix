@@ -40,6 +40,41 @@ void Clockface::benchmark() {
   Serial.printf("[Scanner] RGB888 frame, fastest of 12: %u us (rejected pixels: %u us)\n", (unsigned)best, (unsigned)floorUs);
 }
 
+#ifdef UM_PATTERN
+// Static test card for judging banding, tints and ghosting by eye or camera (build with UM_PATTERN=1 set in the environment).
+// It goes through the normal brightness path, so it shows what the clock shows at the configured brightness.
+static void drawPattern(MatrixPanel_I2S_DMA *d) {
+  d->fillScreenRGB888(0, 0, 0);
+  for (int x = 0; x < 64; ++x) {
+    for (int y = 0; y < 8; ++y) d->drawPixelRGB888(x, y, x, x, x);                // dark ramp, one level per column (0..63)
+    for (int y = 8; y < 16; ++y) d->drawPixelRGB888(x, y, x * 4, x * 4, x * 4);   // full grey ramp
+    for (int y = 16; y < 20; ++y) d->drawPixelRGB888(x, y, x * 4, 0, 0);          // red ramp
+    for (int y = 20; y < 24; ++y) d->drawPixelRGB888(x, y, 0, x * 4, 0);          // green ramp
+    for (int y = 24; y < 28; ++y) d->drawPixelRGB888(x, y, 0, 0, x * 4);          // blue ramp
+  }
+  // White at very low levels (4, 8, 16, 32): the yellow-tint case
+  const uint8_t low[4] = {4, 8, 16, 32};
+  for (int i = 0; i < 4; ++i) d->fillRect(i * 16, 28, 16, 4, low[i], low[i], low[i]);
+
+  // Ghosting on black: single pixels, short lines, a block and a dense checker, every one with black all around it
+  for (int x = 8; x < 64; x += 16) d->drawPixelRGB888(x, 34, 255, 255, 255);
+  d->fillRect(4, 38, 8, 1, 255, 255, 255);   // horizontal line
+  d->fillRect(20, 36, 1, 8, 255, 255, 255);  // vertical line
+  d->fillRect(32, 38, 3, 3, 255, 255, 255);  // 3x3 block
+  for (int y = 34; y < 46; ++y)
+    for (int x = 44; x < 60; ++x)
+      if ((x + y) & 1) d->drawPixelRGB888(x, y, 255, 255, 255);  // checker
+
+  // The same single pixels on dark grey (16) and mid grey (64), as the word clock's background would be
+  d->fillRect(0, 48, 32, 16, 16, 16, 16);
+  d->fillRect(32, 48, 32, 16, 64, 64, 64);
+  for (int x = 8; x < 64; x += 16) d->drawPixelRGB888(x, 52, 255, 255, 255);
+  d->fillRect(4, 58, 6, 1, 255, 255, 255);
+  d->fillRect(36, 56, 1, 6, 255, 255, 255);
+  d->fillRect(48, 57, 5, 5, 255, 255, 255);
+}
+#endif
+
 void Clockface::update() {
   const uint32_t now = millis();
   if (now - _reported >= 10000) {
@@ -50,6 +85,11 @@ void Clockface::update() {
                   (unsigned)(stats.maxCycles / getCpuFrequencyMhz()),
                   (unsigned)stats.rowPeriodUs, (unsigned)stats.missed);
   }
+#ifdef UM_PATTERN
+  drawPattern(_display);
+  _display->flipDMABuffer();
+  return;
+#endif
   if (!_benched && now - _started > 30000) {
     _benched = true;
     benchmark();
