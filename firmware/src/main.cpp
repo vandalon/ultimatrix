@@ -1706,7 +1706,7 @@ static const char *const kKnownKeys[] = {
   "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays",                          // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
-  "wledS", "wledP", "wledT", "searchId",                                                                                    // WledState.cpp
+  "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
   "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather",  // HaConfig.cpp
   "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5",
 };

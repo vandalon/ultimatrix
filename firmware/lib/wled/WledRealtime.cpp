@@ -317,6 +317,29 @@ void hidden() {
 
 bool shown() { return owns.load(); }
 
+// Shown while a GIF uploads: three pulsing dots over a progress bar (a sweeping block until the frame count is known). Drawn straight to the panel at ~12 fps.
+static void importPlaceholder(MatrixPanel_I2S_DMA &display, uint32_t now, uint16_t scale) {
+  static uint32_t lastDraw = 0;
+  if (lastDraw && now - lastDraw < 80) return;
+  lastDraw = now;
+  int have = 0, total = 0;
+  canvas::importing(have, total);
+  auto px = [&](int x, int y, int r, int g, int b) { display.drawPixelRGB888(x, y, (r * scale) >> 8, (g * scale) >> 8, (b * scale) >> 8); };
+  display.fillScreenRGB888(0, 0, 0);
+  for (int i = 0; i < 3; i++) {  // dots take turns being bright
+    const bool on = (int)(now / 250 % 3) == i;
+    const int v = on ? 255 : 70;
+    for (int dy = 0; dy < 3; dy++) for (int dx = 0; dx < 3; dx++) px(24 + i * 6 + dx, 24 + dy, v, v, v);
+  }
+  for (int x = 7; x < 57; x++) { px(x, 30, 90, 90, 90); px(x, 35, 90, 90, 90); }
+  for (int y = 31; y < 35; y++) { px(7, y, 90, 90, 90); px(56, y, 90, 90, 90); }
+  int from = 8, to = 8;
+  if (total > 0) to = 8 + 48 * std::min(have, total) / total;
+  else { from = 8 + (int)(now / 40 % 40); to = from + 8; }
+  for (int y = 31; y < 35; y++) for (int x = from; x < to; x++) px(x, y, 40, 160, 255);
+  display.flipDMABuffer();
+}
+
 void draw(MatrixPanel_I2S_DMA &display, uint32_t now) {
   Grip grip(50);
   if (!grip.held()) return;
@@ -329,7 +352,7 @@ void draw(MatrixPanel_I2S_DMA &display, uint32_t now) {
   }
   if (live) { live = false; restartEffect(); }
   owns = true;
-  if (canvas::holdsPanel()) return;  // an import is uploading: no new frame, the panel keeps showing the last one
+  if (canvas::holdsPanel()) { importPlaceholder(display, now, lastScale); return; }  // an import is uploading: the canvas buffer is in use, so a small progress screen is drawn instead
   render(display, now, lastScale);
   display.flipDMABuffer();
 }

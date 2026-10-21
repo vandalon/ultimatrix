@@ -7,6 +7,7 @@
 #include <DiskCache.h>
 #include <NetworkBudget.h>
 #include <NoticeImage.h>
+#include <atomic>
 #include <errno.h>
 #include <unistd.h>
 #include <esp_crt_bundle.h>
@@ -43,7 +44,7 @@ constexpr int kMaxFrames = 64;
 constexpr uint32_t kMagic = 0x31564357;  // "WCV1"
 constexpr size_t kBufferBytes = kPixels * 2;
 constexpr size_t kCanvasHeadroom = 8000;  // data heap that stays free after the canvas buffer itself
-constexpr size_t kHeadroom = 18000;  // data heap (8-bit capable) that stays free after the canvas, a last-frame copy or an import frame is allocated; the clock normally runs with 15 to 50 KB
+constexpr size_t kHeadroom = 28000;  // data heap (8-bit capable) that stays free after the canvas, a last-frame copy or an import frame is allocated; the clock normally runs with 15 to 50 KB
 
 struct Header { uint32_t magic; uint8_t frames, reserved; uint16_t delay; char name[16]; };
 
@@ -886,28 +887,87 @@ size_t unbase64url(String text, uint8_t *out, size_t cap) {
 }
 
 // One HTTPS request to the search Worker. Returns the status (0 = no answer) and the start of the body.
-int workerCall(const String &request, String &body) {
-  std::unique_ptr<Tls> tls(new (std::nothrow) Tls);
-  if (!tls || !tls->open(kSearchHost, 443, MBEDTLS_SSL_MAX_FRAG_LEN_4096, 8000) || !tls->write(request.c_str())) return 0;
+// keep: a connection to reuse and, when the answer allows it, to keep for the next request (the handshake is the slow part, about 4 s).
+int workerCall(const String &request, String &body, std::unique_ptr<Tls> *keep = nullptr) {
+  const uint32_t t0 = millis();
+  std::unique_ptr<Tls> own;
+  std::unique_ptr<Tls> &tls = keep ? *keep : own;
+  if (!tls) {
+    tls.reset(new (std::nothrow) Tls);
+    if (!tls || !tls->open(kSearchHost, 443, MBEDTLS_SSL_MAX_FRAG_LEN_4096, 8000)) { tls.reset(); return 0; }
+    consoleLog("[GifAuth] connected after %u ms\n", (unsigned)(millis() - t0));
+  }
+  if (!tls->write(request.c_str())) { tls.reset(); return 0; }
   String raw;
   raw.reserve(512);
   unsigned char chunk[256];
-  for (int n; raw.length() < 1500 && (n = tls->read(chunk, sizeof(chunk))) > 0;) raw.concat((const char *)chunk, (unsigned)n);
-  const int split = raw.indexOf("\r\n\r\n");
+  int split = -1;
+  long want = -1;
+  bool closing = false;
+  for (int n; raw.length() < 1500 && (n = tls->read(chunk, sizeof(chunk))) > 0;) {
+    raw.concat((const char *)chunk, (unsigned)n);
+    if (split < 0 && (split = raw.indexOf("\r\n\r\n")) >= 0) {
+      String head = raw.substring(0, split);
+      head.toLowerCase();
+      const int c = head.indexOf("content-length:");
+      if (c >= 0) want = head.substring(c + 15).toInt();
+      closing = head.indexOf("connection: close") >= 0;
+    }
+    if (split >= 0 && want >= 0 && (long)raw.length() >= split + 4 + want) break;  // all of it: do not wait for the server to hang up
+  }
+  consoleLog("[GifAuth] answer read, %u ms in total\n", (unsigned)(millis() - t0));
   body = split >= 0 ? raw.substring(split + 4) : String();
+  if (!keep || want < 0 || closing || (long)body.length() < want) tls.reset();  // only a complete answer with a known length leaves a usable connection
   return raw.startsWith("HTTP/1.") ? raw.substring(9, 12).toInt() : 0;
+}
+
+// The token outlives a restart: it is kept with its expiry (seconds since 1970) so the first search after a restart needs no sign-in.
+constexpr time_t kClockValid = 1700000000;  // the real time is known once it is later than this
+
+void saveToken(uint32_t ttlSeconds) {
+  const time_t now = time(nullptr);
+  if (now < kClockValid || ttlSeconds < 60) return;
+  Preferences prefs;
+  if (!prefs.begin("ultimatrix", false)) return;
+  prefs.putString("searchTok", String(searchAuth.token) + " " + (unsigned long)(now + ttlSeconds));
+  prefs.end();
+}
+
+bool restoreToken() {
+  const time_t now = time(nullptr);
+  if (now < kClockValid || !loadSearchId()) return false;
+  Preferences prefs;
+  if (!prefs.begin("ultimatrix", true)) return false;
+  const String saved = prefs.getString("searchTok", "");
+  prefs.end();
+  if (saved.length() < 66 || saved[64] != ' ') return false;
+  for (int i = 0; i < 64; i++) if (!isxdigit(saved[i])) return false;
+  const long left = (long)strtoul(saved.c_str() + 65, nullptr, 10) - (long)now;
+  if (left < 300 || left > 12 * 3600) return false;  // nearly out, or not a value we wrote
+  strlcpy(searchAuth.token, saved.substring(0, 64).c_str(), sizeof(searchAuth.token));
+  searchAuth.until = millis() + (uint32_t)left * 1000UL;
+  searchAuth.have = true;
+  return true;
+}
+
+void forgetToken() {
+  Preferences prefs;
+  if (prefs.begin("ultimatrix", false)) { prefs.remove("searchTok"); prefs.end(); }
 }
 
 // Sign in with the Worker. Returns an error text, or nullptr when searchAuth holds a fresh token.
 const char *signIn() {
   if (!loadSearchId()) return "Could not save the clock's search identity.";
+  const uint32_t s0 = millis();
   struct FeedPark { ~FeedPark() { notice::holdFeeds(notice::HOLD_GIF_SEARCH, false); } } feedPark;  // the feeds resume when this is over
   notice::holdFeeds(notice::HOLD_GIF_SEARCH, true);  // their memory is what the secure connection needs
   for (int i = 0; i < 40 && heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 24000; i++) vTaskDelay(pdMS_TO_TICKS(50));
   if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 24000) return "Not enough memory to sign in right now.";
+  consoleLog("[GifAuth] heap ready after %u ms (block %u)\n", (unsigned)(millis() - s0), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 
   String body;
-  if (workerCall(String("GET /c HTTP/1.0\r\nHost: ") + kSearchHost + "\r\nUser-Agent: ultimatrix\r\nConnection: close\r\n\r\n", body) != 200) return "Could not reach the search service.";
+  std::unique_ptr<Tls> link;  // the first request's connection, reused for the second
+  if (workerCall(String("GET /c HTTP/1.1\r\nHost: ") + kSearchHost + "\r\nUser-Agent: ultimatrix\r\nConnection: keep-alive\r\n\r\n", body, &link) != 200) return "Could not reach the search service.";
   uint8_t challenge[300];
   const size_t cl = unbase64url(body, challenge, sizeof(challenge));
   if (cl < 31 || (cl - 28) % 3) return "The search service answered something unexpected.";
@@ -927,6 +987,7 @@ const char *signIn() {
   facts[7] = (uint8_t)std::min<uint32_t>(255, heap_caps_get_free_size(MALLOC_CAP_8BIT) >> 12);
   facts[8] = (uint8_t)std::min<uint32_t>(255, millis() / 60000 / 8);
   for (int i = 0; i < 16; i++) { unsigned v = 0; sscanf(searchAuth.id + 2 * i, "%2x", &v); facts[9 + i] = (uint8_t)v; }
+  consoleLog("[GifAuth] challenge received after %u ms\n", (unsigned)(millis() - s0));
   uint8_t answer[32];
   if (!searchvm::run(challenge + 28, cl - 28, challenge, facts, sizeof(facts), answer)) return "The search service answered something unexpected.";
 
@@ -942,8 +1003,9 @@ const char *signIn() {
   const String payload = base64url(reply, 85 + filler);
   if (payload.isEmpty()) return "Could not prepare the sign-in.";
 
-  const int status = workerCall(String("POST /r HTTP/1.0\r\nHost: ") + kSearchHost + "\r\nUser-Agent: ultimatrix\r\nContent-Type: text/plain\r\nContent-Length: " +
-                                payload.length() + "\r\nConnection: close\r\n\r\n" + payload, body);
+  consoleLog("[GifAuth] answer computed after %u ms\n", (unsigned)(millis() - s0));
+  const int status = workerCall(String("POST /r HTTP/1.1\r\nHost: ") + kSearchHost + "\r\nUser-Agent: ultimatrix\r\nContent-Type: text/plain\r\nContent-Length: " +
+                                payload.length() + "\r\nConnection: close\r\n\r\n" + payload, body, &link);
   if (status == 403) return "Too many new devices from this network, try again later.";
   if (status == 429) return "Too many sign-ins, try again later.";
   const int space = body.indexOf(' ');
@@ -953,16 +1015,37 @@ const char *signIn() {
   strlcpy(searchAuth.token, body.substring(0, 64).c_str(), sizeof(searchAuth.token));
   searchAuth.until = millis() + (uint32_t)(ttl - 120) * 1000;
   searchAuth.have = true;
+  saveToken((uint32_t)(ttl - 120));
+  consoleLog("[GifAuth] signed in after %u ms\n", (unsigned)(millis() - s0));
   return nullptr;
+}
+
+// The sign-in takes several seconds (two secure connections), so it runs in its own task: the panel and the web server keep going
+// while the page asks again until the answer is 200 (token) or an error. 202 = still working.
+std::atomic<int> authState{0};  // 0 idle, 1 running, 2 signed in, 3 failed
+const char *authError = nullptr;
+
+void authTask(void *) {
+  authError = signIn();
+  authState = authError ? 3 : 2;
+  vTaskDelete(nullptr);
 }
 
 // POST /api/canvas/auth[?force=1] -> {"id", "token", "ttl"}: the page's key for the search Worker. force: the Worker did not accept the token.
 void auth() {
-  if (!searchAuth.have || srv->hasArg("force") || (int32_t)(millis() - searchAuth.until) >= 0) {
+  if (authState == 1) { json(202, "{\"pending\":true}"); return; }
+  if (authState == 3) { authState = 0; message(authError[0] == 'N' ? 503 : 502, authError); return; }
+  if (srv->hasArg("force")) forgetToken();  // the Worker did not accept it: do not bring it back after a restart
+  else if (!searchAuth.have && restoreToken()) consoleLog("[GifAuth] token restored from storage\n");
+  if (authState == 2) authState = 0;  // the token is in searchAuth
+  else if (!searchAuth.have || srv->hasArg("force") || (int32_t)(millis() - searchAuth.until) >= 0) {
     if (searchAuth.lastTry && millis() - searchAuth.lastTry < 60000) { message(429, "Try again in a minute."); return; }
     searchAuth.lastTry = millis() | 1;
     searchAuth.have = false;
-    if (const char *error = signIn()) { message(error[0] == 'N' ? 503 : 502, error); return; }
+    authState = 1;
+    if (xTaskCreatePinnedToCore(authTask, "gifauth", 10240, nullptr, 1, nullptr, 0) != pdPASS) { authState = 0; message(503, "Not enough memory to sign in right now."); return; }
+    json(202, "{\"pending\":true}");
+    return;
   }
   json(200, String("{\"id\":\"") + searchAuth.id + "\",\"token\":\"" + searchAuth.token + "\",\"ttl\":" + (searchAuth.until - millis()) / 1000 + "}");
 }
