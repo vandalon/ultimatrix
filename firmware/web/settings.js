@@ -218,6 +218,7 @@ async function load() {
     showPin(data.pinSet);
     const racing = data.mode === 'F1' || data.mode === 'MotoGP', sporty = racing || data.mode === 'Football';
     const pacman = data.mode === 'Pac-Man';
+    field('dither').closest('label').style.display = pacman || data.mode === 'Mario' || data.mode === 'Luigi' ? 'none' : '';  // those faces decide for themselves
     const homeFace = data.mode === 'Home'; document.querySelector('#homeassistant').hidden = !homeFace; document.querySelector('#nav-ha').hidden = !homeFace;
     if (homeFace) { initHomeAssistant(); document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('#nav-ha').classList.add('active'); }
     section('[data-sports]', sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || pacman); section('[data-sportfields]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', pacman);
@@ -629,7 +630,7 @@ async function initWled() {
     } catch (_) {}
   };
   const save = async () => {
-    const body = new URLSearchParams({ enabled: $('enabled').checked ? '1' : '0', screenCamera: $('screen-camera').checked ? '1' : '0', timeoutMin: $('timeout').value || '0', ignoreLive: $('ignore').checked ? '1' : '0' });
+    const body = new URLSearchParams({ enabled: $('enabled').checked ? '1' : '0', timeoutMin: $('timeout').value || '0', ignoreLive: $('ignore').checked ? '1' : '0' });
     try { const r = await fetch('/api/wled', { method: 'POST', body }); if (!r.ok) $('status').textContent = (await r.json()).message; else show(); } catch (_) {}
   };
   $('enabled').addEventListener('change', save); $('timeout').addEventListener('change', save); $('ignore').addEventListener('change', save);
@@ -861,7 +862,7 @@ async function initHomeAssistant() {
     } catch (_) {}
   };
   $('save').addEventListener('click', async () => {
-    const body = new URLSearchParams({enabled: $('enabled').checked ? '1' : '0', host: $('host').value.trim(), port: $('port').value.trim(),
+    const body = new URLSearchParams({enabled: $('enabled').checked ? '1' : '0', screenCamera: $('screen-camera').checked ? '1' : '0', host: $('host').value.trim(), port: $('port').value.trim(),
       user: $('user').value.trim(), password: $('password').value, passwordClear: $('password-clear').checked ? '1' : '0'});
     try {
       const response = await fetch('/api/mqtt', {method:'POST', body}); const result = await response.json();

@@ -19,6 +19,7 @@ class Clockface: public IClockface {
     Clockface(MatrixPanel_I2S_DMA* display);
     void setup(ClockTime *dateTime);
     void update();
+    int ditherPolicy() const override;
     void invalidate() {}
     bool handlesNight() const { return true; }
     void setNight(bool night);

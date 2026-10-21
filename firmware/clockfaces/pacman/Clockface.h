@@ -20,4 +20,5 @@ class Clockface: public IClockface {
     void setup(ClockTime *dateTime);
     void update();
     void invalidate() {}
+    int ditherPolicy() const override { return 0; }  // flat sprites and a maze: the pattern only adds noise
 };

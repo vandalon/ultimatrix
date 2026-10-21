@@ -111,6 +111,7 @@ static const Birthdays::Entry *birthdayToday() {
 }
 static FirmwareUpdate firmwareUpdate;
 static uint8_t appliedBrightness = 0;
+static bool appliedDither = false;
 static bool appliedDeepDim = false;
 
 // The Wi-Fi manager's access point: open, so the QR code on the panel is the open-network form
@@ -853,15 +854,9 @@ static void saveSettings() {
   bool restart = previous.swapBlueGreen != s.swapBlueGreen;
   bool timeChanged = previous.timezone != s.timezone || previous.use24h != s.use24h || previous.ntpServer != s.ntpServer;
   bool consoleChanged = previous.telnet != s.telnet;
-  bool ditherChanged = previous.dither != s.dither;
   bool nameChanged = previous.clockName != s.clockName || previous.mdnsUseName != s.mdnsUseName;
   *Settings::getInstance() = candidate;
   if (displayReady) display->setRotation(s.rotation);
-  if (displayReady && ditherChanged) {  // the gain table is rebuilt with or without the pattern, then the face repaints
-    display->setDither(s.dither);
-    display->setBrightness8(appliedBrightness);
-    nightClock.reset(); if (face) face->invalidate();
-  }
   if (timeChanged && face) clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (consoleChanged) {
     if (s.telnet && !telnetLow) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
@@ -960,11 +955,6 @@ static void displaySave() {
 static void mqttSettingsChanged(const Settings &previous) {
   auto &s = *Settings::getInstance();
   if (displayReady && previous.rotation != s.rotation) display->setRotation(s.rotation);
-  if (displayReady && previous.dither != s.dither) {  // the gain table is rebuilt with or without the pattern, then the face repaints
-    display->setDither(s.dither);
-    display->setBrightness8(appliedBrightness);
-    nightClock.reset(); if (face) face->invalidate();
-  }
   if ((previous.timezone != s.timezone || previous.use24h != s.use24h || previous.ntpServer != s.ntpServer) && face)
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (previous.telnet != s.telnet) {
@@ -1824,6 +1814,7 @@ void setup() {
     bootScreen.setPlainBackdrop(setupRefresh);  // the setup display: no dim U behind the icons
     boot::setLevelMap(bootMap);
     appliedBrightness = panelBrightness(s.brightness);
+    appliedDither = s.dither;
     display->setDither(s.dither);
     display->setBrightness8(appliedBrightness);
     display->setRotation(s.rotation);
@@ -2071,6 +2062,16 @@ void loop() {
       appliedDeepDim = deepDim;
       if (panel < dimFloor || appliedBrightness < dimFloor) { nightClock.reset(); if (face) face->invalidate(); }  // dimming below the floor changes the pixel values; the night clock draws once a minute
       appliedBrightness = panel;
+    }
+    {  // the setting, unless the face knows better (Pac-Man never, Mario and Luigi per world); the gain table is rebuilt with or without the pattern, then the face repaints
+      const int policy = face ? face->ditherPolicy() : -1;
+      const bool dither = policy < 0 ? Settings::getInstance()->dither : policy == 1;
+      if (dither != appliedDither) {
+        appliedDither = dither;
+        display->setDither(dither);
+        display->setBrightness8(appliedBrightness);
+        nightClock.reset(); if (face) face->invalidate();
+      }
     }
     bootTick();  // before the check below: it stamps connectedAt on the connect
     if (face && !portalActive && !bootDone && syncedAt) {

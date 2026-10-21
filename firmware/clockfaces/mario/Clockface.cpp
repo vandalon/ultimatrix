@@ -1047,3 +1047,8 @@ void Clockface::update() {
 
   d.flipDMABuffer();
 }
+
+// Dithering smooths the sky and water gradients but blurs the brick walls of the dark worlds, so those stay off
+int Clockface::ditherPolicy() const {
+  return world == Underground || world == Castle || world == GhostHouse ? 0 : 1;
+}

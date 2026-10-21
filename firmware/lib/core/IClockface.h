@@ -16,4 +16,6 @@ public:
   // A popup that must show even while the night clock would, and one that wants the panel at full brightness
   virtual bool alertOverridesNight() const { return false; }
   virtual bool alertFullBrightness() const { return false; }
+  // Whether the dithering of dark colours suits what the face draws: -1 leaves it to the setting, 0 always off, 1 always on
+  virtual int ditherPolicy() const { return -1; }
 };
