@@ -33,6 +33,21 @@ const char *posixForZone(const char *name) {
   return nullptr;
 }
 
+bool placeForZone(const char *name, float &latitude, float &longitude) {
+  unsigned lo = 0, hi = UM_TZ_DB_SIZE;
+  while (lo < hi) {
+    unsigned mid = (lo + hi) / 2;
+    int c = strcmp(name, UM_TZ_DB[mid].name);
+    if (c == 0) {
+      if (UM_TZ_DB[mid].lat == UM_TZ_NO_PLACE) return false;
+      latitude = UM_TZ_DB[mid].lat / 100.0f; longitude = UM_TZ_DB[mid].lon / 100.0f;
+      return true;
+    }
+    if (c < 0) hi = mid; else lo = mid + 1;
+  }
+  return false;
+}
+
 bool detectZone(String &zone, float *latitude, float *longitude) {
   HTTPClient http;
   http.setConnectTimeout(3000); http.setTimeout(3000);

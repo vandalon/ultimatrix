@@ -723,6 +723,15 @@ static bool accessAllowed(IPAddress ip, uint8_t scope) {
   return privateAddress(ip) || !privateAddress(WiFi.localIP());  // on a network with public addresses (some universities) "private only" cannot mean anything: everything may reach it
 }
 
+// With a timezone chosen by hand the clock is not where the network lookup puts it, so sunrise and sunset follow the zone's main city
+static bool applyZonePlace(Settings &s) {
+  float latitude, longitude;
+  if (!s.manualTimezone || !ultime::placeForZone(s.timezone.c_str(), latitude, longitude)) return false;
+  if (s.hasLocation && fabsf(latitude - s.latitude) <= 0.05f && fabsf(longitude - s.longitude) <= 0.05f) return false;
+  s.latitude = latitude; s.longitude = longitude; s.hasLocation = true;
+  return true;
+}
+
 static void saveSettings() {
   long bright, rotation;
 #ifndef UM_SIMPLE_FACE
@@ -793,6 +802,7 @@ static void saveSettings() {
   if (autoZone) { if (s.manualTimezone) { geoWanted = true; geoFails = 0; } }  // the network's zone is applied once it has been looked up
   else s.timezone = zone;
   s.manualTimezone = !autoZone;
+  applyZonePlace(s);
 #ifndef UM_SIMPLE_FACE
   s.matchSecs = seconds; s.resultMins = results; s.timeStyle = style;
 #endif
@@ -962,6 +972,7 @@ static void mqttSettingsChanged(const Settings &previous) {
     else { telnet.stop(); telnetStarted = false; }
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
+  if ((previous.timezone != s.timezone || previous.manualTimezone != s.manualTimezone) && applyZonePlace(s)) s.save();
   if ((s.nightSun && !s.hasLocation) || (previous.manualTimezone && !s.manualTimezone)) { geoWanted = true; geoFails = 0; }
   if (previous.swapBlueGreen != s.swapBlueGreen && s.save()) restartAt = millis() + 1000;  // the panel colours are set up at start
 }
@@ -2012,6 +2023,7 @@ void loop() {
   if (WiFi.status() == WL_CONNECTED && !portalActive && !welcomeMode && !updateOnly) {
     auto &s = *Settings::getInstance();
     if (!geoSettled && !geoWanted && geoState.load() == 0) {  // once per start: the network's zone and location
+      if (applyZonePlace(s)) s.save();  // clocks saved before the zone's place was used
       geoSettled = !(!s.manualTimezone || !s.hasLocation);
       geoWanted = !geoSettled;
     }
@@ -2020,7 +2032,9 @@ void loop() {
       if (geoFound) {
         bool changed = false, zoneChanged = false;
         if (!s.manualTimezone && geoZone != s.timezone) { s.timezone = geoZone; changed = zoneChanged = true; }
-        if (!s.hasLocation || fabsf(geoLatitude - s.latitude) > 0.05f || fabsf(geoLongitude - s.longitude) > 0.05f) {
+        float zoneLatitude, zoneLongitude;
+        const bool zonePlaced = s.manualTimezone && ultime::placeForZone(s.timezone.c_str(), zoneLatitude, zoneLongitude);  // the chosen zone keeps its own place
+        if (!zonePlaced && (!s.hasLocation || fabsf(geoLatitude - s.latitude) > 0.05f || fabsf(geoLongitude - s.longitude) > 0.05f)) {
           s.latitude = geoLatitude; s.longitude = geoLongitude; s.hasLocation = true; changed = true;
         }
         if (changed) s.save();

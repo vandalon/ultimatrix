@@ -128,7 +128,7 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)  # commands are not scriptable in IDF's requ
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_custom_command(OUTPUT "${tzdb}"
         COMMAND ${Python3_EXECUTABLE} "${root}/tools/gen_tzdb.py" "${tzdb}"
-        DEPENDS "${root}/tools/gen_tzdb.py" "${root}/tools/zones.csv"
+        DEPENDS "${root}/tools/gen_tzdb.py" "${root}/tools/zones.csv" "${root}/tools/zone_coords.csv"
         COMMENT "Generating TzDb.h")
     add_custom_target(tzdb_header DEPENDS "${tzdb}")
 endif()
