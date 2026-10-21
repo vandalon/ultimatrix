@@ -4,6 +4,7 @@
 #pragma once
 #include <Arduino.h>
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <mqtt_client.h>
 #include "Notice.h"
@@ -86,7 +87,11 @@ private:
   bool _hasNotice = false;
   char _noticeText[notice::kPayloadMax] = "";
   bool _restart = false, _stateDue = true, _updateDue = true;
-  uint32_t _screenAt = 0, _screenSignature = 0;
+  uint32_t _screenAt = 0, _screenSignature = 0, _snapHash = 0;
+  std::unique_ptr<uint8_t[]> _snap;  // the screen as RGB332 indices while a snapshot is cut into three passes
+  size_t _snapPng = 0;
+  uint8_t _snapPhase = 0;
+  int8_t _snapRow = 0;
   std::atomic<bool> _screenSent{false};
   std::atomic<bool> _canvasRefresh{true};
   int _canvasWanted = -1;

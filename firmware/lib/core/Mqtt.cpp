@@ -677,49 +677,91 @@ void Mqtt::publishState(uint32_t now) {
   }
 }
 
+// The screen is read back once into RGB332 indices (4 KiB, freed after the snapshot); the hash, the size pass and the encoder
+// read rows from that copy instead of the display, which costs about 14 ms per full readback.
+static const uint8_t *g_snapIndex = nullptr;
+static bool snapRow(int16_t y, uint8_t *rgb) {
+  if (!g_snapIndex || y < 0 || y >= 64) return false;
+  const uint8_t *src = g_snapIndex + y * 64;
+  for (int x = 0; x < 64; ++x) {
+    const uint8_t i = src[x];
+    *rgb++ = i & 0xE0; *rgb++ = (i & 0x1C) << 3; *rgb++ = (i & 3) << 6;
+  }
+  return true;
+}
+
 // One indexed RGB332 image per MQTT message (192x192 PNG, bounded BMP fallback).
 // No permanent framebuffer, no retained image,
 // and no image backlog: leave space for commands, notices and GIF uploads.
 void Mqtt::publishScreen(uint32_t now) {
-  if (!_hooks.screenRow || now - _screenAt < 1000) return;
-  _screenAt = now;
+  if (!_hooks.screenRow) return;
+  if (!_snapPhase && now - _screenAt < 1000) return;
   constexpr size_t headerSize = 54 + 256 * 4;  // header plus BGR0 palette
   constexpr size_t rowSize = 64;  // already aligned to four bytes
   constexpr size_t size = headerSize + 64 * rowSize;
-  if (esp_mqtt_client_get_outbox_size(_client) != 0) return;
-  const size_t free = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-  const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-  // Allow the image and MQTT queue copy, keeping 16 KiB for other work.
-  // Each image needs its own block; neither needs the old RGB888-sized block.
-  static uint32_t memoryLogAt = 0;
-  if (free < 2 * size + 16384 || largest < size + 1024) {
-    if (!memoryLogAt || now - memoryLogAt >= 30000) {
-      ESP_LOGW("MQTT camera", "Waiting for memory: free=%u largest=%u", (unsigned)free, (unsigned)largest);
-      memoryLogAt = now;
+  const auto drop = [&]() { _snap.reset(); _snapPhase = 0; };
+  if (esp_mqtt_client_get_outbox_size(_client) != 0) { drop(); _screenAt = now; return; }
+  // The work is cut into loop passes (read the screen in 16-row slices and hash it, count the PNG, encode and send) so that none of
+  // them holds up the frame loop for long: together they take about 40 ms, and the animations stuttered once a second.
+  if (_snapPhase == 0) {
+    _screenAt = now;
+    const size_t free = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+    const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    // Allow the image and MQTT queue copy, keeping 16 KiB for other work.
+    // Each image needs its own block; neither needs the old RGB888-sized block.
+    static uint32_t memoryLogAt = 0;
+    if (free < 2 * size + 16384 || largest < size + 1024) {
+      if (!memoryLogAt || now - memoryLogAt >= 30000) {
+        ESP_LOGW("MQTT camera", "Waiting for memory: free=%u largest=%u", (unsigned)free, (unsigned)largest);
+        memoryLogAt = now;
+      }
+      return;
     }
+    memoryLogAt = 0;
+    _snap.reset(new (std::nothrow) uint8_t[64 * 64]);  // RGB332 index of every pixel, kept for the passes
+    if (!_snap) return;
+    _snapRow = 63;
+    _snapHash = 2166136261u;
+    _snapPhase = 1;
     return;
   }
-  memoryLogAt = 0;
-  uint8_t row[64 * 3];
-  const auto index = [](const uint8_t *rgb) -> uint8_t {
-    return (rgb[0] & 0xE0) | ((rgb[1] >> 3) & 0x1C) | (rgb[2] >> 6);
-  };
-  uint32_t hash = 2166136261u;
-  for (int y = 63; y >= 0; --y) {
-    if (!_hooks.screenRow(y, row)) return;
-    for (int x = 0; x < 64; ++x) hash = mix(hash, index(row + x * 3));
+  if (!_snap) { _snapPhase = 0; return; }
+  if (_snapPhase == 1) {
+    // Read the screen back 16 rows per pass (about 4 ms each)
+    uint8_t row[64 * 3];
+    for (int n = 0; n < 16 && _snapRow >= 0; ++n, --_snapRow) {
+      if (!_hooks.screenRow(_snapRow, row)) { drop(); return; }
+      for (int x = 0; x < 64; ++x) {
+        const uint8_t i = (row[x * 3] & 0xE0) | ((row[x * 3 + 1] >> 3) & 0x1C) | (row[x * 3 + 2] >> 6);
+        _snap[_snapRow * 64 + x] = i;
+        _snapHash = mix(_snapHash, i);
+      }
+    }
+    if (_snapRow >= 0) return;
+    if (_screenSent && _snapHash == _screenSignature) { drop(); return; }
+    _snapPhase = 2;
+    return;
   }
-  if (_screenSent && hash == _screenSignature) return;
-  // Count compressed output first, so the only allocation is its exact size.
-  // Cap PNG at 8 KiB; detailed frames or a tight heap keep the 64x64 BMP path.
-  const size_t pngSize = screenpng::encode(_hooks.screenRow, nullptr, 0);
+  g_snapIndex = _snap.get();
+  const auto release = [&]() { g_snapIndex = nullptr; };
+  if (_snapPhase == 2) {
+    // Count compressed output first, so the only allocation is its exact size.
+    _snapPng = screenpng::encode(snapRow, nullptr, 0);
+    release();
+    _snapPhase = 3;
+    return;
+  }
+  // Phase 3. Cap PNG at 8 KiB; detailed frames or a tight heap keep the 64x64 BMP path.
+  const size_t free = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  const size_t pngSize = _snapPng;
   const bool png = pngSize && pngSize <= 8192 && free >= 2 * pngSize + 16384 && largest >= pngSize + 1024;
   size_t imageSize = png ? pngSize : size;
   std::unique_ptr<uint8_t[]> image(new (std::nothrow) uint8_t[imageSize]);
-  if (!image) return;
+  if (!image) { release(); drop(); return; }
   if (png) {
-    imageSize = screenpng::encode(_hooks.screenRow, image.get(), imageSize);
-    if (!imageSize) return;
+    imageSize = screenpng::encode(snapRow, image.get(), imageSize);
+    if (!imageSize) { release(); drop(); return; }
   } else {
     memset(image.get(), 0, headerSize);
     image[0] = 'B'; image[1] = 'M';
@@ -735,20 +777,18 @@ void Mqtt::publishScreen(uint32_t now) {
       image[54 + i * 4 + 1] = ((i >> 2) & 7) * 255 / 7;
       image[54 + i * 4 + 2] = (i >> 5) * 255 / 7;
     }
-    for (int y = 63; y >= 0; --y) {
-      if (!_hooks.screenRow(y, row)) return;
-      uint8_t *dst = image.get() + headerSize + (63 - y) * rowSize;
-      for (int x = 0; x < 64; ++x) {
-        dst[x] = index(row + x * 3);
-      }
+    for (int y = 63; y >= 0; --y) memcpy(image.get() + headerSize + (63 - y) * rowSize, _snap.get() + y * 64, 64);
+  }
+  release();
+  if (esp_mqtt_client_get_outbox_size(_client) == 0) {
+    char topic[40];
+    snprintf(topic, sizeof(topic), "%s/screen", _base);
+    if (esp_mqtt_client_enqueue(_client, topic, reinterpret_cast<const char *>(image.get()), imageSize, 0, false, true) >= 0) {
+      _screenSignature = _snapHash;
+      _screenSent = true;
     }
   }
-  char topic[40];
-  snprintf(topic, sizeof(topic), "%s/screen", _base);
-  if (esp_mqtt_client_enqueue(_client, topic, reinterpret_cast<const char *>(image.get()), imageSize, 0, false, true) >= 0) {
-    _screenSignature = hash;
-    _screenSent = true;
-  }
+  drop();
 }
 
 // Called after drawing: every row belongs to the same front buffer, including overlays.
