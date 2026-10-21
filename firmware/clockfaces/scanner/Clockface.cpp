@@ -43,6 +43,27 @@ void Clockface::benchmark() {
 #ifdef UM_PATTERN
 // Static test card for judging banding, tints and ghosting by eye or camera (build with UM_PATTERN=1 set in the environment).
 // It goes through the normal brightness path, so it shows what the clock shows at the configured brightness.
+#ifdef UM_PATTERN_EDGE
+// Edge card (UM_PATTERN=2): lit pixels and lines on the outermost rows/columns with black around them, plus a centre block, to see stray light on the edges.
+static void drawPattern(MatrixPanel_I2S_DMA *d) {
+  d->fillScreenRGB888(0, 0, 0);
+  for (int i = 8; i < 56; i += 12) {
+    d->drawPixelRGB888(0, i, 255, 255, 255);   // left edge column
+    d->drawPixelRGB888(63, i + 4, 255, 255, 255);  // right edge column
+    d->drawPixelRGB888(i + 4, 0, 255, 255, 255);   // top row
+    d->drawPixelRGB888(i, 63, 255, 255, 255);  // bottom row
+  }
+  d->fillRect(0, 24, 1, 8, 255, 255, 255);    // short line down the left edge
+  d->fillRect(63, 32, 1, 8, 255, 255, 255);   // short line down the right edge
+  d->fillRect(24, 0, 8, 1, 255, 255, 255);    // short line along the top
+  d->fillRect(32, 63, 8, 1, 255, 255, 255);   // short line along the bottom
+  d->fillRect(26, 26, 12, 12, 255, 255, 255); // bright centre block
+  d->drawPixelRGB888(0, 0, 255, 0, 0);        // corners: red, green, blue, white
+  d->drawPixelRGB888(63, 0, 0, 255, 0);
+  d->drawPixelRGB888(0, 63, 0, 0, 255);
+  d->drawPixelRGB888(63, 63, 255, 255, 255);
+}
+#else
 static void drawPattern(MatrixPanel_I2S_DMA *d) {
   d->fillScreenRGB888(0, 0, 0);
   for (int x = 0; x < 64; ++x) {
@@ -73,6 +94,7 @@ static void drawPattern(MatrixPanel_I2S_DMA *d) {
   d->fillRect(36, 56, 1, 6, 255, 255, 255);
   d->fillRect(48, 57, 5, 5, 255, 255, 255);
 }
+#endif
 #endif
 
 void Clockface::update() {
