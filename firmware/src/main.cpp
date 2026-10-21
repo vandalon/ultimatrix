@@ -1126,9 +1126,12 @@ static void sportsSwitch(uint32_t now) {
     logLoaded = true;
     if (p.begin("ultimatrix", true)) {
       String v = p.getString("sportsLog", "");
-      char target[16] = "";
-      unsigned day = 0, count = 0; long last = 0;
-      if (sscanf(v.c_str(), "%u,%u,%ld,%15s", &day, &count, &last, target) >= 3) { log.day = day; log.count = count; log.last = last; strlcpy(log.target, target, sizeof(log.target)); }
+      char target[16] = "", seen[16] = "";
+      unsigned day = 0, count = 0; long last = 0, paused = 0;
+      if (sscanf(v.c_str(), "%u,%u,%ld,%15[^,],%15[^,],%ld", &day, &count, &last, target, seen, &paused) >= 3) {  // "-" stands for an empty name
+        log.day = day; log.count = count; log.last = last; log.pausedUntil = paused;
+        strlcpy(log.target, strcmp(target, "-") ? target : "", sizeof(log.target)); strlcpy(log.seen, strcmp(seen, "-") ? seen : "", sizeof(log.seen));
+      }
       p.end();
     }
   }
@@ -1139,15 +1142,18 @@ static void sportsSwitch(uint32_t now) {
   sportsplan::Events events[sportsplan::SPORTS];
   watch.events(events);
   const time_t wall = time(nullptr);
+  auto saveLog = [&]() {
+    if (!p.begin("ultimatrix", false)) return;
+    char v[80];
+    snprintf(v, sizeof(v), "%u,%u,%ld,%s,%s,%ld", (unsigned)log.day, (unsigned)log.count, (long)log.last, log.target[0] ? log.target : "-", log.seen[0] ? log.seen : "-", (long)log.pausedUntil);
+    p.putString("sportsLog", v);
+    p.end();
+  };
+  if (sportsplan::noticeManual(log, events, wall, plan, UM_MODE_ID)) { saveLog(); consoleLog("[Sports] face chosen by hand: no automatic switch until the events now on are over\n"); }
   const char *target = sportsplan::decide(events, wall, plan, log, UM_MODE_ID);
   if (!target || !FirmwareUpdate::knownMode(target)) return;
   sportsplan::noteSwitch(log, wall, target);  // counted before the install: a refused one is not retried for the minimum gap
-  if (p.begin("ultimatrix", false)) {
-    char v[48];
-    snprintf(v, sizeof(v), "%u,%u,%ld,%s", (unsigned)log.day, (unsigned)log.count, (long)log.last, log.target);
-    p.putString("sportsLog", v);
-    p.end();
-  }
+  saveLog();
   consoleLog("[Sports] switching to %s\n", target);
   mqttSwitchFace(target);
 }

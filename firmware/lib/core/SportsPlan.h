@@ -40,6 +40,8 @@ struct Log {
   uint8_t count = 0;  // automatic switches into a sport on that day
   time_t last = 0;    // the last automatic switch of any kind
   char target[16] = "";  // the mode that switch went to: only a face we switched to is left again by itself
+  char seen[16] = "";    // the last mode noticed as chosen by hand (not by us)
+  time_t pausedUntil = 0;  // a face chosen by hand during an event: no automatic switch before this
 };
 
 static const time_t kStale = 20 * 60;  // a feed read older than this no longer vouches for "live"
@@ -78,6 +80,7 @@ inline bool wanted(const Events &e, time_t now, const Config &cfg, bool holding)
 // The mode to switch to, or nullptr to stay. `current` is the running mode (UM_MODE_NAME).
 inline const char *decide(const Events (&events)[SPORTS], time_t now, const Config &cfg, const Log &log, const char *current) {
   if (!cfg.orderCount || now < 100000) return nullptr;  // off, or the clock has no time yet
+  if (now < log.pausedUntil) return nullptr;  // chosen by hand while an event is on: left alone until it is over
   const int here = sportOfMode(current);
   const bool gapOk = !log.last || now - log.last >= cfg.minGapSecs || now < log.last;
   for (uint8_t i = 0; i < cfg.orderCount; ++i) {
@@ -93,6 +96,24 @@ inline const char *decide(const Events (&events)[SPORTS], time_t now, const Conf
   return nullptr;
 }
 
+// A face that is neither the one we switched to nor one already noticed was chosen by hand: no automatic switch until the
+// events that are on now are over (hold included). True when the log changed. A switch under way (the old image still runs
+// for a minute) is not mistaken for it.
+inline bool noticeManual(Log &log, const Events (&events)[SPORTS], time_t now, const Config &cfg, const char *current) {
+  if (!log.target[0] || !strcmp(current, log.target) || !strcmp(current, log.seen) || (log.last && now >= log.last && now - log.last < 600)) return false;
+  strlcpy(log.seen, current, sizeof(log.seen));
+  log.pausedUntil = 0;
+  for (uint8_t i = 0; i < cfg.orderCount; ++i) {
+    const Events &e = events[cfg.order[i]];
+    for (uint8_t k = 0; k < e.count; ++k) {
+      const Event &v = e.list[k];
+      const bool on = (v.live && e.checkedAt && now - e.checkedAt <= kStale) || (now >= v.start - cfg.leadSecs && now < v.end);
+      if (on && v.end + cfg.holdSecs > log.pausedUntil) log.pausedUntil = v.end + cfg.holdSecs;
+    }
+  }
+  return true;
+}
+
 // The log after an automatic switch to `mode`
 inline void noteSwitch(Log &log, time_t now, const char *mode) {
   const uint32_t day = (uint32_t)(now / 86400);
@@ -100,6 +121,8 @@ inline void noteSwitch(Log &log, time_t now, const char *mode) {
   if (sportOfMode(mode) >= 0 && log.count < 255) ++log.count;
   log.last = now;
   strlcpy(log.target, mode, sizeof(log.target));
+  log.seen[0] = 0;
+  log.pausedUntil = 0;
 }
 
 }  // namespace sportsplan
