@@ -49,6 +49,10 @@
 #include <AdminPin.h>
 #include <DlnaRenderer.h>
 #include <GzipAsset.h>
+#ifdef UM_SPORTS_SWITCH
+#include <Preferences.h>
+#include <SportsWatch.h>
+#endif
 #include <nvs.h>
 #ifdef UM_WLED_OVERLAY
 #include <Wled.h>
@@ -546,9 +550,17 @@ static void settingsState() {
   json += ",\"resultMins\":" + String(s.resultMins) + ",\"timeStyle\":" + String(s.timeStyle);
   json += ",\"dither\":" + String(s.dither ? "true" : "false") + ",\"swapBlueGreen\":" + String(s.swapBlueGreen ? "true" : "false") + ",\"telnet\":" + String(s.telnet ? "true" : "false") + ",\"autoUpdate\":" + String(s.autoUpdate ? "true" : "false");
   json += ",\"birthdays\":" + jsonText(s.birthdays);
+#ifdef UM_SPORTS_SWITCH
+  json += ",\"sportsOrder\":" + jsonText(s.sportsOrder) + ",\"sportsHome\":" + jsonText(s.sportsHome) + ",\"sportsLead\":" + String(s.sportsLead);
+  json += ",\"sportsOthers\":" + String(s.sportsOthers ? "true" : "false");
+  json += ",\"sportsRacing\":" + String(s.sportsRacing) + ",\"sportsFav\":" + String(s.sportsFav ? "true" : "false") + ",\"sportsMax\":" + String(s.sportsMax);
+#endif
   json += ",\"fbLeagues\":" + jsonText(s.footballLeagues) + ",\"fbTeams\":" + jsonText(s.footballTeams);
   json += ",\"f1Drivers\":" + jsonText(s.f1Drivers);
   json += ",\"showRankings\":" + String(s.showRankings ? "true" : "false");
+#ifdef UM_FOOTBALL_ONLY
+  json += ",\"footballOthers\":" + String(s.footballOthers ? "true" : "false");
+#endif
   json += ",\"ballRoll\":" + String(s.ballRoll ? "true" : "false");
   json += ",\"numberFont\":" + String(s.numberFont == 1 ? "true" : "false");
   json += ",\"wordLanguage\":" + String(s.numberFont);
@@ -849,9 +861,20 @@ static void saveSettings() {
   s.dither = server.hasArg("dither");
   s.telnet = server.hasArg("telnet");
   s.autoUpdate = server.hasArg("autoUpdate");
+#ifdef UM_SPORTS_SWITCH
+  if (server.hasArg("sportsOrder")) {  // the sports page sends all of its fields together
+    s.sportsOrder = server.arg("sportsOrder");
+    s.sportsHome = FirmwareUpdate::knownMode(server.arg("sportsHome").c_str()) ? server.arg("sportsHome") : String();
+    s.sportsLead = constrain(server.arg("sportsLead").toInt(), 0, 120);
+    s.sportsRacing = server.arg("sportsRacing").toInt() == 1 ? 1 : server.arg("sportsRacing").toInt() == 2 ? 2 : 0;
+    s.sportsMax = constrain(server.arg("sportsMax").toInt(), 1, 12);
+    s.sportsFav = server.hasArg("sportsFav");
+    s.sportsOthers = server.hasArg("sportsOthers");
+  }
+#endif
 #ifdef UM_FOOTBALL_ONLY
   s.footballLeagues = selectedValues("fbLeagues"); s.footballTeams = server.arg("fbTeams");
-  s.showRankings = server.hasArg("showRankings"); s.ballRoll = server.hasArg("ballRoll");
+  s.showRankings = server.hasArg("showRankings"); s.footballOthers = server.hasArg("footballOthers"); s.ballRoll = server.hasArg("ballRoll");
   s.numberFont = server.hasArg("numberFont") ? 1 : 0;
 #elif defined(UM_F1)
   s.f1Drivers = selectedValues("f1Drivers"); s.f1Flags = server.hasArg("f1Flags");
@@ -1070,6 +1093,65 @@ static void autoUpdate(uint32_t now) {
   // A failure (too little memory included) is retried once by background() with a restart and no face loaded
   if (firmwareUpdate.request()) { tried = true; consoleLog("[Firmware] Automatic update started: %s\n", latest.version); }
 }
+
+#ifdef UM_SPORTS_SWITCH
+// Sports that may take the panel (Settings > Sports): when one is on, or about to start, the clock installs that sport's face
+// with the same signed install as the Face select, and goes back to the home face once nothing is on (SportsPlan.h decides).
+static void sportsSwitch(uint32_t now) {
+  static uint32_t seenSaves = ~0u, nextCheck = 0;
+  static sportsplan::Log log;
+  static bool logLoaded = false;
+  Settings &s = *Settings::getInstance();
+  static bool active = false;
+  if (updateOnly || (s.sportsOrder.isEmpty() && !active)) return;  // nothing chosen: no object made, no task
+  SportsWatch &watch = SportsWatch::instance();
+  if (seenSaves != Settings::saveCount()) {
+    seenSaves = Settings::saveCount();
+    SportsWatch::Config cfg;
+    sportsplan::Config plan;
+    sportsplan::parseOrder(s.sportsOrder.c_str(), plan);
+    for (uint8_t i = 0; i < plan.orderCount; ++i) cfg.sports[plan.order[i]] = true;
+    cfg.racing = s.sportsRacing; cfg.favouritesOnly = s.sportsFav; cfg.othersFav = s.sportsOthers;
+    strlcpy(cfg.leagues, s.footballLeagues.c_str(), sizeof(cfg.leagues)); strlcpy(cfg.teams, s.footballTeams.c_str(), sizeof(cfg.teams));
+    watch.configure(cfg);
+    active = !s.sportsOrder.isEmpty();
+  }
+  if (s.sportsOrder.isEmpty() || (int32_t)(now - nextCheck) < 0) return;
+  nextCheck = now + 15000;
+  if (!bootDone || portalActive || welcomeMode || updateOnly || restartAt || scheduledMode[0] || WiFi.status() != WL_CONNECTED || wledBusy(now)) return;
+  FirmwareUpdate::Status status; firmwareUpdate.status(status);
+  if (status.busy || status.ready) return;
+  Preferences p;
+  if (!logLoaded) {
+    logLoaded = true;
+    if (p.begin("ultimatrix", true)) {
+      String v = p.getString("sportsLog", "");
+      char target[16] = "";
+      unsigned day = 0, count = 0; long last = 0;
+      if (sscanf(v.c_str(), "%u,%u,%ld,%15s", &day, &count, &last, target) >= 3) { log.day = day; log.count = count; log.last = last; strlcpy(log.target, target, sizeof(log.target)); }
+      p.end();
+    }
+  }
+  sportsplan::Config plan;
+  sportsplan::parseOrder(s.sportsOrder.c_str(), plan);
+  strlcpy(plan.home, s.sportsHome.c_str(), sizeof(plan.home));
+  plan.leadSecs = s.sportsLead * 60; plan.maxPerDay = s.sportsMax;
+  sportsplan::Events events[sportsplan::SPORTS];
+  watch.events(events);
+  const time_t wall = time(nullptr);
+  const char *target = sportsplan::decide(events, wall, plan, log, UM_MODE_ID);
+  if (!target || !FirmwareUpdate::knownMode(target)) return;
+  sportsplan::noteSwitch(log, wall, target);  // counted before the install: a refused one is not retried for the minimum gap
+  if (p.begin("ultimatrix", false)) {
+    char v[48];
+    snprintf(v, sizeof(v), "%u,%u,%ld,%s", (unsigned)log.day, (unsigned)log.count, (long)log.last, log.target);
+    p.putString("sportsLog", v);
+    p.end();
+  }
+  consoleLog("[Sports] switching to %s\n", target);
+  mqttSwitchFace(target);
+}
+#endif
 
 // Low-memory fallback: restart first, then update before the feeds start.
 static void rebootForFirmwareUpdate() {
@@ -1661,6 +1743,9 @@ static void background() {
   dlna::poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
   Mqtt::instance().poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
   autoUpdate(now);
+#ifdef UM_SPORTS_SWITCH
+  sportsSwitch(now);
+#endif
   reportMemory();
   noteLiveData();
   shedOnLowMemory();
@@ -1703,7 +1788,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
-  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays",                          // Settings.cpp
+  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays", "sports", "sportsLog",   // Settings.cpp, sportsSwitch()
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp

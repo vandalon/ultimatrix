@@ -55,6 +55,33 @@ function timezoneMode() {
   field('timezone').disabled = auto; document.querySelector('#device-timezone').disabled = auto;
   document.querySelector('#timezone-field').style.opacity = auto ? 0.45 : 1;
 }
+// Sports: which sports may take the panel, in priority order (hidden field sportsOrder, "f1,football")
+const SPORTS = [['f1', 'F1'], ['motogp', 'MotoGP'], ['football', 'Football']];
+function sportsInit(settings) {
+  const list = document.querySelector('#sports-list'), box = field('sportsOrder');
+  const chosen = (settings.sportsOrder || '').split(',').filter(id => SPORTS.some(s => s[0] === id));
+  let order = [...chosen, ...SPORTS.map(s => s[0]).filter(id => !chosen.includes(id))], on = new Set(chosen);
+  const save = () => { box.value = order.filter(id => on.has(id)).join(','); render(); dirty(); };
+  function render() {
+    list.replaceChildren(...order.map((id, i) => {
+      const row = document.createElement('div'); row.className = 'bday';
+      const check = document.createElement('input'); check.type = 'checkbox'; check.checked = on.has(id); check.ariaLabel = SPORTS.find(s => s[0] === id)[1];
+      check.onchange = () => { check.checked ? on.add(id) : on.delete(id); save(); };
+      const name = document.createElement('span'); name.textContent = (i + 1) + '. ' + SPORTS.find(s => s[0] === id)[1];
+      const up = document.createElement('button'); up.type = 'button'; up.className = 'secondary'; up.textContent = '↑'; up.disabled = i === 0;
+      up.onclick = () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; save(); };
+      const down = document.createElement('button'); down.type = 'button'; down.className = 'secondary'; down.textContent = '↓'; down.disabled = i === order.length - 1;
+      down.onclick = () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; save(); };
+      row.append(check, name, up, down); return row;
+    }));
+  }
+  box.value = chosen.join(',');
+  const home = field('sportsHome');
+  home.replaceChildren(new Option('Stay on the sports face', ''), ...[...document.querySelectorAll('#faces [data-face]')].map(b => new Option(b.querySelector('b').textContent, b.dataset.face)));
+  home.value = settings.sportsHome || '';
+  render();
+}
+
 function dirty() {
   if (busy) return;
   const pending = field('swapBlueGreen').checked !== savedSwap;
@@ -232,6 +259,7 @@ async function load() {
     if (racing) form.querySelector('[name=timeStyle] option[value="0"]').remove();
     Object.entries(data.settings).forEach(([name, value]) => { const input = field(name); if (!input) return; if (input.tagName === 'SELECT' && ![...input.options].some(o => o.value === String(value))) input.add(new Option(value, value)); if (input.type === 'checkbox') input.checked = Boolean(value); else input.value = name === 'use24h' ? (value ? '1' : '0') : name === 'timeStyle' && racing && Number(value) === 0 ? 2 : value; });
     loadBirthdays(field('birthdays').value);
+    if (data.settings.sportsOrder !== undefined) { document.querySelector('#sports').hidden = false; document.querySelector('#nav-sports').hidden = false; sportsInit(data.settings); }
     document.querySelector('#sun-hint').textContent = data.sunTimes || '';
     document.querySelector('#mode-name').textContent = data.mode; currentFace = data.modeId; markFace();
     document.querySelector('#sport-heading').textContent = data.mode + ' preferences';

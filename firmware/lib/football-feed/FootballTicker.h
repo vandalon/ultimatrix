@@ -173,6 +173,7 @@ class FootballTicker {
     };
     std::vector<const FootballLeague *> _leagues;
     std::vector<Favourite> _favourites;
+    std::atomic<bool> _otherLeagues{true};  // also show favourites' matches in competitions that are not followed (Settings footballOthers)
     std::atomic<uint32_t> _pageMs{8000};  // how long a match is shown, from the settings (read by the display)
 
 #ifndef UM_FOOTBALL_ONLY

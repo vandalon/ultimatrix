@@ -121,6 +121,12 @@ if(ULTIMATRIX_WLED AND NOT ULTIMATRIX_MODE STREQUAL "bridge" AND NOT ULTIMATRIX_
         "${root}/lib/wled/WledApi.cpp")
     list(APPEND mode_definitions UM_WLED_OVERLAY)
 endif()
+# Automatic switching to the sport that is on (lib/core/SportsWatch): every face that has the settings page, so a normal clock can
+# switch to a sports face for an event and back (not the bridge or the scanner)
+if(NOT ULTIMATRIX_MODE STREQUAL "bridge" AND NOT ULTIMATRIX_MODE STREQUAL "scanner")
+    list(APPEND sources "${root}/lib/core/SportsWatch.cpp")
+    list(APPEND mode_definitions UM_SPORTS_SWITCH)
+endif()
 # The timezone table is generated on every build from tools/zones.csv
 set(tzdb "${CMAKE_CURRENT_BINARY_DIR}/generated/TzDb.h")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")

@@ -601,7 +601,7 @@ unsigned long FootballTicker::refresh() {
   std::vector<String> keys;
   int boards = 0, failed = 0;  // one failing board (a bad team id, one league down) must not hold up the others
   for (Favourite &fav : _favourites) {
-    if (fav.day != todayNr || (!fav.national && followsLeague(fav.league))) continue;
+    if (fav.day != todayNr || (!fav.national && followsLeague(fav.league)) || (!_otherLeagues && !followsLeague(fav.league))) continue;
     String key = fav.league + "/" + fav.abbreviation;
     boards++;
     failed += !updateBoard(key, fav.league.c_str(), today, fav.abbreviation.c_str(),
@@ -680,7 +680,7 @@ unsigned long FootballTicker::refresh() {
     }
     // Favourites outside the followed leagues: their next match, from the day it is on
     for (const Favourite &fav : _favourites) {
-      if (fav.nextLeague.isEmpty() || fav.nextKickoff <= nowUtc || (!fav.national && followsLeague(fav.nextLeague))) continue;
+      if (fav.nextLeague.isEmpty() || fav.nextKickoff <= nowUtc || (!fav.national && followsLeague(fav.nextLeague)) || (!_otherLeagues && !followsLeague(fav.nextLeague))) continue;
       String key = "next/" + fav.nextLeague + "/" + fav.abbreviation;
       Board &next = _boards[key];
 #ifdef UM_FOOTBALL_ONLY
@@ -862,6 +862,7 @@ bool FootballTicker::loadConfig() {
   bool showRankings = config.showRankings;
 #endif
   _pageMs = constrain((unsigned)config.matchSecs, 3U, 60U) * 1000UL;
+  _otherLeagues = config.footballOthers;
   bool leaguesChanged = strcmp(leagues, lastLeagues) != 0;
   bool favouritesChanged = strcmp(favourites, lastFavourites) != 0;
 #ifdef UM_FOOTBALL_ONLY
