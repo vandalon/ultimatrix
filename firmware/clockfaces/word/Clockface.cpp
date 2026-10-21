@@ -426,11 +426,11 @@ void Clockface::update() {
   }
 
   const Theme theme = themeAt(minuteOfDay(_dateTime));
-  d.fillScreen(rgb(3, 4, 12));
+  d.fillScreen(0);
   // A faint glow behind the words that follows the hour colour
   for (int y = 0; y < 56; y++) {
     const int edge = abs(y - 28);
-    if (edge < 28) box(d, 0, y, W, 1, mix(rgb(3, 4, 12), dim(theme.big, 40), (28 - edge) * 28 / 28 * 255 / 255 / 4));
+    if (edge < 28) box(d, 0, y, W, 1, mix(0, dim(theme.big, 40), (28 - edge) * 28 / 28 * 255 / 255 / 4));
   }
   drawWords(d, theme, changing ? (int)age : 0);
 
