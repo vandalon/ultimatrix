@@ -10,6 +10,7 @@ body.ultimatrix-portal{background:var(--paper)!important;color:var(--ink)!import
 .update-banner{position:sticky;top:12px;z-index:20;overflow:hidden;display:flex;align-items:center;gap:16px;margin-bottom:20px;padding:16px 20px;border-radius:16px;color:#e8f8ff;background:linear-gradient(120deg,#050809,#0b2a36 55%,#0d3d52);box-shadow:0 6px 22px #0b2a3640;animation:update-in .45s cubic-bezier(.2,.8,.2,1)}
 .update-banner::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,#ffffff22 50%,transparent 70%);transform:translateX(-100%);animation:update-shine 3.6s ease-in-out infinite;pointer-events:none}
 .update-banner[hidden]{display:none}
+.update-banner progress{display:block;width:100%;height:6px;margin-top:8px;border:0;border-radius:3px;overflow:hidden;background:#ffffff26;accent-color:#46d2ff}.update-banner progress[hidden]{display:none}.update-banner progress::-webkit-progress-bar{background:#ffffff26}.update-banner progress::-webkit-progress-value{background:#46d2ff}.update-banner progress::-moz-progress-bar{background:#46d2ff}
 .warn-banner{position:sticky;top:12px;z-index:19;display:flex;align-items:center;gap:16px;margin-bottom:20px;padding:16px 20px;border-radius:16px;color:#fff3e0;background:linear-gradient(120deg,#1a1205,#4a2f08 55%,#6b4310);box-shadow:0 6px 22px #4a2f0840}
 .warn-banner[hidden]{display:none}
 .warn-icon{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:#ffb74d33;color:#ffd699;font-size:22px;font-weight:700}

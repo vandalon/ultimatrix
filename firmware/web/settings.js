@@ -368,6 +368,7 @@ async function refreshFirmware() {
     document.querySelector('#firmware-summary').textContent = state.checking ? 'Checking for updates…' : state.checkError ? 'Last check failed: ' + state.checkError : state.available ? 'Version ' + state.latest + ' is available. Install it from the banner at the top, or leave it for later.' : state.checkedAt ? 'You are up to date (' + state.version + ').' : 'Running ' + state.version + '. Not checked yet.';
     const banner = document.querySelector('#update-banner'), install = document.querySelector('#update-banner-install');
     banner.hidden = !(state.available || state.busy) || state.ready;
+    const bar = document.querySelector('#update-banner-progress'); bar.hidden = !state.busy || !state.total; bar.value = state.total ? state.received / state.total * 100 : 0;
     document.querySelector('#update-banner-text').textContent = state.busy ? state.message : 'Version ' + state.latest + ' is ready. You are on ' + state.version + '.';
     install.hidden = state.busy || state.ready;
     document.querySelector('#nav-update-dot').hidden = !state.available;
