@@ -70,6 +70,7 @@ static void allocationFailed(size_t, uint32_t, const char *) {
 }
 
 std::atomic<bool> firmwareUpdating{false};
+std::atomic<int> firmwareInstallPercent{-1};
 std::atomic<bool> liveEventOn{false};
 std::atomic<bool> liveFavouriteOn{false};
 volatile bool faceBootDone = false;
@@ -1069,6 +1070,7 @@ static void saveUpdateServer() {
 static void requestFirmwareUpdate() {
   String mode = server.arg("mode");
   if (mode.length() && !FirmwareUpdate::knownMode(mode.c_str())) { settingsResponse(400, "Unknown clock face."); return; }
+  if (mode.length() && firmwareUpdate.activateStaged(mode.c_str())) { consoleLog("[Face] Switching to %s from the spare slot\n", mode.c_str()); settingsResponse(202, "Switching to the prepared face. Restarting."); return; }
   bool accepted = firmwareUpdate.request(mode.c_str(), server.hasArg("force"));
   FirmwareUpdate::Status status; firmwareUpdate.status(status);
   if (!accepted && liveDataActive() && !status.lowMemory) {
@@ -1207,6 +1209,19 @@ static void sportsSwitch(uint32_t now) {
   mqttSwitchFace(target);
 }
 
+// Settings > Sports > Prepare a face now: the same staging the clock does by itself ahead of an event
+static void sportsPrepare() {
+  const String mode = server.arg("mode");
+  if (!FirmwareUpdate::knownMode(mode.c_str())) { settingsResponse(400, "Choose a face."); return; }
+  if (mode == UM_MODE_ID) { settingsResponse(409, "That face is already running."); return; }
+  if (FirmwareUpdate::pendingVerification()) { settingsResponse(409, "The running version has not been confirmed yet; try again in a few minutes."); return; }
+  if (firmwareUpdate.spareHolds(mode.c_str())) { settingsResponse(200, "That face is already prepared."); return; }
+  if (liveDataActive()) { settingsResponse(409, "A live match or session is running; preparing waits until it has ended."); return; }
+  if (firmwareUpdate.stage(mode.c_str())) { settingsResponse(202, "Preparing. The feeds pause for about a minute."); return; }
+  FirmwareUpdate::Status status; firmwareUpdate.status(status);
+  settingsResponse(409, status.busy ? "An update or preparation is already running." : "Not enough free memory to prepare a face right now.");
+}
+
 // The plan on the settings page: what the watcher found and the rules, so the page can show what will happen when
 static void sportsInfo() {
   Settings &s = *Settings::getInstance();
@@ -1217,6 +1232,8 @@ static void sportsInfo() {
   const time_t wall = time(nullptr);
   String json = "{\"now\":" + String((long)wall) + ",\"mode\":\"" UM_MODE_ID "\",\"home\":" + jsonText(s.sportsHome) + ",\"lead\":" + String(s.sportsLead * 60);
   json += ",\"hold\":" + String(plan.holdSecs) + ",\"paused\":" + String((long)sportsLog.pausedUntil) + ",\"max\":" + String(s.sportsMax);
+  char spare[16]; firmwareUpdate.spareMode(spare, sizeof(spare));
+  json += ",\"spare\":" + jsonText(spare);
   json += ",\"today\":" + String(sportsLog.day == (uint32_t)(wall / 86400) ? sportsLog.count : 0) + ",\"order\":[";
   for (uint8_t i = 0; i < plan.orderCount; ++i) json += String(i ? ",\"" : "\"") + sportsplan::kModes[plan.order[i]] + "\"";
   json += "],\"sports\":{";
@@ -2158,6 +2175,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/firmware/server", saveUpdateServer);
 #ifdef UM_SPORTS_SWITCH
   server.on("/api/sports", HTTP_GET, sportsInfo);
+  postRoute("/api/sports/prepare", sportsPrepare);
 #endif
   server.on("/api/storage", HTTP_GET, storageState);
   postRoute("/api/storage/clear", storageClear);

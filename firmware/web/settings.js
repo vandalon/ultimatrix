@@ -84,8 +84,18 @@ async function sportsPlan() {
   });
   const checked = Math.max(0, ...Object.values(d.sports).map(x => x.checked || 0));
   box.innerHTML = (lines.length ? '<table class="plan"><thead><tr><th>Sport</th><th>What</th><th>Starts</th><th>Plan</th></tr></thead><tbody>' + lines.join('') + '</tbody></table>' : 'Nothing found yet. The clock reads the schedules every few minutes.')
-    + '<small>' + (checked ? 'Schedules read ' + time(checked) + '. ' : '') + d.today + ' of ' + d.max + ' automatic switches used today.' + (d.home ? '' : ' No home face: the clock stays on the sport face after the event.') + '</small>';
+    + '<small>' + (checked ? 'Schedules read ' + time(checked) + '. ' : '') + d.today + ' of ' + d.max + ' automatic switches used today. ' + (d.spare ? 'Ready in the spare slot: ' + (SPORTS.find(s => s[0] === d.spare)?.[1] || d.spare) + ' (a switch to it takes seconds).' : 'Nothing is prepared in the spare slot yet.') + (d.home ? '' : ' No home face: the clock stays on the sport face after the event.') + '</small>';
 }
+document.querySelector('#sportsPrepGo')?.addEventListener('click', async () => {
+  const msg = document.querySelector('#sportsPrepMsg'), mode = document.querySelector('#sportsPrep').value;
+  msg.textContent = 'Asking the clock…';
+  try {
+    const r = await fetch('/api/sports/prepare', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'mode=' + encodeURIComponent(mode) });
+    const j = await r.json().catch(() => ({}));
+    msg.textContent = j.message || (r.ok ? 'Done.' : 'The clock refused.');
+    if (r.status === 202) for (let i = 1; i <= 24; i++) setTimeout(sportsPlan, i * 5000);  // the plan footer shows when the spare slot is ready
+  } catch (_) { msg.textContent = 'The clock did not answer.'; }
+});
 function sportsInit(settings) {
   const list = document.querySelector('#sports-list'), box = field('sportsOrder');
   const chosen = (settings.sportsOrder || '').split(',').filter(id => SPORTS.some(s => s[0] === id));
@@ -109,6 +119,7 @@ function sportsInit(settings) {
   const home = field('sportsHome');
   home.replaceChildren(new Option('Stay on the sports face', ''), ...[...document.querySelectorAll('#faces [data-face]')].map(b => new Option(b.querySelector('b').textContent, b.dataset.face)));
   home.value = settings.sportsHome || '';
+  document.querySelector('#sportsPrep').replaceChildren(...[...document.querySelectorAll('#faces [data-face]')].map(b => new Option(b.querySelector('b').textContent, b.dataset.face)));
   render();
 }
 

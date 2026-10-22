@@ -249,6 +249,7 @@ void FirmwareUpdate::message(const char *value, bool failed) {
 }
 void FirmwareUpdate::progress(uint32_t bytes, uint32_t total) {
   std::lock_guard<std::mutex> guard(_lock); _status.received = bytes; _status.total = total;
+  if (!_stageOnly && total) firmwareInstallPercent = (int)((uint64_t)bytes * 100 / total);
 }
 
 bool FirmwareUpdate::knownMode(const char *mode) {
@@ -301,6 +302,14 @@ bool FirmwareUpdate::stage(const char *mode) {
   if (!mode || !*mode || !knownMode(mode) || !strcmp(mode, kMode) || pendingVerification()) return false;
   if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < minFreeBlock()) return false;
   return queue(mode, false, true);
+}
+
+bool FirmwareUpdate::spareMode(char *out, size_t size) {
+  Spare s;
+  out[0] = 0;
+  if (!spareValid(s)) return false;
+  strlcpy(out, s.mode, size);
+  return true;
 }
 
 bool FirmwareUpdate::spareHolds(const char *mode) {
@@ -370,6 +379,11 @@ void FirmwareUpdate::task(void *self) {
 }
 
 void FirmwareUpdate::run() {
+  struct InstallShown {  // the Home face shows UPDATING for a real install only; cleared on every way out except success (the restart follows)
+    bool active;
+    ~InstallShown() { if (active) firmwareInstallPercent = -1; }
+  } shown{!_stageOnly};
+  if (shown.active) firmwareInstallPercent = 0;
   const esp_partition_t *partition = esp_ota_get_next_update_partition(nullptr);
   Manifest info;
   if (const char *error = fetchManifest(_target, info, partition)) { message(error, true); return; }
@@ -439,6 +453,7 @@ void FirmwareUpdate::run() {
   if (history.begin("um-updates", false)) {  // the cached "update available" is about the build that was just replaced
     history.remove("availElf"); history.remove("availVer"); history.remove("chk"); history.end();
   }
+  shown.active = false; firmwareInstallPercent = 100;  // installed: the screen stays on 100% until the restart
   message(strcmp(_target, kMode) ? "Clock face installed. Restarting Ultimatrix." : "Firmware verified. Restarting Ultimatrix.");
   std::lock_guard<std::mutex> guard(_lock); _status.ready = true;
 }

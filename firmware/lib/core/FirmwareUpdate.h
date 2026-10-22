@@ -12,6 +12,7 @@ public:
   // stage(): like request(), but only writes the spare slot; the running image stays the one that boots. Refused while the running
   // image has not proved itself (the spare slot is its rollback target), on the Home face (too little memory) and for the running face.
   bool stage(const char *mode);
+  bool spareMode(char *out, size_t size);  // the face the spare slot holds, if valid
   bool spareHolds(const char *mode);       // the spare slot holds a valid image of this face (staged, or the face the clock was on before)
   bool activateStaged(const char *mode);   // boots the spare slot's image: status().ready is then set, the caller restarts
   // The outcome of the last background check; kept in NVS so the boot screen knows before the network is up.

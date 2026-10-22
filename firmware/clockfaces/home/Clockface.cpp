@@ -12,7 +12,7 @@
 #include "NetworkBudget.h"
 #include "HaConfig.h"
 
-extern std::atomic<bool> firmwareUpdating;
+extern std::atomic<int> firmwareInstallPercent;
 
 using namespace home;
 
@@ -458,10 +458,10 @@ void Clockface::update() {
   static const char *const kMonths[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
   const int month = std::min(12, std::max(1, _dateTime->getMonth()));
   snprintf(frame.date, sizeof(frame.date), "%s %d", kMonths[month - 1], std::min(31, std::max(1, _dateTime->getDay())));
-  if (firmwareUpdating) {
+  if (const int install = firmwareInstallPercent.load(); install >= 0) {  // only a real install: a check or preparing a face ahead of time leaves the screen alone
     frame.page = SCREEN_STATUS;
     strlcpy(frame.line1, "UPDATING", sizeof(frame.line1));
-    strlcpy(frame.line2, "PANEL", sizeof(frame.line2));
+    snprintf(frame.line2, sizeof(frame.line2), "%d%%", std::min(install, 100));
   } else if (!_haveNow) {
     fillStatus(frame);
   } else {

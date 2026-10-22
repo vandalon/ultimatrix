@@ -3,6 +3,8 @@
 #include <mutex>
 
 extern std::atomic<bool> firmwareUpdating;
+// A real install is running (not a check, not preparing a face ahead of time): -1 no, 0..100 the download so far. The Home face shows it.
+extern std::atomic<int> firmwareInstallPercent;
 extern std::atomic<bool> liveEventOn;
 // A football match of a favourite team is live, or any F1/MotoGP session is: what the birthday screen gives way to
 extern std::atomic<bool> liveFavouriteOn;

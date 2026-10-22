@@ -18,7 +18,7 @@ inline const uint8_t *miniGlyph(char c) {
                                          {3,4,2,1,6},{7,2,2,2,2},{5,5,5,5,7},{5,5,5,5,2},{5,5,7,7,5},{5,5,2,5,5},
                                          {5,5,2,2,2},{7,1,2,4,7}};
   static const uint8_t BLANK[5] = {0,0,0,0,0}, DOT[5] = {0,0,0,0,2}, DASH[5] = {0,0,7,0,0}, SLASH[5] = {1,1,2,4,4},
-                       COLON[5] = {0,2,0,2,0}, BANG[5] = {2,2,2,0,2};
+                       COLON[5] = {0,2,0,2,0}, BANG[5] = {2,2,2,0,2}, PERCENT[5] = {5,1,2,4,5};
   if (c >= '0' && c <= '9') return DIGITS[c - '0'];
   if (c >= 'A' && c <= 'Z') return LETTERS[c - 'A'];
   if (c >= 'a' && c <= 'z') return LETTERS[c - 'a'];
@@ -28,6 +28,7 @@ inline const uint8_t *miniGlyph(char c) {
     case '/': return SLASH;
     case ':': return COLON;
     case '!': return BANG;
+    case '%': return PERCENT;
     default: return BLANK;
   }
 }
