@@ -1011,6 +1011,7 @@ static void mqttInstallUpdate() { firmwareUpdate.request(); }
 // The Face select in Home Assistant: the same signed install as the settings page, started by an explicit choice
 static void mqttSwitchFace(const char *mode) {
   if (!FirmwareUpdate::knownMode(mode)) return;
+  if (firmwareUpdate.activateStaged(mode)) { consoleLog("[Face] Switching to %s from the spare slot\n", mode); return; }  // prepared ahead of time: only a restart
   const bool accepted = firmwareUpdate.request(mode, false);
   FirmwareUpdate::Status status; firmwareUpdate.status(status);
   if (!accepted && status.lowMemory) {  // too little memory with this face running: restart first and install before the feeds start
@@ -1098,12 +1099,35 @@ static void autoUpdate(uint32_t now) {
 // Sports that may take the panel (Settings > Sports): when one is on, or about to start, the clock installs that sport's face
 // with the same signed install as the Face select, and goes back to the home face once nothing is on (SportsPlan.h decides).
 static sportsplan::Log sportsLog;
+
+// Prepares the face the clock will need next in the spare slot, so the switch is a restart: the sport that starts within 6 hours, or the
+// home face while a sport face we switched to is running. Only when nothing is live and the running image has proved itself.
+static void sportsStageAhead(uint32_t now, time_t wall, const sportsplan::Config &plan, const sportsplan::Events (&events)[sportsplan::SPORTS], const sportsplan::Log &log) {
+  static uint32_t nextTry = 0, day = 0, stagedToday = 0;
+  if ((int32_t)(now - nextTry) < 0 || liveDataActive() || FirmwareUpdate::pendingVerification()) return;
+  nextTry = now + 10 * 60000;
+  if (day != (uint32_t)(wall / 86400)) { day = (uint32_t)(wall / 86400); stagedToday = 0; }
+  if (stagedToday >= 6) return;  // flash wear: a few writes a day at most
+  const char *want = nullptr;
+  for (uint8_t i = 0; i < plan.orderCount && !want; ++i) {
+    const char *mode = sportsplan::kModes[plan.order[i]];
+    if (!strcmp(mode, UM_MODE_ID)) continue;
+    const sportsplan::Events &e = events[plan.order[i]];
+    for (uint8_t k = 0; k < e.count; ++k) if (e.list[k].end > wall && e.list[k].start - wall < 6 * 3600) { want = mode; break; }
+  }
+  if (!want && log.target[0] && !strcmp(log.target, UM_MODE_ID) && plan.home[0] && strcmp(plan.home, UM_MODE_ID)) want = plan.home;
+  if (!want || !FirmwareUpdate::knownMode(want) || firmwareUpdate.spareHolds(want)) return;
+  if (firmwareUpdate.stage(want)) { ++stagedToday; consoleLog("[Sports] preparing %s ahead of time\n", want); }
+}
+
 static void sportsSwitch(uint32_t now) {
   static uint32_t seenSaves = ~0u, nextCheck = 0;
   sportsplan::Log &log = sportsLog;
   static bool logLoaded = false;
   Settings &s = *Settings::getInstance();
-  static bool active = false;
+  static bool active = false, settleHome = false, settingsSeen = false;  // settleHome: sports or home face were just chosen, go to the home face once if nothing is on
+  static uint32_t settleSince = 0;
+  static String lastOrder, lastHome;
   if (updateOnly || (s.sportsOrder.isEmpty() && !active)) return;  // nothing chosen: no object made, no task
   SportsWatch &watch = SportsWatch::instance();
   if (seenSaves != Settings::saveCount()) {
@@ -1116,6 +1140,8 @@ static void sportsSwitch(uint32_t now) {
     strlcpy(cfg.leagues, s.footballLeagues.c_str(), sizeof(cfg.leagues)); strlcpy(cfg.teams, s.footballTeams.c_str(), sizeof(cfg.teams));
     watch.configure(cfg);
     active = !s.sportsOrder.isEmpty();
+    if (settingsSeen && active && !s.sportsHome.isEmpty() && (s.sportsOrder != lastOrder || s.sportsHome != lastHome)) { settleHome = true; settleSince = now; }
+    lastOrder = s.sportsOrder; lastHome = s.sportsHome; settingsSeen = true;
   }
   if (s.sportsOrder.isEmpty() || (int32_t)(now - nextCheck) < 0) return;
   nextCheck = now + 15000;
@@ -1151,8 +1177,29 @@ static void sportsSwitch(uint32_t now) {
     p.end();
   };
   if (sportsplan::noticeManual(log, events, wall, plan, UM_MODE_ID)) { saveLog(); consoleLog("[Sports] face chosen by hand: no automatic switch until the events now on are over\n"); }
+  if (settleHome) {  // a new setup: the home face is where the clock belongs while nothing is on, wherever it was left
+    if (!strcmp(UM_MODE_ID, plan.home) || !plan.orderCount) settleHome = false;
+    else {
+      bool known = true, anyOn = false;
+      for (uint8_t i = 0; i < plan.orderCount; ++i) {
+        known &= events[plan.order[i]].checkedAt != 0;
+        anyOn |= sportsplan::wanted(events[plan.order[i]], wall, plan, false);
+      }
+      if (known || now - settleSince > 300000) {  // the schedules are read (or could not be for 5 minutes)
+        settleHome = false;
+        if (!anyOn && FirmwareUpdate::knownMode(plan.home)) {
+          sportsplan::noteSwitch(log, wall, plan.home);
+          saveLog();
+          consoleLog("[Sports] nothing is on: switching to the home face %s\n", plan.home);
+          mqttSwitchFace(plan.home);
+          return;
+        }
+      }
+    }
+  }
   const char *target = sportsplan::decide(events, wall, plan, log, UM_MODE_ID);
-  if (!target || !FirmwareUpdate::knownMode(target)) return;
+  if (!target) { sportsStageAhead(now, wall, plan, events, log); return; }
+  if (!FirmwareUpdate::knownMode(target)) return;
   sportsplan::noteSwitch(log, wall, target);  // counted before the install: a refused one is not retried for the minimum gap
   saveLog();
   consoleLog("[Sports] switching to %s\n", target);
