@@ -1143,6 +1143,7 @@ static void sportsSwitch(uint32_t now) {
     if (settingsSeen && active && !s.sportsHome.isEmpty() && (s.sportsOrder != lastOrder || s.sportsHome != lastHome)) { settleHome = true; settleSince = now; }
     lastOrder = s.sportsOrder; lastHome = s.sportsHome; settingsSeen = true;
   }
+  if (active) watch.poll();  // the schedule task ends itself while an update check or install runs: start it again
   if (s.sportsOrder.isEmpty() || (int32_t)(now - nextCheck) < 0) return;
   nextCheck = now + 15000;
   if (!bootDone || portalActive || welcomeMode || updateOnly || restartAt || scheduledMode[0] || WiFi.status() != WL_CONNECTED || wledBusy(now)) return;
