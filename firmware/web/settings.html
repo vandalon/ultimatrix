@@ -6,7 +6,7 @@
 <main class="main"><header class="page-heading"><span class="mode-pill" id="mode-name">Loading…</span></header>
 <div id="display-banner" class="warn-banner" role="status" hidden><span class="warn-icon" aria-hidden="true">!</span><div class="update-text"><strong>Display quality was lowered</strong><small id="display-banner-text"></small></div><button type="button" id="display-banner-reset">Try again</button></div>
 <div id="nvs-banner" class="warn-banner" role="status" hidden><span class="warn-icon" aria-hidden="true">!</span><div class="update-text"><strong>Settings storage is almost full</strong><small>Few free entries are left. Changes may not be saved, and the Wi-Fi connection may fail after a restart. Switching to another face and back, or a factory reset, frees space.</small></div></div>
-<div id="update-banner" class="update-banner" role="status" hidden><span class="update-icon" aria-hidden="true">↓</span><div class="update-text"><strong>New firmware available</strong><small id="update-banner-text"></small></div><button type="button" id="update-banner-install">Update now</button></div>
+<div id="update-banner" class="update-banner" role="status" hidden><span class="update-icon" aria-hidden="true">↓</span><div class="update-text"><strong>New firmware available</strong><small id="update-banner-text"></small><progress id="update-banner-progress" max="100" value="0" hidden></progress></div><button type="button" id="update-banner-install">Update now</button></div>
 <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
 <noscript><div class="notice">Enable JavaScript to load and save your clock settings.</div></noscript>
 <form id="settings-form" action="/api/settings" method="post"><fieldset id="controls" disabled>

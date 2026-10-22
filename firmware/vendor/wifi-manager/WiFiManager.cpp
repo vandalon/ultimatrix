@@ -1037,6 +1037,14 @@ uint8_t WiFiManager::connectWifi(String ssid, String pass, bool connect) {
   while(retry <= _connectRetries && (connRes!=WL_CONNECTED)){
   if(_connectRetries > 1){
     if(_aggresiveReconn) delay(1000); // add idle time before recon
+    // Ultimatrix: pause 3 s before a retry (not the first attempt) so the Wi-Fi stack and the router can drop the failed
+    // session; the wait callback keeps the status animation going
+    if(retry > 1){
+      for (int i = 0; i < 150; i++) {
+        if (_waitCallback) _waitCallback();
+        delay(20);
+      }
+    }
     #ifdef WM_DEBUG_LEVEL
       DEBUG_WM(F("Connect Wifi, ATTEMPT #"),(String)retry+" of "+(String)_connectRetries); 
       #endif
