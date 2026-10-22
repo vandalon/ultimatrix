@@ -19,8 +19,9 @@ const char kMotoGpApi[] = "https://api.pulselive.motogp.com/motogp/v1/results";
 const time_t kSlow = 15 * 60, kFast = 3 * 60, kRetry = 2 * 60;
 
 // Events are kept sorted by start, live ones first when the list is full
-void addEvent(Events &out, time_t start, time_t secs, bool live) {
+void addEvent(Events &out, time_t start, time_t secs, bool live, const char *label = "") {
   Event e;
+  strlcpy(e.label, label, sizeof(e.label));
   e.start = start;
   e.end = start + secs;
   e.live = live;
@@ -96,7 +97,7 @@ struct WeekendScan {  // the first event that is not over
 };
 
 struct SessionScan {
-  struct Session { char type[8] = "", status[16] = ""; time_t start = 0; } s[16];
+  struct Session { char type[8] = "", status[16] = ""; time_t start = 0; int number = 0; } s[16];
   int count = 0, index = -1;
   static void leaf(void *sink, const char (*path)[JsonScan::KEY], int n, const char *value, bool) {
     SessionScan &scan = *(SessionScan *)sink;
@@ -108,12 +109,13 @@ struct SessionScan {
     if (!strcmp(path[1], "type")) strlcpy(c.type, value, sizeof(c.type));
     else if (!strcmp(path[1], "status")) strlcpy(c.status, value, sizeof(c.status));
     else if (!strcmp(path[1], "date")) c.start = parseEspnDate(value);
+    else if (!strcmp(path[1], "number")) c.number = atoi(value);
   }
 };
 
 // ---- Football: the scoreboards of the followed leagues ----
 struct BoardScan {
-  struct Match { char date[24] = "", state[8] = ""; bool favourite = false; } m[12];
+  struct Match { char date[24] = "", state[8] = "", name[14] = ""; bool favourite = false; } m[12];
   int count = 0;
   const char *teams;  // "449,359," ids of the favourites with a trailing comma
   static void leaf(void *sink, const char (*path)[JsonScan::KEY], int n, const char *value, bool) {
@@ -124,6 +126,7 @@ struct BoardScan {
     scan.count = std::max(scan.count, k + 1);
     if (jsonPathIs(path, n, "events.*.date")) strlcpy(scan.m[k].date, value, sizeof(scan.m[k].date));
     else if (jsonPathIs(path, n, "events.*.status.type.state")) strlcpy(scan.m[k].state, value, sizeof(scan.m[k].state));
+    else if (jsonPathIs(path, n, "events.*.shortName")) strlcpy(scan.m[k].name, value, sizeof(scan.m[k].name));
     else if (jsonPathIs(path, n, "events.*.competitions.0.competitors.*.team.id") && scan.teams) {
       char needle[24];
       snprintf(needle, sizeof(needle), ",%s,", value);
@@ -134,11 +137,12 @@ struct BoardScan {
 
 // A team's next match: ESPN soccer/all/teams/<id>
 struct TeamScan {
-  char date[24] = "", state[8] = "";
+  char date[24] = "", state[8] = "", name[14] = "";
   static void leaf(void *sink, const char (*path)[JsonScan::KEY], int n, const char *value, bool) {
     TeamScan &s = *(TeamScan *)sink;
     if (jsonPathIs(path, n, "team.nextEvent.0.date")) strlcpy(s.date, value, sizeof(s.date));
     else if (jsonPathIs(path, n, "team.nextEvent.0.competitions.0.status.type.state")) strlcpy(s.state, value, sizeof(s.state));
+    else if (jsonPathIs(path, n, "team.nextEvent.0.shortName")) strlcpy(s.name, value, sizeof(s.name));
   }
 };
 
@@ -242,10 +246,11 @@ time_t SportsWatch::refreshF1(const Config &cfg, time_t now) {
     const bool qualifying = strstr(s.abbr, "Qual") || !strncmp(s.abbr, "SQ", 2);
     const bool race = !practice && !qualifying;
     if (cfg.racing == 1 ? !race : cfg.racing == 0 ? practice : false) continue;
-    addEvent(found, start, !strcmp(s.abbr, "Race") ? 2 * 3600 : 3600, !strcmp(s.state, "in"));
+    addEvent(found, start, !strcmp(s.abbr, "Race") ? 2 * 3600 : 3600, !strcmp(s.state, "in"), s.abbr);
   }
   publish(F1, found);
-  return nextPoll(found, now);
+  const time_t wait = nextPoll(found, now);
+  return wait == kSlow && found.count && found.list[0].start - now > 2 * 86400 ? 3600 : wait;  // as MotoGP: days away, read once an hour
 }
 
 time_t SportsWatch::refreshMotoGp(const Config &cfg, time_t now) {
@@ -274,10 +279,6 @@ time_t SportsWatch::refreshMotoGp(const Config &cfg, time_t now) {
     eventEnd = weekend.bestEnd;
     if (!eventId[0]) { publish(MOTOGP, Events()); return 6 * 3600; }  // no event left this season
   }
-  if (now < eventStart - 86400) {  // not this week: nothing to read yet
-    publish(MOTOGP, Events());
-    return std::max<time_t>(kSlow, std::min<time_t>(eventStart - 86400 - now, 6 * 3600));
-  }
   SessionScan scan;
   snprintf(url, sizeof(url), "%s/sessions?eventUuid=%s&categoryUuid=%s", kMotoGpApi, eventId, category);
   if (!get(url, SessionScan::leaf, &scan)) return kRetry;
@@ -289,10 +290,16 @@ time_t SportsWatch::refreshMotoGp(const Config &cfg, time_t now) {
     const bool race = !strcmp(s.type, "RAC") || !strcmp(s.type, "SPR");
     const bool qualifying = !strcmp(s.type, "Q");
     if (cfg.racing == 1 ? !race : cfg.racing == 0 ? !(race || qualifying) : false) continue;
-    addEvent(found, s.start, !strcmp(s.type, "RAC") ? 3600 : 2700, strcasestr(s.status, "PROGRESS") || strcasestr(s.status, "LIVE"));
+    char label[14];
+    if (!strcmp(s.type, "RAC")) strlcpy(label, "Race", sizeof(label));
+    else if (!strcmp(s.type, "SPR")) strlcpy(label, "Sprint", sizeof(label));
+    else if (s.number) snprintf(label, sizeof(label), "%s%d", s.type, s.number);
+    else strlcpy(label, s.type, sizeof(label));
+    addEvent(found, s.start, !strcmp(s.type, "RAC") ? 3600 : 2700, strcasestr(s.status, "PROGRESS") || strcasestr(s.status, "LIVE"), label);
   }
   publish(MOTOGP, found);
-  return nextPoll(found, now);
+  const time_t wait = nextPoll(found, now);
+  return wait == kSlow && eventStart - now > 2 * 86400 ? 3600 : wait;  // the weekend is days away: the plan only changes when the organisers move a session
 }
 
 time_t SportsWatch::refreshFootball(const Config &cfg, time_t now) {
@@ -330,7 +337,7 @@ time_t SportsWatch::refreshFootball(const Config &cfg, time_t now) {
         const auto &m = scan.m[i];
         const time_t start = parseEspnDate(m.date);
         if (!start || !strcmp(m.state, "post") || (cfg.favouritesOnly && !m.favourite)) continue;
-        addEvent(found, start, 150 * 60, !strcmp(m.state, "in"));
+        addEvent(found, start, 150 * 60, !strcmp(m.state, "in"), m.name);
       }
     }
   }
@@ -348,9 +355,9 @@ time_t SportsWatch::refreshFootball(const Config &cfg, time_t now) {
       snprintf(url, sizeof(url), "http://site.api.espn.com/apis/site/v2/sports/soccer/all/teams/%s", id);
       if (!get(url, TeamScan::leaf, &scan)) return kRetry;
       const time_t start = parseEspnDate(scan.date);
-      if (start && start != _favStart[index] && _favStart[index] + 150 * 60 > now) addEvent(found, _favStart[index], 150 * 60, false);  // ESPN moved on at kick-off
+      if (start && start != _favStart[index] && _favStart[index] + 150 * 60 > now) addEvent(found, _favStart[index], 150 * 60, false, scan.name);  // ESPN moved on at kick-off
       _favStart[index] = start;
-      if (start && strcmp(scan.state, "post")) addEvent(found, start, 150 * 60, !strcmp(scan.state, "in"));
+      if (start && strcmp(scan.state, "post")) addEvent(found, start, 150 * 60, !strcmp(scan.state, "in"), scan.name);
     }
   }
   publish(FOOTBALL, found);

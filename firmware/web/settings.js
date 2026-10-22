@@ -57,11 +57,40 @@ function timezoneMode() {
 }
 // Sports: which sports may take the panel, in priority order (hidden field sportsOrder, "f1,football")
 const SPORTS = [['f1', 'F1'], ['motogp', 'MotoGP'], ['football', 'Football']];
+// The plan under Sports: what the clock found in the schedules and what it will do about it (computed here from /api/sports)
+let sportsPlanTimer = 0;
+async function sportsPlan() {
+  const box = document.querySelector('#sports-plan');
+  clearTimeout(sportsPlanTimer);
+  sportsPlanTimer = setTimeout(sportsPlan, 60000);
+  if (document.hidden) return;
+  let d;
+  try { d = await (await fetch('/api/sports', { cache: 'no-store' })).json(); } catch (_) { box.textContent = 'The clock did not answer.'; return; }
+  if (!d.order.length) { box.textContent = 'Tick a sport above to see what the clock will switch to.'; return; }
+  const names = Object.fromEntries(SPORTS), rows = [];
+  d.order.forEach((id, rank) => (d.sports[id]?.events || []).forEach(e => rows.push({ id, rank, ...e })));
+  rows.sort((a, b) => a.s - b.s || a.rank - b.rank);
+  const time = t => new Date(t * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const on = r => r.l || (d.now >= r.s - d.lead && d.now < r.e);
+  const lines = rows.filter(r => r.e + d.hold > d.now).map(r => {
+    const from = r.s - d.lead, until = r.e;
+    const rival = rows.find(o => o !== r && o.rank < r.rank && (o.l || (o.s - d.lead < until && o.e > from)));
+    let status;
+    if (d.paused > from) status = 'Paused: you chose a face by hand';
+    else if (rival) status = 'Skipped: ' + names[rival.id] + ' ' + rival.n + ' is on';
+    else if (on(r)) status = d.mode === r.id ? 'On now' : 'On now, switching';
+    else status = 'Switches at ' + time(from);
+    return '<tr><td>' + names[r.id] + '</td><td>' + (r.n || '') + '</td><td>' + time(r.s) + '</td><td>' + status + '</td></tr>';
+  });
+  const checked = Math.max(0, ...Object.values(d.sports).map(x => x.checked || 0));
+  box.innerHTML = (lines.length ? '<table class="plan"><thead><tr><th>Sport</th><th>What</th><th>Starts</th><th>Plan</th></tr></thead><tbody>' + lines.join('') + '</tbody></table>' : 'Nothing found yet. The clock reads the schedules every few minutes.')
+    + '<small>' + (checked ? 'Schedules read ' + time(checked) + '. ' : '') + d.today + ' of ' + d.max + ' automatic switches used today.' + (d.home ? '' : ' No home face: the clock stays on the sport face after the event.') + '</small>';
+}
 function sportsInit(settings) {
   const list = document.querySelector('#sports-list'), box = field('sportsOrder');
   const chosen = (settings.sportsOrder || '').split(',').filter(id => SPORTS.some(s => s[0] === id));
   let order = [...chosen, ...SPORTS.map(s => s[0]).filter(id => !chosen.includes(id))], on = new Set(chosen);
-  const save = () => { box.value = order.filter(id => on.has(id)).join(','); render(); dirty(); };
+  const save = () => { box.value = order.filter(id => on.has(id)).join(','); render(); dirty(); setTimeout(sportsPlan, 2500); };
   function render() {
     list.replaceChildren(...order.map((id, i) => {
       const row = document.createElement('div'); row.className = 'bday';
@@ -76,6 +105,7 @@ function sportsInit(settings) {
     }));
   }
   box.value = chosen.join(',');
+  sportsPlan();
   const home = field('sportsHome');
   home.replaceChildren(new Option('Stay on the sports face', ''), ...[...document.querySelectorAll('#faces [data-face]')].map(b => new Option(b.querySelector('b').textContent, b.dataset.face)));
   home.value = settings.sportsHome || '';

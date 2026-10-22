@@ -1097,9 +1097,10 @@ static void autoUpdate(uint32_t now) {
 #ifdef UM_SPORTS_SWITCH
 // Sports that may take the panel (Settings > Sports): when one is on, or about to start, the clock installs that sport's face
 // with the same signed install as the Face select, and goes back to the home face once nothing is on (SportsPlan.h decides).
+static sportsplan::Log sportsLog;
 static void sportsSwitch(uint32_t now) {
   static uint32_t seenSaves = ~0u, nextCheck = 0;
-  static sportsplan::Log log;
+  sportsplan::Log &log = sportsLog;
   static bool logLoaded = false;
   Settings &s = *Settings::getInstance();
   static bool active = false;
@@ -1156,6 +1157,30 @@ static void sportsSwitch(uint32_t now) {
   saveLog();
   consoleLog("[Sports] switching to %s\n", target);
   mqttSwitchFace(target);
+}
+
+// The plan on the settings page: what the watcher found and the rules, so the page can show what will happen when
+static void sportsInfo() {
+  Settings &s = *Settings::getInstance();
+  sportsplan::Config plan;
+  sportsplan::parseOrder(s.sportsOrder.c_str(), plan);
+  sportsplan::Events events[sportsplan::SPORTS];
+  if (plan.orderCount) SportsWatch::instance().events(events);
+  const time_t wall = time(nullptr);
+  String json = "{\"now\":" + String((long)wall) + ",\"mode\":\"" UM_MODE_ID "\",\"home\":" + jsonText(s.sportsHome) + ",\"lead\":" + String(s.sportsLead * 60);
+  json += ",\"hold\":" + String(plan.holdSecs) + ",\"paused\":" + String((long)sportsLog.pausedUntil) + ",\"max\":" + String(s.sportsMax);
+  json += ",\"today\":" + String(sportsLog.day == (uint32_t)(wall / 86400) ? sportsLog.count : 0) + ",\"order\":[";
+  for (uint8_t i = 0; i < plan.orderCount; ++i) json += String(i ? ",\"" : "\"") + sportsplan::kModes[plan.order[i]] + "\"";
+  json += "],\"sports\":{";
+  for (uint8_t i = 0; i < plan.orderCount; ++i) {
+    const sportsplan::Events &e = events[plan.order[i]];
+    json += String(i ? ",\"" : "\"") + sportsplan::kModes[plan.order[i]] + "\":{\"checked\":" + String((long)e.checkedAt) + ",\"events\":[";
+    for (uint8_t k = 0; k < e.count; ++k)
+      json += String(k ? "," : "") + "{\"s\":" + String((long)e.list[k].start) + ",\"e\":" + String((long)e.list[k].end) + ",\"l\":" + (e.list[k].live ? "true" : "false") + ",\"n\":" + jsonText(e.list[k].label) + "}";
+    json += "]}";
+  }
+  json += "}}";
+  server.send(200, "application/json", json);
 }
 #endif
 
@@ -2083,6 +2108,9 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/firmware/reboot", rebootForFirmwareUpdate);
   postRoute("/api/firmware/check", checkFirmware);
   postRoute("/api/firmware/server", saveUpdateServer);
+#ifdef UM_SPORTS_SWITCH
+  server.on("/api/sports", HTTP_GET, sportsInfo);
+#endif
   server.on("/api/storage", HTTP_GET, storageState);
   postRoute("/api/storage/clear", storageClear);
   postRoute("/api/storage/reformat", storageReformat);
