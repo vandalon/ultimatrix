@@ -1,4 +1,7 @@
 #include <Arduino.h>
+#ifdef UM_GAMEPAD
+#include "Gamepad.h"
+#endif
 #include <atomic>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
@@ -1710,6 +1713,7 @@ static const char *const kKnownKeys[] = {
   "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
   "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather",  // HaConfig.cpp
+  "btPad",                                                                                                                 // Gamepad.cpp
   "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5",
 };
 static void nvsEraseUnknownKeys() {
@@ -1744,7 +1748,7 @@ static void tidyNvs(bool force = false) {
 #if !defined(UM_HOME)
   if (crowded) {  // the Home Assistant face's own records (settings, token, tiles, alert and media options)
     static const char *const homeKeys[] = {"haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather",
-                                         "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5"};
+  "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5"};
     nvsEraseKeys("ultimatrix", homeKeys, sizeof(homeKeys) / sizeof(homeKeys[0]));
   }
 #endif
@@ -1763,6 +1767,9 @@ static void watchNvs() {
 
 void setup() {
   Serial.begin(115200);
+#ifdef UM_GAMEPAD
+  gamepad::boot();
+#endif
   heap_caps_register_failed_alloc_callback(allocationFailed);
   telnet.setWatcher(telnetWatch);
   telnet.setFilter([](IPAddress ip) { return accessAllowed(ip, Settings::getInstance()->accessScope); });
@@ -1986,6 +1993,15 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
     if (face) face->steer(dir);
     server.send(204);
   });
+#ifdef UM_GAMEPAD
+  server.on("/api/gamepad", HTTP_GET, []() {   // Bluetooth game controller: state, name, number of bonded controllers
+    String json = "{\"enabled\":" + String(gamepad::enabled() ? "true" : "false") + ",\"state\":\"" + String(gamepad::state()) + "\",\"name\":" + jsonText(gamepad::name()) + ",\"bonded\":" + String(gamepad::bonded()) + "}";
+    server.send(200, "application/json", json);
+  });
+  postRoute("/api/gamepad/enable", []() { gamepad::setEnabled(server.arg("on").toInt() != 0); server.send(204); restartAt = millis() + 800; });   // the memory is set aside (or given back) at the start
+  postRoute("/api/gamepad/pair", []() { gamepad::pair(); server.send(204); });
+  postRoute("/api/gamepad/forget", []() { gamepad::forget(); server.send(204); });
+#endif
 #endif
   server.on("/api/catalog", HTTP_GET, selectionCatalog);
 #ifdef UM_FOOTBALL_ONLY
@@ -2068,6 +2084,9 @@ void loop() {
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
     face = new Clockface(display);
     face->setup(&clockTime);
+#ifdef UM_GAMEPAD
+    gamepad::begin();
+#endif
 #ifdef UM_WLED_OVERLAY
     wled::attachPanel(*display);
 #endif
@@ -2158,6 +2177,9 @@ void loop() {
         }
         face->setNight(face->handlesNight() ? displayControl.sunDown() : displayControl.nightActive());
         mqttDisplayMode = "clock";
+#ifdef UM_GAMEPAD
+        { gamepad::poll(); int dir; if (gamepad::take(dir)) face->steer(dir); }
+#endif
         face->update();
       }
       if (!dlnaDrawn) dlna::hidden();

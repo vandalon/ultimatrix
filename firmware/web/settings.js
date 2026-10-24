@@ -944,6 +944,30 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
     steer(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0));
     from = t;
   }, { passive: true });
+  // A Bluetooth controller paired with the clock itself: status, Pair (a minute of listening) and Forget.
+  const label = { off: 'The Bluetooth controller is off. Turning it on restarts the clock and uses about 90 KB of its memory.', starting: 'Bluetooth is starting…', ready: 'No controller paired.', pairing: 'Switch your controller to pairing mode now…', searching: 'Paired. Waiting for the controller to be switched on.', connecting: 'Connecting…', connected: 'Controller connected.' };
+  const status = document.querySelector('#pad-status'), pair = document.querySelector('#pad-pair'), forget = document.querySelector('#pad-forget'), power = document.querySelector('#pad-power');
+  let btOn = false;
+  let polling = 0;
+  async function padState() {
+    try {
+      const r = await (await fetch('/api/gamepad')).json();
+      status.textContent = (label[r.state] || '') + (r.state === 'connected' && r.name ? ' (' + r.name + ')' : '');
+      btOn = r.enabled; power.textContent = btOn ? 'Turn Bluetooth off' : 'Turn Bluetooth on';
+      pair.hidden = !btOn; forget.hidden = !r.bonded; pair.disabled = r.state === 'pairing' || r.state === 'starting';
+    } catch (_) { status.textContent = ''; }
+  }
+  function watchPad() { if (!polling) { padState(); polling = setInterval(() => { if (play.hidden || document.hidden) return; padState(); }, 1500); } }
+  if (status) {
+    new MutationObserver(watchPad).observe(play, { attributes: true, attributeFilter: ['hidden'] });
+    if (!play.hidden) watchPad();
+    pair.addEventListener('click', async () => { try { await fetch('/api/gamepad/pair', { method: 'POST' }); } catch (_) { /* shown by the next status */ } padState(); });
+    power.addEventListener('click', async () => {
+      if (!confirm(btOn ? 'Turn Bluetooth off? The clock restarts.' : 'Turn Bluetooth on? The clock restarts and uses about 90 KB of its memory for it, so a few other features (like firmware updates and GIFs) may run short.')) return;
+      try { await fetch('/api/gamepad/enable', { method: 'POST', body: new URLSearchParams({ on: btOn ? 0 : 1 }) }); message('Restarting…'); } catch (_) { /* shown by the next status */ }
+    });
+    forget.addEventListener('click', async () => { if (!confirm('Forget the paired controller?')) return; try { await fetch('/api/gamepad/forget', { method: 'POST' }); } catch (_) { /* shown by the next status */ } padState(); });
+  }
   const keys = { ArrowUp: 0, ArrowRight: 1, ArrowDown: 2, ArrowLeft: 3, w: 0, d: 1, s: 2, a: 3, W: 0, D: 1, S: 2, A: 3 };
   document.addEventListener('keydown', (event) => {
     if (play.hidden || event.repeat || event.ctrlKey || event.metaKey || !(event.key in keys) || /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
