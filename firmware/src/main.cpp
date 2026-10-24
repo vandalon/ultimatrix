@@ -375,6 +375,14 @@ static bool telnetCommand(const char *c, Print &out) {
     nvs_stats_t stats = {};
     nvs_get_stats(nullptr, &stats);
     out.printf("NVS: %u of %u entries used, %u free (%u namespaces)\r\n", (unsigned)stats.used_entries, (unsigned)stats.total_entries, (unsigned)stats.free_entries, (unsigned)stats.namespace_count);
+    nvs_iterator_t it = nullptr;   // the keys and how large each one is, to see what fills it
+    for (esp_err_t err = nvs_entry_find("nvs", nullptr, NVS_TYPE_ANY, &it); err == ESP_OK; err = nvs_entry_next(&it)) {
+      nvs_entry_info_t info; nvs_entry_info(it, &info);
+      size_t length = 0;
+      if (info.type == NVS_TYPE_BLOB || info.type == NVS_TYPE_STR) { nvs_handle_t h; if (nvs_open(info.namespace_name, NVS_READONLY, &h) == ESP_OK) { if (info.type == NVS_TYPE_BLOB) nvs_get_blob(h, info.key, nullptr, &length); else nvs_get_str(h, info.key, nullptr, &length); nvs_close(h); } }
+      out.printf("  %s/%s type %d %u bytes\r\n", info.namespace_name, info.key, (int)info.type, (unsigned)length);
+    }
+    if (it) nvs_release_iterator(it);
     return true;
   }
   if (!strncasecmp(c, "mdns", 4) && (!c[4] || c[4] == ' ')) {  // "mdns" reports, "mdns restart" announces again
@@ -561,6 +569,9 @@ static void settingsState() {
 #endif
 #ifdef UM_PACMAN
   json += ",\"color\":" + String(s.color) + ",\"dotColor\":" + String(s.dotColor);
+#ifdef UM_GAMEPAD
+  json += String(",\"btPad\":") + (gamepad::enabled() ? "true" : "false");
+#endif
   json += ",\"pacmanClockColor\":" + String(s.pacmanClockColor) + ",\"clockMinutesColor\":" + String(s.clockMinutesColor) + ",\"clockShade\":" + String(s.clockShade);
   const char *ghostNames[] = {"ghost1Color", "ghost2Color", "ghost3Color", "ghost4Color"};
   for (int i = 0; i < 4; i++) json += ",\"" + String(ghostNames[i]) + "\":" + String(s.ghostColors[i]);
@@ -1779,6 +1790,9 @@ void setup() {
   s.load();
 #ifdef UM_WLED_OVERLAY
   wled::load();
+#ifdef UM_GAMEPAD
+  if (gamepad::enabled()) wled::suspend(true);   // the Bluetooth controller takes the memory of WLED, the canvas and the GIFs
+#endif
 #endif
 #ifdef UM_HOME
   ha::load();
@@ -1998,7 +2012,13 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
     String json = "{\"enabled\":" + String(gamepad::enabled() ? "true" : "false") + ",\"state\":\"" + String(gamepad::state()) + "\",\"name\":" + jsonText(gamepad::name()) + ",\"bonded\":" + String(gamepad::bonded()) + "}";
     server.send(200, "application/json", json);
   });
-  postRoute("/api/gamepad/enable", []() { gamepad::setEnabled(server.arg("on").toInt() != 0); server.send(204); restartAt = millis() + 800; });   // the memory is set aside (or given back) at the start
+  postRoute("/api/gamepad/enable", []() {   // the memory is set aside (or given back) at the start, so this restarts the clock
+    const bool on = server.arg("on").toInt() != 0;
+    bool saved = gamepad::setEnabled(on);
+    if (!saved) { tidyNvs(true); saved = gamepad::setEnabled(on); }   // a full settings storage: drop what no longer belongs, once
+    if (!saved) { server.send(507, "text/plain", "The settings storage is full."); return; }
+    server.send(204); restartAt = millis() + 800;
+  });
   postRoute("/api/gamepad/pair", []() { gamepad::pair(); server.send(204); });
   postRoute("/api/gamepad/forget", []() { gamepad::forget(); server.send(204); });
 #endif
@@ -2026,7 +2046,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/api/mqtt", HTTP_GET, mqttState);
   postRoute("/api/mqtt", mqttSave);
 #ifdef UM_WLED_OVERLAY
-  wled::apiAttach(server, postRoute);
+  if (!wled::suspendedNow()) wled::apiAttach(server, postRoute);
 #endif
   dlna::attach(server, postRoute);
 #ifdef UM_HOME

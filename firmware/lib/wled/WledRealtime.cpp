@@ -218,7 +218,10 @@ private:
 
 void inputActivity() { idleSince = millis(); }
 
-bool enabled() { return options().enabled != 0; }
+static bool suspended = false;   // held off for this start (the Bluetooth controller needs the memory); the saved setting is untouched
+void suspend(bool on) { suspended = on; }
+bool suspendedNow() { return suspended; }
+bool enabled() { return !suspended && options().enabled != 0; }
 bool realtimeListening() { return listening; }
 
 // Opens or closes everything that costs memory: listeners, and (main.cpp) the mDNS record. False: not enough heap.

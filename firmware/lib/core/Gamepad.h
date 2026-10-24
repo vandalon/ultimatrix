@@ -9,7 +9,7 @@
 // controller connects again when it is switched on. Classic Bluetooth controllers (PS4, PS5, Switch Pro) are not supported.
 namespace gamepad {
 bool enabled();                     // switched on in the settings (takes effect at the next start)
-void setEnabled(bool on);
+bool setEnabled(bool on);           // false when the settings storage is too full to keep it
 void boot();                        // first thing in setup(): gives unused Bluetooth memory back
 void begin();                       // starts the Bluetooth stack (once the face runs)
 void poll();                        // call from loop(): starts and stops scans, reconnects

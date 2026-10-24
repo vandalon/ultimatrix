@@ -246,10 +246,15 @@ bool enabled() {
   return on;
 }
 
-void setEnabled(bool on) {
+bool setEnabled(bool on) {
   nvs_handle_t h;
-  if (nvs_open("ultimatrix", NVS_READWRITE, &h) != ESP_OK) return;
-  nvs_set_u8(h, "btPad", on ? 1 : 0); nvs_commit(h); nvs_close(h);
+  esp_err_t err = nvs_open("ultimatrix", NVS_READWRITE, &h);
+  if (err != ESP_OK) { consoleLog("[Gamepad] settings not saved: open %s\n", esp_err_to_name(err)); return false; }
+  err = nvs_set_u8(h, "btPad", on ? 1 : 0);
+  if (err == ESP_OK) err = nvs_commit(h);
+  nvs_close(h);
+  if (err != ESP_OK) consoleLog("[Gamepad] settings not saved: %s\n", esp_err_to_name(err));
+  return err == ESP_OK;
 }
 
 // First thing in setup(): hands the memory the Bluetooth controller does not need back to the heap (all of it unless the controller is on).

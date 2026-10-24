@@ -225,6 +225,7 @@ async function load() {
     section('[data-football]', data.mode === 'Football'); section('[data-f1]', racing);
     if (sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || pacman) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
     document.querySelector('#play').hidden = data.mode !== 'Pac-Man Classic';
+    for (const a of document.querySelectorAll('.sidebar nav a[href="/wled"], .sidebar nav a[href="/canvas"], .sidebar nav a[href="/gifs"]')) a.hidden = !!data.btPad;   // off while the Bluetooth controller is on
     if (data.mode === 'Pac-Man Classic') field('clockShade').closest('.field').hidden = true;   // this face has no background clock to dim
     if (pacman) {
       const colours = ['Default', 'Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'];
@@ -945,7 +946,7 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
     from = t;
   }, { passive: true });
   // A Bluetooth controller paired with the clock itself: status, Pair (a minute of listening) and Forget.
-  const label = { off: 'The Bluetooth controller is off. Turning it on restarts the clock and uses about 90 KB of its memory.', starting: 'Bluetooth is starting…', ready: 'No controller paired.', pairing: 'Switch your controller to pairing mode now…', searching: 'Paired. Waiting for the controller to be switched on.', connecting: 'Connecting…', connected: 'Controller connected.' };
+  const label = { off: 'The Bluetooth controller is off. Turning it on restarts the clock and uses about 90 KB of its memory, so WLED, Canvas and Animations (GIFs) are switched off while it is on.', starting: 'Bluetooth is starting…', ready: 'No controller paired.', pairing: 'Switch your controller to pairing mode now…', searching: 'Paired. Waiting for the controller to be switched on.', connecting: 'Connecting…', connected: 'Controller connected.' };
   const status = document.querySelector('#pad-status'), pair = document.querySelector('#pad-pair'), forget = document.querySelector('#pad-forget'), power = document.querySelector('#pad-power');
   let btOn = false;
   let polling = 0;
@@ -963,8 +964,8 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
     if (!play.hidden) watchPad();
     pair.addEventListener('click', async () => { try { await fetch('/api/gamepad/pair', { method: 'POST' }); } catch (_) { /* shown by the next status */ } padState(); });
     power.addEventListener('click', async () => {
-      if (!confirm(btOn ? 'Turn Bluetooth off? The clock restarts.' : 'Turn Bluetooth on? The clock restarts and uses about 90 KB of its memory for it, so a few other features (like firmware updates and GIFs) may run short.')) return;
-      try { await fetch('/api/gamepad/enable', { method: 'POST', body: new URLSearchParams({ on: btOn ? 0 : 1 }) }); message('Restarting…'); } catch (_) { /* shown by the next status */ }
+      if (!confirm(btOn ? 'Turn Bluetooth off? The clock restarts.' : 'Turn Bluetooth on? The clock restarts and uses about 90 KB of its memory for it. WLED, Canvas and Animations (GIFs) are switched off while it is on, and firmware updates may run short of memory.')) return;
+      try { const r = await fetch('/api/gamepad/enable', { method: 'POST', body: new URLSearchParams({ on: btOn ? 0 : 1 }) }); if (!r.ok) throw new Error(await r.text()); message('Restarting…'); } catch (error) { message(error.message, true); }
     });
     forget.addEventListener('click', async () => { if (!confirm('Forget the paired controller?')) return; try { await fetch('/api/gamepad/forget', { method: 'POST' }); } catch (_) { /* shown by the next status */ } padState(); });
   }

@@ -134,6 +134,8 @@ void attach(WebServer &server, void (*postRoute)(const char *, WebServer::THandl
 
 // ---- Overlay: called from main.cpp every frame once the boot is over ----
 // Order on the panel: Notice, night clock, WLED, birthday screen, face.
+void suspend(bool on);                 // off for this start only (memory); canvas, GIFs and the light page go with it
+bool suspendedNow();
 bool enabled();                        // runtime setting; false = no listeners, no record, no state ticking
 void service(bool allow, uint32_t now = 0, bool releaseMemory = true);  // releaseMemory: closing the listeners also gives back the canvas and an import; false for a Wi-Fi blip  // main loop, about every frame: opens the listeners when allowed and the heap has room, closes them when not
 bool setEnabled(bool on);              // opens or closes the UDP listeners and the mDNS record; false when the heap is too low
