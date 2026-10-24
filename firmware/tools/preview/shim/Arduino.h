@@ -21,6 +21,7 @@ static inline size_t um_strlcpy(char *dst, const char *src, size_t size) {
 #define strlcpy um_strlcpy
 
 // Arduino's random(max) and random(min, max); a fixed seed keeps the pictures the same every time
+inline uint32_t esp_random() { return 7; }  // a fixed value keeps the pictures the same every time
 inline long um_random(long hi) { return hi <= 0 ? 0 : rand() % hi; }
 inline long um_random(long lo, long hi) { return hi <= lo ? lo : lo + rand() % (hi - lo); }
 inline void randomSeed(unsigned long seed) { srand((unsigned)seed); }

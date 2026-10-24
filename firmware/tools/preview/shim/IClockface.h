@@ -1,3 +1,3 @@
 #pragma once
 #include "ClockTime.h"
-class IClockface {};
+class IClockface { public: virtual ~IClockface() {} virtual int ditherPolicy() const { return 1; } };
