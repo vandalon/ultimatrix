@@ -14,6 +14,8 @@ extern "C" void ble_store_config_init(void);
 
 #include "nvs.h"
 #include "esp_bt.h"
+#include "esp_attr.h"
+#include "esp_system.h"
 
 namespace gamepad {
 namespace {
@@ -234,6 +236,23 @@ void onSync() {
   synced = true;
 }
 void hostTask(void *) { nimble_port_run(); nimble_port_freertos_deinit(); }
+std::atomic<bool> restartFlag{false};
+bool forgotten = false;
+bool pairedBoot = false;   // this start was made by Pair: it listens at once and gives up (restarts) when nothing got paired
+int activeCache = -1;
+RTC_NOINIT_ATTR uint32_t pairMagic;   // survives the restart that Pair makes
+constexpr uint32_t kMagic = 0x42545041;
+
+bool storedBond() {   // NimBLE keeps its bonds in this namespace; look without starting it
+  nvs_iterator_t it = nullptr;
+  bool found = false;
+  for (esp_err_t err = nvs_entry_find("nvs", "nimble_bond", NVS_TYPE_ANY, &it); err == ESP_OK; err = nvs_entry_next(&it)) {
+    nvs_entry_info_t info; nvs_entry_info(it, &info);
+    if (strncmp(info.key, "peer_sec", 8) == 0) { found = true; break; }
+  }
+  if (it) nvs_release_iterator(it);
+  return found;
+}
 }  // namespace
 
 // Off unless switched on on the settings page (NVS key btPad), and always off for an update-only boot (the whole heap is for the download).
@@ -245,6 +264,18 @@ bool enabled() {
   enabledCache = on ? 1 : 0;
   return on;
 }
+
+// Only a paired controller (or Pair, which restarts the clock into it) starts the stack; with nothing paired the setting costs no memory.
+bool active() {
+  if (activeCache >= 0) return activeCache;
+  bool on = enabled();
+  if (on && pairMagic == kMagic && esp_reset_reason() == ESP_RST_SW) pairedBoot = true;
+  pairMagic = 0;
+  on = on && (pairedBoot || storedBond());
+  activeCache = on ? 1 : 0;
+  return on;
+}
+bool restartWanted() { return restartFlag.load(); }
 
 bool setEnabled(bool on) {
   nvs_handle_t h;
@@ -258,10 +289,11 @@ bool setEnabled(bool on) {
 }
 
 // First thing in setup(): hands the memory the Bluetooth controller does not need back to the heap (all of it unless the controller is on).
-void boot() { esp_bt_controller_mem_release(enabled() ? ESP_BT_MODE_CLASSIC_BT : ESP_BT_MODE_BTDM); }
+void boot() { esp_bt_controller_mem_release(active() ? ESP_BT_MODE_CLASSIC_BT : ESP_BT_MODE_BTDM); }
 
 void begin() {
-  if (!enabled() || started.exchange(true)) return;
+  if (!active() || started.exchange(true)) return;
+  if (pairedBoot) pairUntil = millis() + kPairMs + 10000;   // the stack needs a few seconds to be ready
   const size_t before = heap_caps_get_free_size(MALLOC_CAP_8BIT);
   const esp_err_t err = nimble_port_init();
   if (err != ESP_OK) { consoleLog("[Gamepad] Bluetooth did not start: %s (free %u, largest block %u)\n", esp_err_to_name(err), (unsigned)before, (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)); return; }
@@ -281,6 +313,7 @@ void poll() {
   lastPoll = millis();
   int n = 0; if (ble_store_util_count(BLE_STORE_OBJ_TYPE_PEER_SEC, &n) == 0) bonds = n;
   const bool want = pairing() || bonds.load() > 0;
+  if (!want && (pairedBoot || forgotten) && conn.load() == kNoConn && !connecting) restartFlag = true;   // nothing to wait for: restart without the stack
   if (conn.load() == kNoConn && !connecting) {
     if (want && !scanning) startScan();
     else if (!want && scanning) { ble_gap_disc_cancel(); scanning = false; }
@@ -299,6 +332,7 @@ bool take(int &dir) {
 }
 
 void pair() {
+  if (enabled() && !active()) { pairMagic = kMagic; restartFlag = true; return; }   // restart into the stack, which then listens
   if (!synced) return;
   pairUntil = millis() + kPairMs;
   if (scanning) { ble_gap_disc_cancel(); scanning = false; }   // restart with the faster pairing scan
@@ -306,6 +340,7 @@ void pair() {
 }
 
 void forget() {
+  forgotten = true;
   pairUntil = 0;
   dropConnection();
   if (scanning) { ble_gap_disc_cancel(); scanning = false; }
@@ -315,6 +350,7 @@ void forget() {
 
 const char *state() {
   if (!enabled()) return "off";
+  if (!active()) return restartFlag ? "starting" : "idle";
   if (!started) return "starting";
   if (!synced) return "starting";
   if (conn.load() != kNoConn) return ready ? "connected" : "connecting";
@@ -327,4 +363,4 @@ int bonded() { return bonds.load(); }
 }  // namespace gamepad
 
 // The Arduino core hands the Bluetooth memory back to the heap at boot unless the sketch says it uses LE (classic stays released).
-extern "C" bool bleInUse() { return gamepad::enabled(); }
+extern "C" bool bleInUse() { return gamepad::active(); }

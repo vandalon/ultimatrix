@@ -271,6 +271,11 @@ static bool wledBusy(uint32_t now) { return wled::wanted(now); }  // WLED has th
 #else
 static bool wledBusy(uint32_t) { return false; }
 #endif
+#ifdef UM_GAMEPAD
+static bool btMode() { return gamepad::active(); }  // the Bluetooth controller runs: everything but Home Assistant's MQTT link stays off to keep the heap
+#else
+static bool btMode() { return false; }
+#endif
 static bool telnetLow = false;  // telnet is off for now because memory is short
 static bool telnetStarted = false;  // telnet comes up after the face starts, like mDNS
 static bool updateChecking = false;  // mDNS is left off while an update check runs: its RAM goes to the TLS session
@@ -570,7 +575,7 @@ static void settingsState() {
 #ifdef UM_PACMAN
   json += ",\"color\":" + String(s.color) + ",\"dotColor\":" + String(s.dotColor);
 #ifdef UM_GAMEPAD
-  json += String(",\"btPad\":") + (gamepad::enabled() ? "true" : "false");
+  json += String(",\"btPad\":") + (gamepad::active() ? "true" : "false");
 #endif
   json += ",\"pacmanClockColor\":" + String(s.pacmanClockColor) + ",\"clockMinutesColor\":" + String(s.clockMinutesColor) + ",\"clockShade\":" + String(s.clockShade);
   const char *ghostNames[] = {"ghost1Color", "ghost2Color", "ghost3Color", "ghost4Color"};
@@ -885,7 +890,7 @@ static void saveSettings() {
   if (displayReady) display->setRotation(s.rotation);
   if (timeChanged && face) clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (consoleChanged) {
-    if (s.telnet && !telnetLow) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
+    if (s.telnet && !telnetLow && !btMode()) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
     else { telnet.stop(); telnetStarted = false; }
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
@@ -984,7 +989,7 @@ static void mqttSettingsChanged(const Settings &previous) {
   if ((previous.timezone != s.timezone || previous.use24h != s.use24h || previous.ntpServer != s.ntpServer) && face)
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (previous.telnet != s.telnet) {
-    if (s.telnet && !telnetLow) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
+    if (s.telnet && !telnetLow && !btMode()) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
     else { telnet.stop(); telnetStarted = false; }
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
@@ -1639,7 +1644,7 @@ static void background() {
       }
     } else lowSince = 0;
   }
-  if (!telnetStarted && face && !telnetLow && Settings::getInstance()->telnet) { telnetStarted = true; telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); }
+  if (!telnetStarted && face && !telnetLow && !btMode() && Settings::getInstance()->telnet) { telnetStarted = true; telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); }
   if (!portalActive && WiFi.status() == WL_CONNECTED && !mdnsStarted && (int32_t)(now - mdnsRetryAt) >= 0) startMdns();
   if (!portalActive && WiFi.status() == WL_CONNECTED) watchMdns(now);
 #ifdef UM_WLED_OVERLAY
@@ -1673,8 +1678,8 @@ static void background() {
     restartAt = now + 1500;
   }
   firmwareUpdate.poll(now, bootDone && !portalActive && WiFi.status() == WL_CONNECTED && !wledBusy(now));  // a check that came due waits until WLED lets go
-  notice::poll(now);
-  dlna::poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
+  if (!btMode()) notice::poll(now);
+  if (!btMode()) dlna::poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
   Mqtt::instance().poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
   autoUpdate(now);
   reportMemory();
@@ -1791,7 +1796,7 @@ void setup() {
 #ifdef UM_WLED_OVERLAY
   wled::load();
 #ifdef UM_GAMEPAD
-  if (gamepad::enabled()) wled::suspend(true);   // the Bluetooth controller takes the memory of WLED, the canvas and the GIFs
+  if (gamepad::active()) wled::suspend(true);   // the Bluetooth controller takes the memory of WLED, the canvas and the GIFs
 #endif
 #endif
 #ifdef UM_HOME
@@ -2019,7 +2024,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
     if (!saved) { server.send(507, "text/plain", "The settings storage is full."); return; }
     server.send(204); restartAt = millis() + 800;
   });
-  postRoute("/api/gamepad/pair", []() { gamepad::pair(); server.send(204); });
+  postRoute("/api/gamepad/pair", []() { gamepad::pair(); server.send(204); });   // when the controller is not running yet this restarts the clock into it
   postRoute("/api/gamepad/forget", []() { gamepad::forget(); server.send(204); });
 #endif
 #endif
@@ -2048,7 +2053,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
 #ifdef UM_WLED_OVERLAY
   if (!wled::suspendedNow()) wled::apiAttach(server, postRoute);
 #endif
-  dlna::attach(server, postRoute);
+  if (!btMode()) dlna::attach(server, postRoute);
 #ifdef UM_HOME
   server.on("/api/ha", HTTP_GET, haState);
   postRoute("/api/ha", haSave);
@@ -2155,7 +2160,7 @@ void loop() {
       mqttPixelsShown = Mqtt::instance().pixelsActive();
       const bool popup = face->alertOverridesNight();  // an alert that must show through the night clock and the birthday screen
       const bool night = displayControl.nightClockShown(face->handlesNight()) && !popup;
-      if (notice::active(now, displayControl.nightDimmed(face->handlesNight()) && !popup)) {  // a message sent from Home Assistant takes the panel, whatever the face; a normal one waits out the night
+      if (!btMode() && notice::active(now, displayControl.nightDimmed(face->handlesNight()) && !popup)) {  // a message sent from Home Assistant takes the panel, whatever the face; a normal one waits out the night
         mqttDisplayMode = "notification";
         notice::draw(*display, now);
         noticeShown = true;
@@ -2198,7 +2203,7 @@ void loop() {
         face->setNight(face->handlesNight() ? displayControl.sunDown() : displayControl.nightActive());
         mqttDisplayMode = "clock";
 #ifdef UM_GAMEPAD
-        { gamepad::poll(); int dir; if (gamepad::take(dir)) face->steer(dir); }
+        { gamepad::poll(); if (gamepad::restartWanted() && !restartAt) restartAt = millis() + 800; int dir; if (gamepad::take(dir)) face->steer(dir); }
 #endif
         face->update();
       }

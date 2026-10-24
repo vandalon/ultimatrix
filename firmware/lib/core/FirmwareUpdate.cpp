@@ -13,6 +13,9 @@
 #include <memory>
 #include <time.h>
 #include <Preferences.h>
+#ifdef UM_GAMEPAD
+#include "Gamepad.h"
+#endif
 
 extern "C" bool verifyRollbackLater() { return true; }
 
@@ -275,6 +278,8 @@ void FirmwareUpdate::task(void *self) {
     std::unique_lock<std::mutex> gate(networkBudget());
 #ifdef UM_HOME
     const bool alwaysReboot = !bootForUpdate;  // the Home face keeps too much live data to download beside it: always install after a restart
+#elif defined(UM_GAMEPAD)
+    const bool alwaysReboot = !bootForUpdate && gamepad::enabled();  // Bluetooth holds ~75 KB: install after a restart, which never starts it
 #else
     const bool alwaysReboot = false;
 #endif
