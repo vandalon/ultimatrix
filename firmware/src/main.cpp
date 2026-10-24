@@ -1,4 +1,7 @@
 #include <Arduino.h>
+#ifdef UM_GAMEPAD
+#include "Gamepad.h"
+#endif
 #include <atomic>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
@@ -273,6 +276,11 @@ static bool wledBusy(uint32_t now) { return wled::wanted(now); }  // WLED has th
 #else
 static bool wledBusy(uint32_t) { return false; }
 #endif
+#ifdef UM_GAMEPAD
+static bool btMode() { return gamepad::active(); }  // the Bluetooth controller runs: everything but Home Assistant's MQTT link stays off to keep the heap
+#else
+static bool btMode() { return false; }
+#endif
 static bool telnetLow = false;  // telnet is off for now because memory is short
 static bool telnetStarted = false;  // telnet comes up after the face starts, like mDNS
 static bool updateChecking = false;  // mDNS is left off while an update check runs: its RAM goes to the TLS session
@@ -377,6 +385,14 @@ static bool telnetCommand(const char *c, Print &out) {
     nvs_stats_t stats = {};
     nvs_get_stats(nullptr, &stats);
     out.printf("NVS: %u of %u entries used, %u free (%u namespaces)\r\n", (unsigned)stats.used_entries, (unsigned)stats.total_entries, (unsigned)stats.free_entries, (unsigned)stats.namespace_count);
+    nvs_iterator_t it = nullptr;   // the keys and how large each one is, to see what fills it
+    for (esp_err_t err = nvs_entry_find("nvs", nullptr, NVS_TYPE_ANY, &it); err == ESP_OK; err = nvs_entry_next(&it)) {
+      nvs_entry_info_t info; nvs_entry_info(it, &info);
+      size_t length = 0;
+      if (info.type == NVS_TYPE_BLOB || info.type == NVS_TYPE_STR) { nvs_handle_t h; if (nvs_open(info.namespace_name, NVS_READONLY, &h) == ESP_OK) { if (info.type == NVS_TYPE_BLOB) nvs_get_blob(h, info.key, nullptr, &length); else nvs_get_str(h, info.key, nullptr, &length); nvs_close(h); } }
+      out.printf("  %s/%s type %d %u bytes\r\n", info.namespace_name, info.key, (int)info.type, (unsigned)length);
+    }
+    if (it) nvs_release_iterator(it);
     return true;
   }
   if (!strncasecmp(c, "mdns", 4) && (!c[4] || c[4] == ' ')) {  // "mdns" reports, "mdns restart" announces again
@@ -570,7 +586,10 @@ static void settingsState() {
 #endif
 #ifdef UM_PACMAN
   json += ",\"color\":" + String(s.color) + ",\"dotColor\":" + String(s.dotColor);
-  json += ",\"pacmanClockColor\":" + String(s.pacmanClockColor);
+#ifdef UM_GAMEPAD
+  json += String(",\"btPad\":") + (gamepad::active() ? "true" : "false");
+#endif
+  json += ",\"pacmanClockColor\":" + String(s.pacmanClockColor) + ",\"clockMinutesColor\":" + String(s.clockMinutesColor) + ",\"clockShade\":" + String(s.clockShade);
   const char *ghostNames[] = {"ghost1Color", "ghost2Color", "ghost3Color", "ghost4Color"};
   for (int i = 0; i < 4; i++) json += ",\"" + String(ghostNames[i]) + "\":" + String(s.ghostColors[i]);
 #endif
@@ -845,7 +864,8 @@ static void saveSettings() {
 #endif
 #ifdef UM_PACMAN
   const struct { const char *name; uint8_t *value; uint8_t count; } colours[] = {
-    {"pacmanClockColor", &s.pacmanClockColor, pacmancolors::COLOR_COUNT},
+    {"pacmanClockColor", &s.pacmanClockColor, pacmancolors::COLOR_COUNT}, {"clockMinutesColor", &s.clockMinutesColor, pacmancolors::COLOR_COUNT},
+    {"clockShade", &s.clockShade, 2},
     {"color", &s.color, pacmancolors::WALL_COUNT}, {"dotColor", &s.dotColor, pacmancolors::COLOR_COUNT},
     {"ghost1Color", &s.ghostColors[0], pacmancolors::COLOR_COUNT}, {"ghost2Color", &s.ghostColors[1], pacmancolors::COLOR_COUNT},
     {"ghost3Color", &s.ghostColors[2], pacmancolors::COLOR_COUNT}, {"ghost4Color", &s.ghostColors[3], pacmancolors::COLOR_COUNT}
@@ -894,7 +914,7 @@ static void saveSettings() {
   if (displayReady) display->setRotation(s.rotation);
   if (timeChanged && face) clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (consoleChanged) {
-    if (s.telnet && !telnetLow) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
+    if (s.telnet && !telnetLow && !btMode()) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
     else { telnet.stop(); telnetStarted = false; }
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
@@ -993,7 +1013,7 @@ static void mqttSettingsChanged(const Settings &previous) {
   if ((previous.timezone != s.timezone || previous.use24h != s.use24h || previous.ntpServer != s.ntpServer) && face)
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (previous.telnet != s.telnet) {
-    if (s.telnet && !telnetLow) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
+    if (s.telnet && !telnetLow && !btMode()) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
     else { telnet.stop(); telnetStarted = false; }
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
@@ -1803,7 +1823,7 @@ static void background() {
       }
     } else lowSince = 0;
   }
-  if (!telnetStarted && face && !telnetLow && Settings::getInstance()->telnet) { telnetStarted = true; telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); }
+  if (!telnetStarted && face && !telnetLow && !btMode() && Settings::getInstance()->telnet) { telnetStarted = true; telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); }
   if (!portalActive && WiFi.status() == WL_CONNECTED && !mdnsStarted && (int32_t)(now - mdnsRetryAt) >= 0) startMdns();
   if (!portalActive && WiFi.status() == WL_CONNECTED) watchMdns(now);
 #ifdef UM_WLED_OVERLAY
@@ -1837,8 +1857,8 @@ static void background() {
     restartAt = now + 1500;
   }
   firmwareUpdate.poll(now, bootDone && !portalActive && WiFi.status() == WL_CONNECTED && !wledBusy(now));  // a check that came due waits until WLED lets go
-  notice::poll(now);
-  dlna::poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
+  if (!btMode()) notice::poll(now);
+  if (!btMode()) dlna::poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
   Mqtt::instance().poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
   autoUpdate(now);
 #ifdef UM_SPORTS_SWITCH
@@ -1891,6 +1911,7 @@ static const char *const kKnownKeys[] = {
   "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
   "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather",  // HaConfig.cpp
+  "btPad",                                                                                                                 // Gamepad.cpp
   "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5",
 };
 static void nvsEraseUnknownKeys() {
@@ -1925,7 +1946,7 @@ static void tidyNvs(bool force = false) {
 #if !defined(UM_HOME)
   if (crowded) {  // the Home Assistant face's own records (settings, token, tiles, alert and media options)
     static const char *const homeKeys[] = {"haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather",
-                                         "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5"};
+  "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5"};
     nvsEraseKeys("ultimatrix", homeKeys, sizeof(homeKeys) / sizeof(homeKeys[0]));
   }
 #endif
@@ -1944,6 +1965,9 @@ static void watchNvs() {
 
 void setup() {
   Serial.begin(115200);
+#ifdef UM_GAMEPAD
+  gamepad::boot();
+#endif
   heap_caps_register_failed_alloc_callback(allocationFailed);
   telnet.setWatcher(telnetWatch);
   telnet.setFilter([](IPAddress ip) { return accessAllowed(ip, Settings::getInstance()->accessScope); });
@@ -1953,6 +1977,9 @@ void setup() {
   s.load();
 #ifdef UM_WLED_OVERLAY
   wled::load();
+#ifdef UM_GAMEPAD
+  if (gamepad::active()) wled::suspend(true);   // the Bluetooth controller takes the memory of WLED, the canvas and the GIFs
+#endif
 #endif
 #ifdef UM_HOME
   ha::load();
@@ -2160,6 +2187,28 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/api/screen", HTTP_GET, screenPreview);
   server.on("/api/settings", HTTP_GET, settingsState);
   postRoute("/api/settings", saveSettings);
+#ifdef UM_PACMAN
+  postRoute("/api/pacman/steer", []() {   // play Pac-Man yourself: dir 0 up, 1 right, 2 down, 3 left, -1 back to the computer
+    const int dir = server.arg("dir").toInt();
+    if (face) face->steer(dir);
+    server.send(204);
+  });
+#ifdef UM_GAMEPAD
+  server.on("/api/gamepad", HTTP_GET, []() {   // Bluetooth game controller: state, name, number of bonded controllers
+    String json = "{\"enabled\":" + String(gamepad::enabled() ? "true" : "false") + ",\"state\":\"" + String(gamepad::state()) + "\",\"name\":" + jsonText(gamepad::name()) + ",\"bonded\":" + String(gamepad::bonded()) + "}";
+    server.send(200, "application/json", json);
+  });
+  postRoute("/api/gamepad/enable", []() {   // the memory is set aside (or given back) at the start, so this restarts the clock
+    const bool on = server.arg("on").toInt() != 0;
+    bool saved = gamepad::setEnabled(on);
+    if (!saved) { tidyNvs(true); saved = gamepad::setEnabled(on); }   // a full settings storage: drop what no longer belongs, once
+    if (!saved) { server.send(507, "text/plain", "The settings storage is full."); return; }
+    server.send(204); restartAt = millis() + 800;
+  });
+  postRoute("/api/gamepad/pair", []() { gamepad::pair(); server.send(204); });   // when the controller is not running yet this restarts the clock into it
+  postRoute("/api/gamepad/forget", []() { gamepad::forget(); server.send(204); });
+#endif
+#endif
   server.on("/api/catalog", HTTP_GET, selectionCatalog);
 #ifdef UM_FOOTBALL_ONLY
   server.on("/api/teams", HTTP_GET, footballTeams);
@@ -2187,9 +2236,9 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/api/mqtt", HTTP_GET, mqttState);
   postRoute("/api/mqtt", mqttSave);
 #ifdef UM_WLED_OVERLAY
-  wled::apiAttach(server, postRoute);
+  if (!wled::suspendedNow()) wled::apiAttach(server, postRoute);
 #endif
-  dlna::attach(server, postRoute);
+  if (!btMode()) dlna::attach(server, postRoute);
 #ifdef UM_HOME
   server.on("/api/ha", HTTP_GET, haState);
   postRoute("/api/ha", haSave);
@@ -2245,6 +2294,9 @@ void loop() {
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
     face = new Clockface(display);
     face->setup(&clockTime);
+#ifdef UM_GAMEPAD
+    gamepad::begin();
+#endif
 #ifdef UM_WLED_OVERLAY
     wled::attachPanel(*display);
 #endif
@@ -2293,7 +2345,7 @@ void loop() {
       mqttPixelsShown = Mqtt::instance().pixelsActive();
       const bool popup = face->alertOverridesNight();  // an alert that must show through the night clock and the birthday screen
       const bool night = displayControl.nightClockShown(face->handlesNight()) && !popup;
-      if (notice::active(now, displayControl.nightDimmed(face->handlesNight()) && !popup)) {  // a message sent from Home Assistant takes the panel, whatever the face; a normal one waits out the night
+      if (!btMode() && notice::active(now, displayControl.nightDimmed(face->handlesNight()) && !popup)) {  // a message sent from Home Assistant takes the panel, whatever the face; a normal one waits out the night
         mqttDisplayMode = "notification";
         notice::draw(*display, now);
         noticeShown = true;
@@ -2335,6 +2387,9 @@ void loop() {
         }
         face->setNight(face->handlesNight() ? displayControl.sunDown() : displayControl.nightActive());
         mqttDisplayMode = "clock";
+#ifdef UM_GAMEPAD
+        { gamepad::poll(); if (gamepad::restartWanted() && !restartAt) restartAt = millis() + 800; int dir; if (gamepad::take(dir)) face->steer(dir); }
+#endif
         face->update();
       }
       if (!dlnaDrawn) dlna::hidden();

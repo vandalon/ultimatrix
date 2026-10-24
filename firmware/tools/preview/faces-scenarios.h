@@ -20,9 +20,8 @@ static void scenarios() {
     show("clock colour", 500, at(2026, 10, 14, 9, 41, 10));
   }
 #else
-  show("a new maze, ghosts released, a minute turns", 40000, at(2026, 10, 14, 9, 41, 10));
-  show("the hour", 15000, at(2026, 10, 14, 9, 59, 40), false);
-  show("later in the game", 45000, at(2026, 10, 14, 10, 3, 0), false);
+  show("a new maze, ghosts released, a minute turns", 18000, at(2026, 10, 14, 9, 41, 45));
+  show("the hour", 8000, at(2026, 10, 14, 9, 59, 54), false);
 #endif
 }
 #endif

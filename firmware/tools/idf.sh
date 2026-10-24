@@ -44,7 +44,7 @@ fi
 # An older build directory keeps its saved SDK config, which ignores later changes to sdkconfig.defaults. A saved config
 # that is older than sdkconfig.defaults (or lacks the TLS options the updater and feeds need) is dropped and regenerated.
 saved_config="$firmware_root/build/$mode/sdkconfig"
-if [ -f "$saved_config" ] && { [ "$firmware_root/sdkconfig.defaults" -nt "$saved_config" ] || ! grep -q '^CONFIG_ESP_TLS_INSECURE=y' "$saved_config"; }; then
+if [ -f "$saved_config" ] && { [ "$firmware_root/sdkconfig.defaults" -nt "$saved_config" ] || [ "$firmware_root/sdkconfig.bt" -nt "$saved_config" ] || ! grep -q '^CONFIG_ESP_TLS_INSECURE=y' "$saved_config"; }; then
   echo "Regenerating $saved_config: it predates sdkconfig.defaults." >&2
   rm -f "$saved_config"
 fi

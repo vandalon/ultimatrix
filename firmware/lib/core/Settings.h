@@ -35,7 +35,9 @@ struct Settings {
   uint8_t faceOptions[5] = {1, 1, 1, 2, 2};  // each face's own numberFont/timeStyle value (see Settings.cpp); only the running face's pair is in numberFont and timeStyle
   uint8_t numberFont = 1;  // Football: alternative score digits. Time in Words: the language, an index into WORD_LANGUAGES (1 is Dutch)
   uint8_t color = 0, dotColor = 0;
-  uint8_t pacmanClockColor = 0;  // default keeps off-white hours and green minutes
+  uint8_t pacmanClockColor = 0;  // Pac-Man hours colour; 0: the face's own. With clockMinutesColor and clockShade it is packed into one byte of the record
+  uint8_t clockMinutesColor = 0;  // Pac-Man minutes colour; 0: the face's own
+  uint8_t clockShade = 0;  // Pac-Man background clock: 0 subtle, 1 strong
   uint8_t ghostColors[4] = {};  // Pac-Man: 0 lets the face pick a contrasting pastel
   bool ballRoll = true;
   bool showRankings = true;

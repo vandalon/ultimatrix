@@ -294,9 +294,12 @@ async function load() {
     section('[data-sports]', sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || pacman); section('[data-sportfields]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', pacman);
     section('[data-football]', data.mode === 'Football'); section('[data-f1]', racing);
     if (sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || pacman) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
+    document.querySelector('#play').hidden = data.mode !== 'Pac-Man';
+    for (const a of document.querySelectorAll('.sidebar nav a[href="/wled"], .sidebar nav a[href="/canvas"], .sidebar nav a[href="/gifs"]')) a.hidden = !!data.btPad;   // off while the Bluetooth controller is on
+    if (pacman) field('clockShade').closest('.field').hidden = true;   // this face has no background clock to dim
     if (pacman) {
       const colours = ['Default', 'Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'];
-      for (const name of ['ghost1Color', 'ghost2Color', 'ghost3Color', 'ghost4Color', 'dotColor', 'pacmanClockColor']) field(name).replaceChildren(...colours.map((label, value) => new Option(label, value)));
+      for (const name of ['ghost1Color', 'ghost2Color', 'ghost3Color', 'ghost4Color', 'dotColor', 'pacmanClockColor', 'clockMinutesColor']) field(name).replaceChildren(...colours.map((label, value) => new Option(label, value)));
     }
     if (data.mode === 'MotoGP') document.querySelector('[data-f1] .field > label').textContent = 'Favourite riders';
     if (racing) form.querySelector('[name=timeStyle] option[value="0"]').remove();
@@ -993,3 +996,97 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
   try { const response = await fetch('/api/storage/reformat', { method: 'POST' }); if (!response.ok) throw new Error('Could not format the flash disk.'); message('Formatted. The clock restarts.'); }
   catch (error) { message(error.message, true); }
 });
+
+// Pac-Man: play yourself. Arrow keys, the full-screen touch controller or a game controller; the clock sends the direction on to the face.
+(function () {
+  const pad = document.querySelector('#pad'), play = document.querySelector('#play');
+  if (!pad) return;
+  let busy = false, queued = null;
+  async function steer(dir) {
+    if (busy) { queued = dir; return; }
+    busy = true;
+    try { await fetch('/api/pacman/steer', { method: 'POST', body: new URLSearchParams({ dir }) }); } catch (_) { /* the next move tries again */ }
+    busy = false;
+    if (queued !== null) { const next = queued; queued = null; steer(next); }
+  }
+  // Android vibrates; iPhones tick when a hidden switch checkbox is toggled from a touch (iOS 17.4 and later, best effort)
+  const tick = document.createElement('label');
+  tick.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none';
+  tick.innerHTML = '<input type="checkbox" switch tabindex="-1" aria-hidden="true">';
+  pad.appendChild(tick);
+  const buzz = (ms) => { try { if (navigator.vibrate) navigator.vibrate(ms); else tick.click(); } catch (_) { /* no haptics on this device */ } };
+  pad.addEventListener('click', (event) => { const b = event.target.closest('[data-dir]'); if (b) { buzz(25); steer(b.dataset.dir); } });
+  // Full-screen controller: the joystick appears wherever a finger lands and trails the drag; letting go keeps him going.
+  const ctrl = document.querySelector('#ctrl'), base = document.querySelector('#ctrl-base'), cknob = document.querySelector('#ctrl-knob');
+  if (ctrl) {
+    let id = null, ox = 0, oy = 0, cdir = null;
+    const open = (on) => { ctrl.hidden = !on; document.body.style.overflow = on ? 'hidden' : ''; if (!on) { id = null; base.hidden = true; } };
+    document.querySelector('#ctrl-open').addEventListener('click', () => open(true));
+    document.querySelector('#ctrl-close').addEventListener('click', () => open(false));
+    document.querySelector('#ctrl-ai').addEventListener('click', () => { buzz(25); steer(-1); });
+    document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !ctrl.hidden) open(false); });
+    const move = (event) => {   // the stick trails the finger, so the direction is the way the finger is moving, wherever it is on the screen
+      let dx = event.clientX - ox, dy = event.clientY - oy;
+      const length = Math.hypot(dx, dy), reach = 40;
+      if (length > reach) { ox += dx * (length - reach) / length; oy += dy * (length - reach) / length; dx = event.clientX - ox; dy = event.clientY - oy; base.style.left = ox + 'px'; base.style.top = oy + 'px'; }
+      cknob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+      if (Math.hypot(dx, dy) < 22) return;
+      const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0);
+      if (dir !== cdir) { cdir = dir; buzz(12); steer(dir); }
+    };
+    ctrl.addEventListener('pointerdown', (event) => {
+      if (id !== null || event.target.closest('button')) return;
+      event.preventDefault(); id = event.pointerId; ctrl.setPointerCapture(id);
+      ox = event.clientX; oy = event.clientY; cdir = null; cknob.style.transform = '';
+      base.style.left = ox + 'px'; base.style.top = oy + 'px'; base.hidden = false; buzz(8);
+    });
+    ctrl.addEventListener('pointermove', (event) => { if (event.pointerId === id) move(event); });
+    const end = (event) => { if (event.pointerId !== id) return; id = null; base.hidden = true; };
+    ctrl.addEventListener('pointerup', end); ctrl.addEventListener('pointercancel', end);
+  }
+  // A Bluetooth controller paired with the clock itself: status, Pair (a minute of listening) and Forget.
+  const label = { off: 'The Bluetooth controller is off. Turning it on restarts the clock. It only uses memory (about 90 KB) while a controller is paired, and then everything except Home Assistant MQTT is switched off.', starting: 'Bluetooth is starting…', idle: 'Bluetooth is on but sleeping: it costs no memory until a controller is paired. Press Pair to start it (the clock restarts).', ready: 'No controller paired.', pairing: 'Switch your controller to pairing mode now…', searching: 'Paired. Waiting for the controller to be switched on.', connecting: 'Connecting…', connected: 'Controller connected.' };
+  const status = document.querySelector('#pad-status'), pair = document.querySelector('#pad-pair'), forget = document.querySelector('#pad-forget'), power = document.querySelector('#pad-power');
+  let btOn = false;
+  let polling = 0;
+  async function padState() {
+    try {
+      const r = await (await fetch('/api/gamepad')).json();
+      status.textContent = (label[r.state] || '') + (r.state === 'connected' && r.name ? ' (' + r.name + ')' : '');
+      btOn = r.enabled; power.textContent = btOn ? 'Turn Bluetooth off' : 'Turn Bluetooth on';
+      pair.hidden = !btOn; forget.hidden = !r.bonded; pair.disabled = r.state === 'pairing' || r.state === 'starting';
+    } catch (_) { status.textContent = ''; }
+  }
+  function watchPad() { if (!polling) { padState(); polling = setInterval(() => { if (play.hidden || document.hidden) return; padState(); }, 1500); } }
+  if (status) {
+    new MutationObserver(watchPad).observe(play, { attributes: true, attributeFilter: ['hidden'] });
+    if (!play.hidden) watchPad();
+    pair.addEventListener('click', async () => { try { await fetch('/api/gamepad/pair', { method: 'POST' }); } catch (_) { /* shown by the next status */ } padState(); });
+    power.addEventListener('click', async () => {
+      if (!confirm(btOn ? 'Turn Bluetooth off? The clock restarts.' : 'Turn Bluetooth on? The clock restarts. Once a controller is paired it uses about 90 KB of memory, and then WLED, Canvas, Animations, DLNA, notifications and telnet are switched off (Home Assistant MQTT stays). Updates restart the clock first.')) return;
+      try { const r = await fetch('/api/gamepad/enable', { method: 'POST', body: new URLSearchParams({ on: btOn ? 0 : 1 }) }); if (!r.ok) throw new Error(await r.text()); message('Restarting…'); } catch (error) { message(error.message, true); }
+    });
+    forget.addEventListener('click', async () => { if (!confirm('Forget the paired controller?')) return; try { await fetch('/api/gamepad/forget', { method: 'POST' }); } catch (_) { /* shown by the next status */ } padState(); });
+  }
+  const keys = { ArrowUp: 0, ArrowRight: 1, ArrowDown: 2, ArrowLeft: 3, w: 0, d: 1, s: 2, a: 3, W: 0, D: 1, S: 2, A: 3 };
+  document.addEventListener('keydown', (event) => {
+    if (play.hidden || event.repeat || event.ctrlKey || event.metaKey || !(event.key in keys) || /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
+    event.preventDefault(); steer(keys[event.key]);
+  });
+  // A game controller paired with this phone or computer (Bluetooth or USB): d-pad or left stick steers, Start gives him back to the clock.
+  let last = null;
+  setInterval(() => {
+    if (play.hidden || document.hidden) return;
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (const g of pads) {
+      if (!g) continue;
+      const on = (i) => g.buttons[i] && g.buttons[i].pressed, x = g.axes[0] || 0, y = g.axes[1] || 0;
+      let dir = null;
+      if (on(12) || y < -0.5) dir = 0; else if (on(15) || x > 0.5) dir = 1; else if (on(13) || y > 0.5) dir = 2; else if (on(14) || x < -0.5) dir = 3;
+      else if (on(9)) dir = -1;
+      if (dir !== null && dir !== last) steer(dir);
+      last = dir;
+      return;
+    }
+  }, 50);
+})();

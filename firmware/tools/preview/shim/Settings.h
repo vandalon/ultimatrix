@@ -13,7 +13,7 @@ struct Settings {
   bool f1Flags = false;
   String f1Drivers;
   uint8_t color = 0;
-  uint8_t pacmanClockColor = 0;
+  uint8_t pacmanClockColor = 0, clockMinutesColor = 0, clockShade = 0;
   uint8_t ghost1Color = 0, ghost2Color = 0, dotColor = 0;  // 0 = the face picks
   uint8_t ghostColors[4] = {};
   uint8_t wordLang = 0;  // Time in Words: position in WORD_LANGUAGES

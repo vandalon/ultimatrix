@@ -13,6 +13,9 @@
 #include <memory>
 #include <time.h>
 #include <Preferences.h>
+#ifdef UM_GAMEPAD
+#include "Gamepad.h"
+#endif
 
 extern "C" bool verifyRollbackLater() { return true; }
 
@@ -367,10 +370,15 @@ void FirmwareUpdate::task(void *self) {
   {
     // Feed tasks and their stacks have already been reclaimed by service().
     std::unique_lock<std::mutex> gate(networkBudget());
+#ifdef UM_GAMEPAD
+    const bool alwaysReboot = !update._stageOnly && !bootForUpdate && gamepad::enabled();  // Bluetooth holds ~75 KB: install after a restart, which never starts it
+#else
+    const bool alwaysReboot = false;
+#endif
     if (update._stageOnly && heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < minFreeBlock()) {
       update.message("Not enough free memory to prepare a face ahead of time.", true);  // staging never restarts the clock
-    } else if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < minFreeBlock()) {
-      update.message("Not enough free memory while the clock is running. Restarting to install the update.", true);
+    } else if (alwaysReboot || heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < minFreeBlock()) {
+      update.message(alwaysReboot ? "Restarting to install the update." : "Not enough free memory while the clock is running. Restarting to install the update.", true);
       std::lock_guard<std::mutex> guard(update._lock); update._status.lowMemory = true;
     } else update.run();
   }
