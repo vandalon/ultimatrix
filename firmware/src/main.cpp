@@ -554,7 +554,7 @@ static void settingsState() {
 #ifdef UM_SPORTS_SWITCH
   json += ",\"sportsOrder\":" + jsonText(s.sportsOrder) + ",\"sportsHome\":" + jsonText(s.sportsHome) + ",\"sportsLead\":" + String(s.sportsLead);
   json += ",\"sportsOthers\":" + String(s.sportsOthers ? "true" : "false");
-  json += ",\"sportsRacing\":" + String(s.sportsRacing) + ",\"sportsFav\":" + String(s.sportsFav ? "true" : "false") + ",\"sportsMax\":" + String(s.sportsMax);
+  json += ",\"sportsRacing\":" + String(s.sportsRacing) + ",\"sportsFav\":" + String(s.sportsFav ? "true" : "false") + ",\"sportsMax\":" + String(s.sportsMax) + ",\"sportsHold\":" + String(s.sportsHold);
 #endif
   json += ",\"fbLeagues\":" + jsonText(s.footballLeagues) + ",\"fbTeams\":" + jsonText(s.footballTeams);
   json += ",\"f1Drivers\":" + jsonText(s.f1Drivers);
@@ -869,6 +869,7 @@ static void saveSettings() {
     s.sportsLead = constrain(server.arg("sportsLead").toInt(), 0, 120);
     s.sportsRacing = server.arg("sportsRacing").toInt() == 1 ? 1 : server.arg("sportsRacing").toInt() == 2 ? 2 : 0;
     s.sportsMax = constrain(server.arg("sportsMax").toInt(), 1, 12);
+    s.sportsHold = constrain(server.arg("sportsHold").toInt(), 0, 120);
     s.sportsFav = server.hasArg("sportsFav");
     s.sportsOthers = server.hasArg("sportsOthers");
   }
@@ -1168,7 +1169,7 @@ static void sportsSwitch(uint32_t now) {
   sportsplan::Config plan;
   sportsplan::parseOrder(s.sportsOrder.c_str(), plan);
   strlcpy(plan.home, s.sportsHome.c_str(), sizeof(plan.home));
-  plan.leadSecs = s.sportsLead * 60; plan.maxPerDay = s.sportsMax;
+  plan.leadSecs = s.sportsLead * 60; plan.maxPerDay = s.sportsMax; plan.holdSecs = s.sportsHold * 60;
   sportsplan::Events events[sportsplan::SPORTS];
   watch.events(events);
   const time_t wall = time(nullptr);
@@ -1227,6 +1228,7 @@ static void sportsInfo() {
   Settings &s = *Settings::getInstance();
   sportsplan::Config plan;
   sportsplan::parseOrder(s.sportsOrder.c_str(), plan);
+  plan.holdSecs = s.sportsHold * 60;
   sportsplan::Events events[sportsplan::SPORTS];
   if (plan.orderCount) SportsWatch::instance().events(events);
   const time_t wall = time(nullptr);

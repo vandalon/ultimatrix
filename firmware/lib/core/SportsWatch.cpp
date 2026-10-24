@@ -177,6 +177,18 @@ void SportsWatch::events(Events (&out)[SPORTS]) {
   xSemaphoreGive(_lock);
 }
 
+// The end of a finished event: when it was first seen finished, but never later than its assumed length, so a clock that starts
+// after the match still counts from the assumed end. Remembered per start time (small table, oldest replaced).
+time_t SportsWatch::finishedAt(uint8_t sport, time_t start, time_t secs, time_t now) {
+  Done *slot = nullptr, *oldest = &_done[sport][0];
+  for (Done &d : _done[sport]) {
+    if (d.start == start) { slot = &d; break; }
+    if (!d.start || d.seen < oldest->seen || !oldest->start) oldest = &d;
+  }
+  if (!slot) { slot = oldest; slot->start = start; slot->seen = now; }
+  return std::min(slot->seen, start + secs);
+}
+
 void SportsWatch::publish(uint8_t sport, const Events &found) {
   xSemaphoreTake(_lock, portMAX_DELAY);
   _events[sport] = found;
@@ -241,12 +253,18 @@ time_t SportsWatch::refreshF1(const Config &cfg, time_t now) {
   found.checkedAt = now;
   for (const auto &s : scan.s) {
     const time_t start = parseEspnDate(s.date);
-    if (!start || !strcmp(s.state, "post")) continue;
+    if (!start) continue;
+    const bool over = !strcmp(s.state, "post");
     const bool practice = !strncmp(s.abbr, "FP", 2);
     const bool qualifying = strstr(s.abbr, "Qual") || !strncmp(s.abbr, "SQ", 2);
     const bool race = !practice && !qualifying;
     if (cfg.racing == 1 ? !race : cfg.racing == 0 ? practice : false) continue;
-    addEvent(found, start, !strcmp(s.abbr, "Race") ? 2 * 3600 : 3600, !strcmp(s.state, "in"), s.abbr);
+    time_t secs = !strcmp(s.abbr, "Race") ? 2 * 3600 : 3600;
+    if (over) {  // finished: kept for the stay after the end, then dropped
+      secs = finishedAt(F1, start, secs, now) - start;
+      if (start + secs + 2 * 3600 <= now) continue;
+    }
+    addEvent(found, start, secs, !over && !strcmp(s.state, "in"), s.abbr);
   }
   publish(F1, found);
   const time_t wait = nextPoll(found, now);
@@ -286,7 +304,8 @@ time_t SportsWatch::refreshMotoGp(const Config &cfg, time_t now) {
   found.checkedAt = now;
   for (int i = 0; i < scan.count; ++i) {
     const auto &s = scan.s[i];
-    if (!s.start || !strcasecmp(s.status, "FINISHED") || !strcasecmp(s.type, "WUP")) continue;
+    if (!s.start || !strcasecmp(s.type, "WUP")) continue;
+    const bool over = !strcasecmp(s.status, "FINISHED");
     const bool race = !strcmp(s.type, "RAC") || !strcmp(s.type, "SPR");
     const bool qualifying = !strcmp(s.type, "Q");
     if (cfg.racing == 1 ? !race : cfg.racing == 0 ? !(race || qualifying) : false) continue;
@@ -295,7 +314,12 @@ time_t SportsWatch::refreshMotoGp(const Config &cfg, time_t now) {
     else if (!strcmp(s.type, "SPR")) strlcpy(label, "Sprint", sizeof(label));
     else if (s.number) snprintf(label, sizeof(label), "%s%d", s.type, s.number);
     else strlcpy(label, s.type, sizeof(label));
-    addEvent(found, s.start, !strcmp(s.type, "RAC") ? 3600 : 2700, strcasestr(s.status, "PROGRESS") || strcasestr(s.status, "LIVE"), label);
+    time_t secs = !strcmp(s.type, "RAC") ? 3600 : 2700;
+    if (over) {
+      secs = finishedAt(MOTOGP, s.start, secs, now) - s.start;
+      if (s.start + secs + 2 * 3600 <= now) continue;
+    }
+    addEvent(found, s.start, secs, !over && (strcasestr(s.status, "PROGRESS") || strcasestr(s.status, "LIVE")), label);
   }
   publish(MOTOGP, found);
   const time_t wait = nextPoll(found, now);
@@ -336,8 +360,14 @@ time_t SportsWatch::refreshFootball(const Config &cfg, time_t now) {
       for (int i = 0; i < scan.count; ++i) {
         const auto &m = scan.m[i];
         const time_t start = parseEspnDate(m.date);
-        if (!start || !strcmp(m.state, "post") || (cfg.favouritesOnly && !m.favourite)) continue;
-        addEvent(found, start, 150 * 60, !strcmp(m.state, "in"), m.name);
+        if (!start || (cfg.favouritesOnly && !m.favourite)) continue;
+        time_t secs = 150 * 60;
+        const bool over = !strcmp(m.state, "post");
+        if (over) {  // full time: kept for the stay after the end, then dropped
+          secs = finishedAt(FOOTBALL, start, secs, now) - start;
+          if (start + secs + 2 * 3600 <= now) continue;
+        }
+        addEvent(found, start, secs, !over && !strcmp(m.state, "in"), m.name);
       }
     }
   }

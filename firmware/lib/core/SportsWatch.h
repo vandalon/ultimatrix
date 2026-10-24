@@ -37,6 +37,8 @@ class SportsWatch {
     SemaphoreHandle_t _lock = nullptr;
     sportsplan::Events _events[sportsplan::SPORTS];
     Config _cfg;
+    struct Done { time_t start = 0, seen = 0; } _done[sportsplan::SPORTS][8];  // when a finished event was first seen finished: the stay after the end counts from there
+    time_t finishedAt(uint8_t sport, time_t start, time_t secs, time_t now);
     time_t _favStart[6] = {};  // each favourite's last seen next match: ESPN moves on to the following match at kick-off, this keeps the one that is on
     volatile bool _running = false, _stop = true, _dirty = true;  // stopped until a sport is chosen
 };
