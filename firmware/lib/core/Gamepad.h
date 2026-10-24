@@ -4,7 +4,7 @@
 #pragma once
 #include <Arduino.h>
 
-// A Bluetooth LE game controller (HID over GATT) that steers Pac-Man Classic. Built into that face only (UM_GAMEPAD).
+// A Bluetooth LE game controller (HID over GATT) that steers Pac-Man. Built into that face only (UM_GAMEPAD).
 // The clock is the Bluetooth central: Pair listens for a controller in pairing mode for a minute and bonds with it; a bonded
 // controller connects again when it is switched on. Classic Bluetooth controllers (PS4, PS5, Switch Pro) are not supported.
 namespace gamepad {

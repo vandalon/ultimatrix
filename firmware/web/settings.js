@@ -217,16 +217,16 @@ async function load() {
     document.querySelector('#nvs-banner').hidden = !(data.nvsFree < 40);
     showPin(data.pinSet);
     const racing = data.mode === 'F1' || data.mode === 'MotoGP', sporty = racing || data.mode === 'Football';
-    const pacman = data.mode === 'Pac-Man' || data.mode === 'Pac-Man Classic';
+    const pacman = data.mode === 'Pac-Man';
     field('dither').closest('label').style.display = pacman || data.mode === 'Mario' || data.mode === 'Luigi' ? 'none' : '';  // those faces decide for themselves
     const homeFace = data.mode === 'Home'; document.querySelector('#homeassistant').hidden = !homeFace; document.querySelector('#nav-ha').hidden = !homeFace;
     if (homeFace) { initHomeAssistant(); document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('#nav-ha').classList.add('active'); }
     section('[data-sports]', sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || pacman); section('[data-sportfields]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', pacman);
     section('[data-football]', data.mode === 'Football'); section('[data-f1]', racing);
     if (sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || pacman) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
-    document.querySelector('#play').hidden = data.mode !== 'Pac-Man Classic';
+    document.querySelector('#play').hidden = data.mode !== 'Pac-Man';
     for (const a of document.querySelectorAll('.sidebar nav a[href="/wled"], .sidebar nav a[href="/canvas"], .sidebar nav a[href="/gifs"]')) a.hidden = !!data.btPad;   // off while the Bluetooth controller is on
-    if (data.mode === 'Pac-Man Classic') field('clockShade').closest('.field').hidden = true;   // this face has no background clock to dim
+    if (pacman) field('clockShade').closest('.field').hidden = true;   // this face has no background clock to dim
     if (pacman) {
       const colours = ['Default', 'Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'];
       for (const name of ['ghost1Color', 'ghost2Color', 'ghost3Color', 'ghost4Color', 'dotColor', 'pacmanClockColor', 'clockMinutesColor']) field(name).replaceChildren(...colours.map((label, value) => new Option(label, value)));
@@ -923,7 +923,7 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
   catch (error) { message(error.message, true); }
 });
 
-// Pac-Man Classic: play yourself. Arrow keys, the full-screen touch controller or a game controller; the clock sends the direction on to the face.
+// Pac-Man: play yourself. Arrow keys, the full-screen touch controller or a game controller; the clock sends the direction on to the face.
 (function () {
   const pad = document.querySelector('#pad'), play = document.querySelector('#play');
   if (!pad) return;

@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
-set(ULTIMATRIX_MODE "football" CACHE STRING "Clock mode: football, f1, motogp, tetris, word, mario, luigi, pacman, pacmanclassic, home, bridge or scanner")
-set_property(CACHE ULTIMATRIX_MODE PROPERTY STRINGS football f1 motogp tetris word mario luigi pacman pacmanclassic home bridge scanner)
-if(NOT ULTIMATRIX_MODE MATCHES "^(football|f1|motogp|tetris|word|mario|luigi|pacman|pacmanclassic|home|bridge|scanner)$")
-    message(FATAL_ERROR "ULTIMATRIX_MODE must be football, f1, motogp, tetris, word, mario, luigi, pacman, pacmanclassic, home, bridge or scanner")
+set(ULTIMATRIX_MODE "football" CACHE STRING "Clock mode: football, f1, motogp, tetris, word, mario, luigi, pacman, home, bridge or scanner")
+set_property(CACHE ULTIMATRIX_MODE PROPERTY STRINGS football f1 motogp tetris word mario luigi pacman home bridge scanner)
+if(NOT ULTIMATRIX_MODE MATCHES "^(football|f1|motogp|tetris|word|mario|luigi|pacman|home|bridge|scanner)$")
+    message(FATAL_ERROR "ULTIMATRIX_MODE must be football, f1, motogp, tetris, word, mario, luigi, pacman, home, bridge or scanner")
 endif()
 set(SDKCONFIG "${CMAKE_BINARY_DIR}/sdkconfig")
-# Only the Pac-Man Classic face carries the Bluetooth stack (a game controller); its extra settings come after the shared ones.
-option(ULTIMATRIX_BLUETOOTH "Compile the Bluetooth game controller into the Pac-Man Classic face" ON)
-if(ULTIMATRIX_MODE STREQUAL "pacmanclassic" AND ULTIMATRIX_BLUETOOTH)
+# Only the Pac-Man face carries the Bluetooth stack (a game controller); its extra settings come after the shared ones.
+option(ULTIMATRIX_BLUETOOTH "Compile the Bluetooth game controller into the Pac-Man face" ON)
+if(ULTIMATRIX_MODE STREQUAL "pacman" AND ULTIMATRIX_BLUETOOTH)
     set(SDKCONFIG_DEFAULTS "${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults;${CMAKE_CURRENT_LIST_DIR}/sdkconfig.bt")
 endif()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
@@ -28,7 +28,7 @@ project(ultimatrix)
 # Static RAM budget per face: what a face reserves at link time is missing from the heap in every boot, the update-only boot included.
 if(TARGET ultimatrix.elf)
     set(ULTIMATRIX_STATIC_RAM_KB 60 CACHE STRING "Static RAM budget (KB) per face")
-    if(ULTIMATRIX_MODE STREQUAL "pacmanclassic" AND ULTIMATRIX_BLUETOOTH)
+    if(ULTIMATRIX_MODE STREQUAL "pacman" AND ULTIMATRIX_BLUETOOTH)
         set(ULTIMATRIX_STATIC_RAM_KB 70)  # the Bluetooth stack (game controller) reserves about 10 KB more
     endif()
     add_custom_command(TARGET ultimatrix.elf POST_BUILD

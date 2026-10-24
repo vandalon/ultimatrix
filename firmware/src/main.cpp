@@ -484,7 +484,6 @@ UM_FACE(word);
 UM_FACE(mario);
 UM_FACE(luigi);
 UM_FACE(pacman);
-UM_FACE(pacmanclassic);
 UM_FACE(home);
 static void sendIcon(const uint8_t *start, const uint8_t *end) {
   server.sendHeader("Cache-Control", "public, max-age=86400");
@@ -2001,12 +2000,11 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/faces/mario.png", HTTP_GET, []() { sendIcon(marioStart, marioEnd); });
   server.on("/faces/luigi.png", HTTP_GET, []() { sendIcon(luigiStart, luigiEnd); });
   server.on("/faces/pacman.png", HTTP_GET, []() { sendIcon(pacmanStart, pacmanEnd); });
-  server.on("/faces/pacmanclassic.png", HTTP_GET, []() { sendIcon(pacmanclassicStart, pacmanclassicEnd); });
   server.on("/faces/home.png", HTTP_GET, []() { sendIcon(homeStart, homeEnd); });
   server.on("/api/screen", HTTP_GET, screenPreview);
   server.on("/api/settings", HTTP_GET, settingsState);
   postRoute("/api/settings", saveSettings);
-#ifdef UM_PACMAN_CLASSIC
+#ifdef UM_PACMAN
   postRoute("/api/pacman/steer", []() {   // play Pac-Man yourself: dir 0 up, 1 right, 2 down, 3 left, -1 back to the computer
     const int dir = server.arg("dir").toInt();
     if (face) face->steer(dir);
