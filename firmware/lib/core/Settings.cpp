@@ -88,7 +88,12 @@ void Settings::load() {
     dotColor = colours % pacmancolors::COLOR_COUNT; colours /= pacmancolors::COLOR_COUNT;
     for (int i = 3; i >= 0; i--) { ghostColors[i] = colours % pacmancolors::COLOR_COUNT; colours /= pacmancolors::COLOR_COUNT; }
     color = colours;
-    pacmanClockColor = record.pacmanClockColor < pacmancolors::COLOR_COUNT ? record.pacmanClockColor : 0;
+    {  // hours, minutes and shade share one byte: (shade * 11 + hours) * 11 + minutes
+      constexpr uint8_t n = pacmancolors::COLOR_COUNT;
+      uint8_t packed = record.pacmanClockColor;
+      if (packed >= 2 * n * n) packed = 0;
+      clockMinutesColor = packed % n; pacmanClockColor = packed / n % n; clockShade = packed / (n * n);
+    }
     hasLocation = record.flags & kLocationFlag;
     if (hasLocation) { latitude = record.latitude; longitude = record.longitude; }
     timezone = record.timezone; ntpServer = record.ntpServer;
@@ -104,7 +109,7 @@ void Settings::load() {
     footballLeagues = UM_DEFAULT_FOOTBALL_LEAGUES;
     footballTeams = UM_DEFAULT_FOOTBALL_TEAMS;
     timezone = "Europe/Amsterdam";
-    pacmanClockColor = 0;
+    pacmanClockColor = 0; clockMinutesColor = 0; clockShade = 0;
     hasLocation = false;
     faceOptions[kNumberSlot] = numberFont; faceOptions[kStyleSlot] = timeStyle;
   }
@@ -115,7 +120,8 @@ bool Settings::save() {
   if (!validClockName(clockName)) return false;
   if (timezone.length() > 80 || ntpServer.isEmpty() || ntpServer.length() > 128 ||
       footballLeagues.length() > 400 || footballTeams.length() > 400 || f1Drivers.length() > 400 || birthdays.length() > 260) return false;
-  if (color >= pacmancolors::WALL_COUNT || dotColor >= pacmancolors::COLOR_COUNT || pacmanClockColor >= pacmancolors::COLOR_COUNT) return false;
+  if (color >= pacmancolors::WALL_COUNT || dotColor >= pacmancolors::COLOR_COUNT || pacmanClockColor >= pacmancolors::COLOR_COUNT ||
+      clockMinutesColor >= pacmancolors::COLOR_COUNT || clockShade > 1) return false;
   for (uint8_t ghost : ghostColors) if (ghost >= pacmancolors::COLOR_COUNT) return false;
   Record record{};
   record.magic = kMagic; record.version = 2; record.size = sizeof(record);
@@ -126,7 +132,8 @@ bool Settings::save() {
   uint8_t options[5]; memcpy(options, faceOptions, sizeof(options));
   options[kNumberSlot] = numberFont; options[kStyleSlot] = timeStyle;
   memcpy(record.faceOptions, options, sizeof(options));
-  record.pacmanClockColor = pacmanClockColor; record.latitude = latitude; record.longitude = longitude;
+  record.pacmanClockColor = (clockShade * pacmancolors::COLOR_COUNT + pacmanClockColor) * pacmancolors::COLOR_COUNT + clockMinutesColor;
+  record.latitude = latitude; record.longitude = longitude;
   record.brightness = brightness; record.rotation = rotation; record.matchSecs = matchSecs;
   record.resultMins = resultMins;
   record.ldrPin = ldrPin; record.minimumBrightness = minimumBrightness; record.nightBrightness = nightBrightness;

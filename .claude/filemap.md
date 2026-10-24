@@ -26,6 +26,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - scanner/: standalone moving white bar, no WLED; drawing benchmark + refill telemetry, normal quality and 8-row ring
 - bridge/: migration image showing where to choose a face, rather than a time display
 - mario/, luigi/: scrolling worlds, pipe/plant jumps, separate minute/hour hits, exit/swipe/entry; shared sprites/course in lib/faces/
+- pacmanclassic/: (web 'Play yourself' pad in settings.html/js steers it via POST /api/pacman/steer) second Pac-Man face (UM_PACMAN_CLASSIC, shares the Pac-Man colour settings): fixed 8x7 lane lattice (3 px walls, dots exactly 4 px apart) with a clock box in the middle (level top left, score bottom left, spare lives bottom right, time right; score gives an extra life every 6000), 4 ghosts waiting in the box (it dims), a maze generator that makes each new maze as different from the last as it can, Pac-Man that plans around the ghosts' arrival times
 - pacman/: self-playing maze clock; Maze.h generates/stores the maze; palette in lib/core/PacmanColors.h
 - word/: word clock; WordFont draws glyphs, WordLanguages defines language layouts
 - tetris/: falling-digit clock; TetrisRenderer draws, TetrisScreens controls timing/frame state

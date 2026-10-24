@@ -468,6 +468,7 @@ UM_FACE(word);
 UM_FACE(mario);
 UM_FACE(luigi);
 UM_FACE(pacman);
+UM_FACE(pacmanclassic);
 UM_FACE(home);
 static void sendIcon(const uint8_t *start, const uint8_t *end) {
   server.sendHeader("Cache-Control", "public, max-age=86400");
@@ -557,7 +558,7 @@ static void settingsState() {
 #endif
 #ifdef UM_PACMAN
   json += ",\"color\":" + String(s.color) + ",\"dotColor\":" + String(s.dotColor);
-  json += ",\"pacmanClockColor\":" + String(s.pacmanClockColor);
+  json += ",\"pacmanClockColor\":" + String(s.pacmanClockColor) + ",\"clockMinutesColor\":" + String(s.clockMinutesColor) + ",\"clockShade\":" + String(s.clockShade);
   const char *ghostNames[] = {"ghost1Color", "ghost2Color", "ghost3Color", "ghost4Color"};
   for (int i = 0; i < 4; i++) json += ",\"" + String(ghostNames[i]) + "\":" + String(s.ghostColors[i]);
 #endif
@@ -832,7 +833,8 @@ static void saveSettings() {
 #endif
 #ifdef UM_PACMAN
   const struct { const char *name; uint8_t *value; uint8_t count; } colours[] = {
-    {"pacmanClockColor", &s.pacmanClockColor, pacmancolors::COLOR_COUNT},
+    {"pacmanClockColor", &s.pacmanClockColor, pacmancolors::COLOR_COUNT}, {"clockMinutesColor", &s.clockMinutesColor, pacmancolors::COLOR_COUNT},
+    {"clockShade", &s.clockShade, 2},
     {"color", &s.color, pacmancolors::WALL_COUNT}, {"dotColor", &s.dotColor, pacmancolors::COLOR_COUNT},
     {"ghost1Color", &s.ghostColors[0], pacmancolors::COLOR_COUNT}, {"ghost2Color", &s.ghostColors[1], pacmancolors::COLOR_COUNT},
     {"ghost3Color", &s.ghostColors[2], pacmancolors::COLOR_COUNT}, {"ghost4Color", &s.ghostColors[3], pacmancolors::COLOR_COUNT}
@@ -1973,10 +1975,18 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/faces/mario.png", HTTP_GET, []() { sendIcon(marioStart, marioEnd); });
   server.on("/faces/luigi.png", HTTP_GET, []() { sendIcon(luigiStart, luigiEnd); });
   server.on("/faces/pacman.png", HTTP_GET, []() { sendIcon(pacmanStart, pacmanEnd); });
+  server.on("/faces/pacmanclassic.png", HTTP_GET, []() { sendIcon(pacmanclassicStart, pacmanclassicEnd); });
   server.on("/faces/home.png", HTTP_GET, []() { sendIcon(homeStart, homeEnd); });
   server.on("/api/screen", HTTP_GET, screenPreview);
   server.on("/api/settings", HTTP_GET, settingsState);
   postRoute("/api/settings", saveSettings);
+#ifdef UM_PACMAN_CLASSIC
+  postRoute("/api/pacman/steer", []() {   // play Pac-Man yourself: dir 0 up, 1 right, 2 down, 3 left, -1 back to the computer
+    const int dir = server.arg("dir").toInt();
+    if (face) face->steer(dir);
+    server.send(204);
+  });
+#endif
   server.on("/api/catalog", HTTP_GET, selectionCatalog);
 #ifdef UM_FOOTBALL_ONLY
   server.on("/api/teams", HTTP_GET, footballTeams);

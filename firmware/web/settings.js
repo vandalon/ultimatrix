@@ -217,16 +217,18 @@ async function load() {
     document.querySelector('#nvs-banner').hidden = !(data.nvsFree < 40);
     showPin(data.pinSet);
     const racing = data.mode === 'F1' || data.mode === 'MotoGP', sporty = racing || data.mode === 'Football';
-    const pacman = data.mode === 'Pac-Man';
+    const pacman = data.mode === 'Pac-Man' || data.mode === 'Pac-Man Classic';
     field('dither').closest('label').style.display = pacman || data.mode === 'Mario' || data.mode === 'Luigi' ? 'none' : '';  // those faces decide for themselves
     const homeFace = data.mode === 'Home'; document.querySelector('#homeassistant').hidden = !homeFace; document.querySelector('#nav-ha').hidden = !homeFace;
     if (homeFace) { initHomeAssistant(); document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('#nav-ha').classList.add('active'); }
     section('[data-sports]', sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || pacman); section('[data-sportfields]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', pacman);
     section('[data-football]', data.mode === 'Football'); section('[data-f1]', racing);
     if (sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || pacman) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
+    document.querySelector('#play').hidden = data.mode !== 'Pac-Man Classic';
+    if (data.mode === 'Pac-Man Classic') field('clockShade').closest('.field').hidden = true;   // this face has no background clock to dim
     if (pacman) {
       const colours = ['Default', 'Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'];
-      for (const name of ['ghost1Color', 'ghost2Color', 'ghost3Color', 'ghost4Color', 'dotColor', 'pacmanClockColor']) field(name).replaceChildren(...colours.map((label, value) => new Option(label, value)));
+      for (const name of ['ghost1Color', 'ghost2Color', 'ghost3Color', 'ghost4Color', 'dotColor', 'pacmanClockColor', 'clockMinutesColor']) field(name).replaceChildren(...colours.map((label, value) => new Option(label, value)));
     }
     if (data.mode === 'MotoGP') document.querySelector('[data-f1] .field > label').textContent = 'Favourite riders';
     if (racing) form.querySelector('[name=timeStyle] option[value="0"]').remove();
@@ -919,3 +921,48 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
   try { const response = await fetch('/api/storage/reformat', { method: 'POST' }); if (!response.ok) throw new Error('Could not format the flash disk.'); message('Formatted. The clock restarts.'); }
   catch (error) { message(error.message, true); }
 });
+
+// Pac-Man Classic: play yourself. Arrow keys, the on-screen pad, or a swipe on it; the clock sends the direction on to the face.
+(function () {
+  const pad = document.querySelector('#pad'), play = document.querySelector('#play');
+  if (!pad) return;
+  let busy = false, queued = null;
+  async function steer(dir) {
+    if (busy) { queued = dir; return; }
+    busy = true;
+    try { await fetch('/api/pacman/steer', { method: 'POST', body: new URLSearchParams({ dir }) }); } catch (_) { /* the next move tries again */ }
+    busy = false;
+    if (queued !== null) { const next = queued; queued = null; steer(next); }
+  }
+  pad.addEventListener('pointerdown', (event) => { const b = event.target.closest('[data-dir]'); if (b) { event.preventDefault(); steer(b.dataset.dir); } });
+  let from = null;
+  pad.addEventListener('touchstart', (event) => { from = event.touches[0]; }, { passive: true });
+  pad.addEventListener('touchmove', (event) => {
+    if (!from) return;
+    const t = event.touches[0], dx = t.clientX - from.clientX, dy = t.clientY - from.clientY;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+    steer(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0));
+    from = t;
+  }, { passive: true });
+  const keys = { ArrowUp: 0, ArrowRight: 1, ArrowDown: 2, ArrowLeft: 3, w: 0, d: 1, s: 2, a: 3, W: 0, D: 1, S: 2, A: 3 };
+  document.addEventListener('keydown', (event) => {
+    if (play.hidden || event.repeat || event.ctrlKey || event.metaKey || !(event.key in keys) || /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
+    event.preventDefault(); steer(keys[event.key]);
+  });
+  // A game controller paired with this phone or computer (Bluetooth or USB): d-pad or left stick steers, Start gives him back to the clock.
+  let last = null;
+  setInterval(() => {
+    if (play.hidden || document.hidden) return;
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (const g of pads) {
+      if (!g) continue;
+      const on = (i) => g.buttons[i] && g.buttons[i].pressed, x = g.axes[0] || 0, y = g.axes[1] || 0;
+      let dir = null;
+      if (on(12) || y < -0.5) dir = 0; else if (on(15) || x > 0.5) dir = 1; else if (on(13) || y > 0.5) dir = 2; else if (on(14) || x < -0.5) dir = 3;
+      else if (on(9)) dir = -1;
+      if (dir !== null && dir !== last) steer(dir);
+      last = dir;
+      return;
+    }
+  }, 50);
+})();

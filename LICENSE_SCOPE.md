@@ -13,7 +13,7 @@ shapes, digit fall tables and rotation rule (lib/tetris/TetrisDigits.*, TetrisSh
 library, copyright 2018 Tobias Blum, and stay under **LGPL-2.1-or-later** (LICENSES/LGPL-2.1.txt); because the firmware
 source is distributed, they can be modified and rebuilt.
 
-The MotoGP data service (lib/motogp-feed) and the pixel-art faces (clockfaces/word, mario, luigi, pacman, lib/faces) are
+The MotoGP data service (lib/motogp-feed) and the pixel-art faces (clockfaces/word, mario, luigi, pacman, pacmanclassic, lib/faces) are
 Joris Vandalon's original contributions under the same PolyForm notice, except the Time in Words language tables
 (clockfaces/word/WordLanguages.*), which come from the MIT-licensed Clockwise fork and keep the MIT licence. The sprites
 are drawn for this project; Mario, Luigi, Goomba, Boo, Pac-Man and the ghosts are characters of their owners and this is an
