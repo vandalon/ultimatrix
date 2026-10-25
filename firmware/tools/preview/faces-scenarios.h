@@ -87,3 +87,17 @@ static void scenarios() {
 #endif
 }
 #endif
+
+#if defined(FACE_INVADERS)
+static void scenarios() {
+  show("a wave marches, the minute turns and the mystery ship flies", 16000, at(2026, 10, 14, 9, 41, 52));
+  show("the hour", 6000, at(2026, 10, 14, 9, 59, 54), false);
+}
+#endif
+
+#if defined(FACE_PONG)
+static void scenarios() {
+  show("a rally, the minute turns and the right player scores", 12000, at(2026, 10, 14, 9, 41, 52));
+  show("the hour", 9000, at(2026, 10, 14, 9, 59, 53), false);
+}
+#endif

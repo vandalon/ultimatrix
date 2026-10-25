@@ -23,6 +23,8 @@ CLOCKS = (
     ('mario', 'Mario', 2000),
     ('luigi', 'Luigi', 2000),
     ('pacman', 'Pac-Man', 6000),
+    ('invaders', 'Space Invaders', 5000),
+    ('pong', 'Pong', 2600),
 )
 
 

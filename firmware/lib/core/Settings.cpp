@@ -66,6 +66,20 @@ void Settings::load() {
   dither = p.getBool("dither", false);
   birthdays = p.getString("birthdays", "");
   if (birthdays.length() > 260) birthdays = "";
+  pongBackdrop = p.getUChar("pongBg", 3);
+  if (pongBackdrop > 5) pongBackdrop = 3;
+  arcHours = p.getUChar("arcHrs", 0); arcMinutes = p.getUChar("arcMin", 0); arcScore = p.getUChar("arcPts", 0);
+  if (arcHours > 10) arcHours = 0;
+  if (arcMinutes > 10) arcMinutes = 0;
+  if (arcScore > 10) arcScore = 0;
+  pongDate = p.getUChar("pongDt", 1);   // 0 hidden, 1 above the time, 2 below
+  pongDay = p.getUChar("pongDy", 1);
+  if (pongDate > 2) pongDate = 1;
+  if (pongDay > 2) pongDay = 1;
+  pongLevel = p.getUChar("pongLv", 0);
+  if (pongLevel > 8) pongLevel = 0;
+  pongSpeed = p.getUChar("pongSp", 2);
+  if (pongSpeed > 4) pongSpeed = 2;
   Record record{};
   bool valid = p.isKey("settingsV2") && p.getBytesLength("settingsV2") == sizeof(record) &&
       p.getBytes("settingsV2", &record, sizeof(record)) == sizeof(record) &&
@@ -155,6 +169,11 @@ bool Settings::save() {
   if (saved) p.putBool("nightClock", nightClock);  // own key too: the record stays as it is
   if (saved) p.putBool("autoUpdate", autoUpdate);  // own key, so records saved before this setting keep it on
   if (saved) p.putString("birthdays", birthdays);  // own key as well: the record stays as it is
+  if (saved) { p.putUChar("arcHrs", arcHours); p.putUChar("arcMin", arcMinutes); p.putUChar("arcPts", arcScore); }
+  if (saved) { p.putUChar("pongDt", pongDate); p.putUChar("pongDy", pongDay); }
+  if (saved) p.putUChar("pongLv", pongLevel);
+  if (saved) p.putUChar("pongSp", pongSpeed);
+  if (saved) p.putUChar("pongBg", pongBackdrop);  // and this one: the record's size must not change
   p.end();
   if (saved) { memcpy(faceOptions, options, sizeof(options)); counter()++; }
   return saved;

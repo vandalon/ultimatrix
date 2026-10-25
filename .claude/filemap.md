@@ -30,6 +30,8 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock fac
 - word/: word clock; WordFont draws glyphs, WordLanguages defines language layouts
 - tetris/: falling-digit clock; TetrisRenderer draws, TetrisScreens controls timing/frame state
 - home/: Home Assistant face; Clockface.cpp fills a Frame (pages, alerts, hourly bars) from HaClient, HomeRenderer.cpp draws the configurable tiles (including weather and the EV car with its bolt/plug badge), the dimmed album-art backdrop and the Now playing page, configurable status counts, plain background and breathing colon (shared with the native preview)
+- invaders/: self-playing Space Invaders (5x4 formation, shields, bombs, mystery ship at each minute, levels, lives); the time is in a top band time left and score/lives stacked right, the level is a dim background "L2"; steer(): left/right/up=auto-fire/down=stop
+- pong/: big dim time backdrop, score on top (the left player misses at the minute, the right one at the hour, which changes the clock; points reset at 10); backdrop brightness = Settings::pongBackdrop (NVS key pongBg); playable left paddle, match to 7; steer(): up/down/stop
 - f1/: shared F1/MotoGP face; F1Renderer draws, F1Screens controls pages/timing, LoadingTyre.h holds the loading tyre bitmap
 - football/: sports face; FootballRenderer draws, FootballScreens controls pages/timing; releases display snapshot during WLED and restores it on return (feed: lib/football-feed)
 - MotoGP has no separate clockface directory: reuses f1/ with UM_MOTOGP and lib/motogp-feed

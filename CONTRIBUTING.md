@@ -16,7 +16,7 @@ Check [LICENSE_SCOPE.md](LICENSE_SCOPE.md) for how the code is licensed before y
 From the `firmware/` folder:
 
 1. Run `./tools/setup-idf.sh` once to install the ESP-IDF SDK locally.
-2. Build one face with `./tools/idf.sh <face> build`, where `<face>` is one of `home`, `football`, `f1`, `motogp`, `tetris`, `word`, `mario`, `luigi`, `pacman`.
+2. Build one face with `./tools/idf.sh <face> build`, where `<face>` is one of `home`, `football`, `f1`, `motogp`, `tetris`, `word`, `mario`, `luigi`, `pacman`, `invaders`, `pong`.
 3. Flash it over USB with `./tools/idf.sh <face> app-flash -p <port>`.
 
 Hardware, wiring and the browser installer are covered in [docs/HARDWARE.md](docs/HARDWARE.md) and the [README](README.md). Runtime design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

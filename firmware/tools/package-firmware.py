@@ -29,7 +29,7 @@ parser.add_argument('--flat', action='store_true', help='GitHub release layout: 
 args = parser.parse_args()
 key = serialization.load_pem_private_key((root / '.tools/update-signing.pem').read_bytes(), password=None)
 public = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
-ALL = ('home', 'football', 'f1', 'motogp', 'tetris', 'word', 'mario', 'luigi', 'pacman')
+ALL = ('home', 'football', 'f1', 'motogp', 'tetris', 'word', 'mario', 'luigi', 'pacman', 'invaders', 'pong')
 unknown = [mode for mode in args.modes if mode not in ALL]
 if unknown: raise SystemExit('Unknown mode: ' + ', '.join(unknown))
 for mode in args.modes or ALL:

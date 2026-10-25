@@ -17,7 +17,7 @@ are ready. A successful build does not establish hardware or live-feed reliabili
   snapshot) from the MotoGP results API and live timing, instead of ESPN, Jolpica and OpenF1. `main/CMakeLists.txt` builds
   the F1 face, renderer and screens unchanged with it (`UM_MOTOGP`); riders, codes and bike colours are in
   `MotoGpRiders.h`, the standings carry the rider's name (`F1Ticker::Standing::name`).
-- Words, Mario, Luigi and Pac-Man are feedless faces (`UM_SIMPLE_FACE`): each is one `Clockface.cpp` that draws the whole
+- Words, Mario, Luigi, Pac-Man, Space Invaders and Pong are feedless faces (`UM_SIMPLE_FACE`): each is one `Clockface.cpp` that draws the whole
   panel every update from the wall clock and its own small state, with shared helpers in `lib/faces` (colours, sprites from
   text rows, a 3x5 font). Words keeps its language in the settings' `numberFont` byte (the Football "alternative digits"
   setting), so the stored settings record did not change. Mario takes the night over from the red night clock

@@ -92,7 +92,7 @@ const Entity kEntities[E_COUNT] = {
     {"camera", "screen", "Screen", CUSTOM, "\"topic\":\"~/screen\",\"encoding\":\"\""},
     {"sensor", "cpu_usage", "CPU usage", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"icon\":\"mdi:chip\""},
     {"sensor", "display_cpu", "Display refill CPU", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"icon\":\"mdi:led-on\""},
-    {"select", "face", "Face", STATE | COMMAND | CONFIG, "\"options\":[\"Home\",\"Football\",\"F1\",\"MotoGP\",\"Tetris\",\"Words\",\"Mario\",\"Luigi\",\"Pac-Man\"],\"icon\":\"mdi:swap-horizontal\""},
+    {"select", "face", "Face", STATE | COMMAND | CONFIG, "\"options\":[\"Home\",\"Football\",\"F1\",\"MotoGP\",\"Tetris\",\"Words\",\"Mario\",\"Luigi\",\"Pac-Man\",\"Invaders\",\"Pong\"],\"icon\":\"mdi:swap-horizontal\""},
     {"sensor", "display", "Display", CUSTOM, "\"stat_t\":\"~/display\",\"icon\":\"mdi:led-on\""},
 #ifdef UM_WLED_OVERLAY
     {"select", "canvas", "Saved picture", COMMAND | CUSTOM, "\"stat_t\":\"~/canvas\",\"icon\":\"mdi:image\""},
@@ -338,7 +338,7 @@ bool Mqtt::publish(const char *topic, const char *payload, bool retain) {
 // The Face select: the label Home Assistant shows and the mode name the updater knows
 struct FaceChoice { const char *label, *mode; };
 constexpr FaceChoice kFaces[] = {{"Home", "home"}, {"Football", "football"}, {"F1", "f1"}, {"MotoGP", "motogp"}, {"Tetris", "tetris"},
-                                 {"Words", "word"}, {"Mario", "mario"}, {"Luigi", "luigi"}, {"Pac-Man", "pacman"}};
+                                 {"Words", "word"}, {"Mario", "mario"}, {"Luigi", "luigi"}, {"Pac-Man", "pacman"}, {"Invaders", "invaders"}, {"Pong", "pong"}};
 
 // One command from Home Assistant: validated like the settings page does, then applied to the settings (the caller
 // notices the change and runs the follow-ups). Bad values are ignored.
@@ -561,7 +561,7 @@ void Mqtt::applyCommands(uint32_t now) {
 // then the "online" status; after that the state and the update information.
 void Mqtt::publishNext(uint32_t now) {
   const uint8_t step = _step.load();
-  if (step > E_COUNT + 1) { publishState(now); return; }
+  if (step > E_COUNT + 1) { if (!_busy.load()) publishState(now); return; }
   char topic[96];
   if (step == E_COUNT + 1) {
     snprintf(topic, sizeof(topic), "%s/status", _base);
@@ -852,6 +852,6 @@ void Mqtt::poll(uint32_t now, bool online) {
 #endif
   if (_connected.load() && _step.load() > 0) {
     publishNext(now);
-    if (_step.load() > E_COUNT + 1) publishScreen(now);
+    if (_step.load() > E_COUNT + 1 && !_busy.load()) publishScreen(now);
   }
 }

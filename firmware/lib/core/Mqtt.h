@@ -47,6 +47,7 @@ public:
   bool save(const Config &next);  // stores it and reconnects; the clock task only
   // Call every frame: starts and stops the client, applies commands, publishes changes. Cheap while off.
   void poll(uint32_t now, bool online);
+  void setBusy(bool busy) { _busy = busy; }   // a game is being played: the link and the commands stay up, the state and camera messages wait
   void status(char *out, size_t size) const;  // for the settings page
   bool drawPixels(MatrixPanel_I2S_DMA &display) { return _pixels.draw(display); }
   bool pixelsActive() const { return _pixels.active(); }
@@ -83,6 +84,7 @@ private:
   std::unique_ptr<char[]> _bigIncoming, _bigPending;
   std::shared_ptr<notice::Image> _bigImage, _bigImagePending;  // reserved with the buffer, so decoding cannot run out of memory
   size_t _bigSize = 0, _bigGot = 0;
+  std::atomic<bool> _busy{false};
   std::atomic<uint32_t> _holdNoticeUntil{0};  // feeds stay parked until then after a picture was refused for memory
   void receiveBigNotice(esp_mqtt_event_handle_t event, bool first);
   bool _hasNotice = false;
