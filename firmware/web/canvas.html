@@ -240,12 +240,14 @@ function pauseLive() {
   $('liveEnabled').checked = false;
   $('liveStatus').textContent = 'Editing · enable Live screen to follow the panel again';
 }
+const screenAbort = new AbortController();
+addEventListener('pagehide', () => screenAbort.abort());  // leaving the page: do not keep the clock busy with a picture nobody will see
 async function refreshScreen() {
   if (liveLoading || busy || drawing || !liveVisible || document.hidden || !$('liveEnabled').checked || !$('loader').hidden) return;
   liveLoading = true;
   const revision = liveRevision;
   try {
-    const response = await fetch('/api/screen', { cache: 'no-store' });
+    const response = await fetch('/api/screen', { cache: 'no-store', signal: screenAbort.signal });
     if (!response.ok) throw new Error('Preview unavailable');
     const bitmap = await createImageBitmap(await response.blob());
     if (revision !== liveRevision || busy || drawing || !$('liveEnabled').checked || !$('loader').hidden) { bitmap.close(); return; }
@@ -262,7 +264,8 @@ if (location.pathname !== '/gifs') {
     liveVisible = entries[0].isIntersecting; if (liveVisible) refreshScreen();
   }).observe(cv);
   else { liveVisible = true; refreshScreen(); }
-  setInterval(refreshScreen, 1000);
+  const livePoll = setInterval(refreshScreen, 1000);
+  addEventListener('pagehide', () => clearInterval(livePoll));
 }
 $('liveEnabled').onchange = () => {
   ++liveRevision;
