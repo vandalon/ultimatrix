@@ -34,6 +34,7 @@ struct Config {
   uint16_t holdSecs = 900;  // stay this long after the last event ended
   uint8_t maxPerDay = 4;
   uint16_t minGapSecs = 1800;
+  uint16_t bridgeSecs = 3600;  // stay between two events of the same sport that start within this long of each other (0 = off)
 };
 
 struct Log {
@@ -74,6 +75,9 @@ inline bool wanted(const Events &e, time_t now, const Config &cfg, bool holding)
     const Event &v = e.list[i];
     if (v.live && e.checkedAt && now - e.checkedAt <= kStale) return true;
     if (now >= v.start - cfg.leadSecs && now < v.end + (holding ? cfg.holdSecs : 0)) return true;
+    if (holding && cfg.bridgeSecs && now >= v.end)
+      for (uint8_t j = 0; j < e.count; ++j)
+        if (e.list[j].start >= v.end && e.list[j].start - v.end <= cfg.bridgeSecs && now < e.list[j].start) return true;
   }
   return false;
 }

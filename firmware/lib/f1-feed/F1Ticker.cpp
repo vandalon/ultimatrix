@@ -688,6 +688,8 @@ unsigned long F1Ticker::fetchWeekend() {
   if (nextDate > nowUtc) {
     time_t left = nextDate - nowUtc;
     wait = left < 15 * 60 ? START_REFRESH_MS : std::min(wait, (unsigned long)(left - 14 * 60) * 1000UL);
+  } else if (nextDate) {
+    wait = START_REFRESH_MS;  // its start time has passed but ESPN still says 'pre': look again soon, not after the long wait
   }
   if (snap.last.valid && snap.last.timeFails && !(_lastTimed.valid && _lastTimed.id == snap.last.id)) wait = std::min(wait, 30000UL);  // a driver's time is missing: try again soon
   f1log("[F1] next refresh in %lu s\n", wait / 1000);

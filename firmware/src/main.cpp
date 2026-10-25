@@ -585,7 +585,7 @@ static void settingsState() {
 #ifdef UM_SPORTS_SWITCH
   json += ",\"sportsOrder\":" + jsonText(s.sportsOrder) + ",\"sportsHome\":" + jsonText(s.sportsHome) + ",\"sportsLead\":" + String(s.sportsLead);
   json += ",\"sportsOthers\":" + String(s.sportsOthers ? "true" : "false");
-  json += ",\"sportsRacing\":" + String(s.sportsRacing) + ",\"sportsFav\":" + String(s.sportsFav ? "true" : "false") + ",\"sportsMax\":" + String(s.sportsMax) + ",\"sportsHold\":" + String(s.sportsHold);
+  json += ",\"sportsRacing\":" + String(s.sportsRacing) + ",\"sportsFav\":" + String(s.sportsFav ? "true" : "false") + ",\"sportsMax\":" + String(s.sportsMax) + ",\"sportsHold\":" + String(s.sportsHold) + ",\"sportsBridge\":" + String(s.sportsBridge);
 #endif
   json += ",\"fbLeagues\":" + jsonText(s.footballLeagues) + ",\"fbTeams\":" + jsonText(s.footballTeams);
   json += ",\"f1Drivers\":" + jsonText(s.f1Drivers);
@@ -948,6 +948,7 @@ static void saveSettings() {
     s.sportsRacing = server.arg("sportsRacing").toInt() == 1 ? 1 : server.arg("sportsRacing").toInt() == 2 ? 2 : 0;
     s.sportsMax = constrain(server.arg("sportsMax").toInt(), 1, 12);
     s.sportsHold = constrain(server.arg("sportsHold").toInt(), 0, 120);
+    s.sportsBridge = constrain(server.arg("sportsBridge").toInt(), 0, 240);
     s.sportsFav = server.hasArg("sportsFav");
     s.sportsOthers = server.hasArg("sportsOthers");
   }
@@ -1190,11 +1191,16 @@ static void sportsStageAhead(uint32_t now, time_t wall, const sportsplan::Config
   if (day != (uint32_t)(wall / 86400)) { day = (uint32_t)(wall / 86400); stagedToday = 0; }
   if (stagedToday >= 6) return;  // flash wear: a few writes a day at most
   const char *want = nullptr;
-  for (uint8_t i = 0; i < plan.orderCount && !want; ++i) {
+  time_t first = 0;  // the sport that is on or starts first comes first; priority only breaks a tie
+  for (uint8_t i = 0; i < plan.orderCount; ++i) {
     const char *mode = sportsplan::kModes[plan.order[i]];
     if (!strcmp(mode, UM_MODE_ID)) continue;
     const sportsplan::Events &e = events[plan.order[i]];
-    for (uint8_t k = 0; k < e.count; ++k) if (e.list[k].end > wall && e.list[k].start - wall < 6 * 3600) { want = mode; break; }
+    for (uint8_t k = 0; k < e.count; ++k) {
+      if (e.list[k].end <= wall || e.list[k].start - wall >= 6 * 3600) continue;
+      const time_t at = e.list[k].start > wall ? e.list[k].start : wall;
+      if (!want || at < first) { want = mode; first = at; }
+    }
   }
   if (!want && log.target[0] && !strcmp(log.target, UM_MODE_ID) && plan.home[0] && strcmp(plan.home, UM_MODE_ID)) want = plan.home;
   if (!want || !FirmwareUpdate::knownMode(want) || firmwareUpdate.spareHolds(want)) return;
@@ -1247,7 +1253,7 @@ static void sportsSwitch(uint32_t now) {
   sportsplan::Config plan;
   sportsplan::parseOrder(s.sportsOrder.c_str(), plan);
   strlcpy(plan.home, s.sportsHome.c_str(), sizeof(plan.home));
-  plan.leadSecs = s.sportsLead * 60; plan.maxPerDay = s.sportsMax; plan.holdSecs = s.sportsHold * 60;
+  plan.leadSecs = s.sportsLead * 60; plan.maxPerDay = s.sportsMax; plan.holdSecs = s.sportsHold * 60; plan.bridgeSecs = s.sportsBridge * 60;
   sportsplan::Events events[sportsplan::SPORTS];
   watch.events(events);
   const time_t wall = time(nullptr);
@@ -1306,12 +1312,12 @@ static void sportsInfo() {
   Settings &s = *Settings::getInstance();
   sportsplan::Config plan;
   sportsplan::parseOrder(s.sportsOrder.c_str(), plan);
-  plan.holdSecs = s.sportsHold * 60;
+  plan.holdSecs = s.sportsHold * 60; plan.bridgeSecs = s.sportsBridge * 60;
   sportsplan::Events events[sportsplan::SPORTS];
   if (plan.orderCount) SportsWatch::instance().events(events);
   const time_t wall = time(nullptr);
   String json = "{\"now\":" + String((long)wall) + ",\"mode\":\"" UM_MODE_ID "\",\"home\":" + jsonText(s.sportsHome) + ",\"lead\":" + String(s.sportsLead * 60);
-  json += ",\"hold\":" + String(plan.holdSecs) + ",\"paused\":" + String((long)sportsLog.pausedUntil) + ",\"max\":" + String(s.sportsMax);
+  json += ",\"hold\":" + String(plan.holdSecs) + ",\"bridge\":" + String(plan.bridgeSecs) + ",\"paused\":" + String((long)sportsLog.pausedUntil) + ",\"max\":" + String(s.sportsMax);
   char spare[16]; firmwareUpdate.spareMode(spare, sizeof(spare));
   json += ",\"spare\":" + jsonText(spare);
   json += ",\"today\":" + String(sportsLog.day == (uint32_t)(wall / 86400) ? sportsLog.count : 0) + ",\"order\":[";

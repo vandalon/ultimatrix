@@ -78,7 +78,9 @@ async function sportsPlan() {
     const rival = rows.find(o => o !== r && o.rank < r.rank && (o.l || (o.s - d.lead < until && o.e > from)));
     let status;
     const finished = r.e <= d.now && !r.l;
-    if (finished) status = d.mode === r.id ? 'Finished, home at ' + time(r.e + d.hold) : 'Finished';
+    const next = finished && rows.find(o => o.id === r.id && o.s >= r.e && o.s - r.e <= d.bridge);
+    if (next) status = d.mode === r.id ? 'Finished, stays for ' + next.n : 'Finished';
+    else if (finished) status = d.mode === r.id ? 'Finished, home at ' + time(r.e + d.hold) : 'Finished';
     else if (d.paused > from) status = 'Paused: you chose a face by hand';
     else if (rival) status = 'Skipped: ' + names[rival.id] + ' ' + rival.n + ' is on';
     else if (on(r)) status = d.mode === r.id ? 'On now' : 'On now, switching';

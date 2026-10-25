@@ -69,11 +69,11 @@ void Settings::load() {
   {  // "order|home|lead|racing|fav|max"
     String v = p.getString("sports", "");
     int a = v.indexOf('|'), b = a < 0 ? -1 : v.indexOf('|', a + 1);
-    int lead = 10, racing = 0, fav = 1, max = 4, others = 1, fbOthers = 1, hold = 15;
+    int lead = 10, racing = 0, fav = 1, max = 4, others = 1, fbOthers = 1, hold = 15, bridge = 60;
     sportsOrder = ""; sportsHome = "";
-    if (a >= 0 && b >= 0 && v.length() < 100 && sscanf(v.c_str() + b + 1, "%d|%d|%d|%d|%d|%d|%d", &lead, &racing, &fav, &max, &others, &fbOthers, &hold) >= 4) {
+    if (a >= 0 && b >= 0 && v.length() < 100 && sscanf(v.c_str() + b + 1, "%d|%d|%d|%d|%d|%d|%d|%d", &lead, &racing, &fav, &max, &others, &fbOthers, &hold, &bridge) >= 4) {
       sportsOrder = v.substring(0, a); sportsHome = v.substring(a + 1, b);
-      sportsLead = constrain(lead, 0, 120); sportsRacing = racing >= 0 && racing <= 2 ? racing : 0; sportsFav = fav != 0; sportsMax = constrain(max, 1, 12); sportsOthers = others != 0; footballOthers = fbOthers != 0; sportsHold = constrain(hold, 0, 120);
+      sportsLead = constrain(lead, 0, 120); sportsRacing = racing >= 0 && racing <= 2 ? racing : 0; sportsFav = fav != 0; sportsMax = constrain(max, 1, 12); sportsOthers = others != 0; footballOthers = fbOthers != 0; sportsHold = constrain(hold, 0, 120); sportsBridge = constrain(bridge, 0, 240);
     }
   }
   pongBackdrop = p.getUChar("pongBg", 3);
@@ -182,7 +182,7 @@ bool Settings::save() {
   if (saved) p.putString("birthdays", birthdays);  // own key as well: the record stays as it is
   if (saved) {
     char v[100];
-    snprintf(v, sizeof(v), "%s|%s|%u|%u|%u|%u|%u|%u|%u", sportsOrder.c_str(), sportsHome.c_str(), sportsLead, sportsRacing, sportsFav ? 1 : 0, sportsMax, sportsOthers ? 1 : 0, footballOthers ? 1 : 0, sportsHold);
+    snprintf(v, sizeof(v), "%s|%s|%u|%u|%u|%u|%u|%u|%u|%u", sportsOrder.c_str(), sportsHome.c_str(), sportsLead, sportsRacing, sportsFav ? 1 : 0, sportsMax, sportsOthers ? 1 : 0, footballOthers ? 1 : 0, sportsHold, sportsBridge);
     p.putString("sports", v);
   }
   if (saved) { p.putUChar("arcHrs", arcHours); p.putUChar("arcMin", arcMinutes); p.putUChar("arcPts", arcScore); }

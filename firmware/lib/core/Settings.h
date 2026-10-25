@@ -56,6 +56,7 @@ struct Settings {
   uint8_t sportsLead = 10;  // minutes before the start the switch happens
   uint8_t sportsRacing = 0;  // 0 qualifying and races, 1 races only, 2 every session
   uint8_t sportsMax = 4;  // automatic switches into a sport per day
+  uint8_t sportsBridge = 60;  // minutes: between two sessions of the same sport this close together the clock stays (0 = off)
   uint8_t sportsHold = 15;  // minutes the clock stays on a sport after it finished (end of the session, full time) before it goes home
   bool sportsFav = true;  // Football: only matches of the favourite teams
   bool sportsOthers = true;  // switching: also the favourites' matches in competitions that are not followed (looked up per team)
