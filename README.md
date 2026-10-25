@@ -7,7 +7,7 @@
   <img src="docs/photos/home-assistant-now-playing.jpg" alt="Home Assistant Now playing page on the LED matrix clock" width="24%">
 </p>
 
-Ultimatrix is an LED matrix clock for an ESP32 and a 64×64 HUB75 panel. It can show live sports, build the time from falling Tetris blocks, spell it out in words, or run an animated Mario, Luigi or Pac-Man scene.
+Ultimatrix is an LED matrix clock for an ESP32 and a 64×64 HUB75 panel. It can show live sports, build the time from falling Tetris blocks, spell it out in words, or run an animated Mario, Luigi or Pac-Man scene, or play Space Invaders or Pong while it tells the time.
 
 Ultimatrix is inspired by the original [Clockwise](https://github.com/jnthas/clockwise) project by Jonathan Thas. Thank you for the idea and the groundwork.
 
@@ -15,7 +15,7 @@ The HUB75 panel driver is a memory-optimised fork of [ESP32-HUB75-MatrixPanel-DM
 
 Start with the [hardware setup guide](docs/HARDWARE.md), then [install from your browser](https://vandalon.github.io/ultimatrix/) (Chrome or Edge, USB cable that carries data). Details: [Install](#install).
 
-There are nine clock faces. Each has its own firmware image, so the clock runs one face at a time. You can switch faces from the local settings page by installing another signed image over Wi-Fi.
+There are eleven clock faces. Each has its own firmware image, so the clock runs one face at a time. You can switch faces from the local settings page by installing another signed image over Wi-Fi.
 
 ## Clock faces
 
@@ -29,9 +29,20 @@ There are nine clock faces. Each has its own firmware image, so the clock runs o
 | <img src="docs/previews/word.gif" alt="Words clock" width="128" height="128"> | Words | `word` | The time in 16 languages, with a weekday, date and minute bar. Choose letter shuffle, letter lift, pixel dissolve, soft wipe, all four in rotation, or no transition. |
 | <img src="docs/previews/mario.gif" alt="Mario clock" width="128" height="128"> | Mario | `mario` | Mario in scrolling worlds, with clock blocks showing the time. |
 | <img src="docs/previews/luigi.gif" alt="Luigi clock" width="128" height="128"> | Luigi | `luigi` | A Luigi version of the scrolling-world clock. |
-| <img src="firmware/web/faces/pacman.png" alt="Pac-Man clock" width="128" height="128"> | Pac-Man | `pacman` | A game that plays itself in a maze of 8 by 7 lanes with the clock box in the middle: the level top left, the score bottom left, the spare lives bottom right and the time on the right. It has a score (10 a dot, 50 a power pellet, 200 and doubling for the ghosts) and a life more every 6000 points, up to three spares. Four ghosts wait in the box, which dims whatever they sit over, and leave through its floor. Every level gets a new maze that is as different from the last as it can be. Border, dots, hours and minutes colour and each ghost have colour choices. |
+| <img src="firmware/web/faces/pacman.png" alt="Pac-Man clock" width="128" height="128"> | Pac-Man | `pacman` | A game that plays itself in a maze of 8 by 7 lanes with the clock box in the middle: the level top left, the score bottom left, the spare lives bottom right and the time on the right. It has a score (10 a dot, 50 a power pellet, 200 and doubling for the ghosts) and a life more every 6000 points, up to three spares. Four ghosts wait in the box, which dims whatever they sit over, and leave through its floor. Every level gets a new maze that is as different from the last as it can be. Pac-Man plays like a novice, casual, good or expert player, picked for each new game. You can take over from the settings page (see [Playing Pac-Man yourself](#playing-pac-man-yourself)). Border, dots, hours and minutes colour and each ghost have colour choices. |
+| <img src="docs/previews/invaders.gif" alt="Space Invaders clock" width="128" height="128"> | Space Invaders | `invaders` | A game that plays itself: five columns of squids, crabs and octopuses in three rows march down towards four shields that crumble, bombs fall, and the cannon dodges and shoots. The time is along the top, with the score and your spare cannons (up to four) stacked on its right. While the computer plays, the date is the backdrop (the day number with the weekday and month beside it) and the field is slightly dimmed; while you play, the backdrop is the level. The mystery ship flies by every minute (a bigger one at the hour; shoot it for 50 to 300 points), waves get faster, and a life more comes every 1500 points. Clock hours, minutes and score have colour choices. You can take over from the settings page (see [Playing Space Invaders and Pong yourself](#playing-space-invaders-and-pong-yourself)). |
+| <img src="docs/previews/pong.gif" alt="Pong clock" width="128" height="128"> | Pong | `pong` | The time is a big background clock behind the court (hours in the left player's colour, minutes in the right player's) with the score on top and optional weekday and date above or below it. The two computer players rally, and when the minute turns the left one lets the ball go by so the right one scores and the minute changes (at the hour the right one lets it go, so the left one scores and the hour changes). Nine difficulty levels, a game speed, the brightness of the background clock and the colours are settings. You can take the left paddle yourself from the settings page: a match goes to 7 and then the computers take over again. |
 
 Football starts with Eredivisie and KNVB Cup selected, and the Dutch national team as a favourite. Competitions are grouped by country, and favourite teams have a searchable picker.
+
+### Playing Space Invaders and Pong yourself
+
+Both games play themselves and keep the time. To take over, open the clock's settings page while the face is running and open the **full-screen touch controller** under **Play yourself**. The controller sends your moves over a WebSocket, and the clock pauses notices, update checks and the live preview while you play. The clock plays again after 20 seconds without a move, or when you press **Computer**; the game restarts whenever control changes hands.
+
+- **Space Invaders**: swipe left and right anywhere to move the cannon (like Pong's dial, but sideways), and every touch fires, so a second finger can fire while the first steers. The arrow keys or A D move and the space bar fires. A life more comes at every 1500 points, up to four.
+- **Pong**: you play the left paddle against the computer; swipe up and down anywhere to turn the dial like the original game. The labels show YOU and CMP, the score shows the match (first to 7) and afterwards the computers take over again.
+
+Controller sensitivity is a slider in the settings page, and Pong has a difficulty from 1 to 9.
 
 ## Home Assistant
 
@@ -142,7 +153,7 @@ Set **Network → Clock name** to identify each clock in MQTT and WLED, for exam
 
 Open the clock's address from a phone or computer on the same network. Most changes save automatically and apply while the clock runs. Swapping blue and green needs **Save & restart**. Changing Wi-Fi or installing a face also restarts the clock.
 
-The page has controls for brightness, rotation, time format, timezone, time server and the current face. Sports faces add page timing and favourites. Words adds language and transition choices. Mario and Luigi add the world picker. Pac-Man adds its colour controls; the default clock colour keeps off-white hours and green minutes.
+The page has controls for brightness, rotation, time format, timezone, time server and the current face. Sports faces add page timing and favourites. Words adds language and transition choices. Mario and Luigi add the world picker. Pac-Man adds its colour controls (the clock is yellow by default) and the Play yourself card.
 
 The page and its assets are stored in firmware flash. A new setting only appears after installing firmware that contains it. If an updated page still looks old, reload it without using the browser cache.
 
@@ -161,6 +172,17 @@ Most faces can switch to a dim numeric clock during chosen hours, from sunset to
 Mario and Luigi scenes follow sunrise and sunset rather than the night schedule. A dark room can switch them to the dim numeric clock.
 
 Changes tied to sunrise and sunset need a detected location. Automatic brightness and the night schedule are off by default.
+
+### Playing Pac-Man yourself
+
+With the Pac-Man face, the Clock mode card on the settings page has a **Play yourself** card. Any move takes over from the computer; Pac-Man keeps going and takes your turn at the next crossing. The clock plays again after 20 seconds without a move, or at once when you press **AI**.
+
+- **Keys:** arrow keys or W A S D.
+- **Touch:** **Open full-screen controller** fills the screen. Put a finger down anywhere and drag: a joystick appears under your finger and follows it, so the direction is simply the way your finger moves. Letting go keeps Pac-Man going. Android phones vibrate briefly; iPhones do not give feedback while dragging.
+- **A game controller on your phone or computer:** pair it with that device (Bluetooth or USB), press a button once so the browser sees it, then use the d-pad or left stick. Start hands control back to the clock. This costs the clock nothing.
+- **A Bluetooth LE controller paired with the clock itself (experimental, off by default):** turn **Bluetooth** on in the card (this restarts the clock), press **Pair controller** (the clock restarts into Bluetooth), switch the controller to pairing mode and keep it within a metre or two. A paired controller connects again whenever it is switched on. Only Bluetooth LE controllers work (for example Xbox Series controllers on recent firmware, which I have not tried with this firmware). PlayStation, Switch and most Android gamepads use classic Bluetooth and do not. This part has never been tried with a real controller.
+
+Bluetooth needs about 75 KB of the clock's memory, so it only runs while a controller is paired (or for about 70 seconds after you press Pair); with the setting on and nothing paired, the clock uses no extra memory. While it runs, WLED, Canvas, Animations, DLNA, notifications and the telnet console are switched off; Home Assistant MQTT keeps working. A firmware update restarts the clock first, so the download has the whole memory. Forgetting the controller restarts the clock back to normal.
 
 ### Control from Home Assistant (MQTT, optional)
 
@@ -238,7 +260,7 @@ Every face can be controlled from Home Assistant over MQTT. It is off until you 
 
 Canvas has a **Download picture** button for the current editor image. It exports a static 64×64 `.bmp`. Upload it in Home Assistant under Media, then pick the clock's media player (the DLNA Digital Media Renderer integration finds it automatically) and use Browse media > Play; the picture stays until Stop. You can also serve the file at a reachable HTTP(S) URL and use it in a notification's `image` field. Animation frames are not exported. A BMP played with Home Assistant's Play media has been checked on a real clock; PNG and JPEG over DLNA have not. Home Assistant's Internal URL must be reachable from the clock (when Home Assistant runs in Docker, use the Docker host's LAN address).
 
-- **Face** (Configuration): a dropdown of the nine faces that shows the face now running. Choosing another one installs that face's signed image over Wi-Fi and restarts the clock, exactly like the **Faces** category on the settings page. Choosing the current face does nothing. It is refused while a live match or session is running, and the install needs a reachable update source; if memory is too short it restarts first and installs before the feeds start. Because one click downloads and installs another image, don't wire it to an automation unless you mean it, and keep your MQTT broker closed to untrusted clients. Only signed images are accepted.
+- **Face** (Configuration): a dropdown of the eleven faces that shows the face now running. Choosing another one installs that face's signed image over Wi-Fi and restarts the clock, exactly like the **Faces** category on the settings page. Choosing the current face does nothing. It is refused while a live match or session is running, and the install needs a reachable update source; if memory is too short it restarts first and installs before the feeds start. Because one click downloads and installs another image, don't wire it to an automation unless you mean it, and keep your MQTT broker closed to untrusted clients. Only signed images are accepted.
 - **Saved picture** (with WLED enabled in the firmware): a dropdown of pictures and animations saved on the clock. Choose an item to show it, or **Off** to return to the clock face. WLED must be enabled in settings. This uses WLED playback, so the normal night/live-sports rules still apply. Items play until switched off, replaced, or the configured WLED idle timeout expires; animations loop.
 
   Save pictures in **Canvas**. To keep a played KLIPY GIF, open **Animations**, load it, enter a name and press **Save played GIF**. New saved animations are limited to the first **24 frames or 5 seconds**, whichever is shorter. Temporary imports can still play up to 64 frames. There are **8 shared slots** and 128 KiB of filesystem space shared with other clock data; saving checks available space and never overwrites an occupied slot. Saved items survive restarts. Use the saved list on Canvas or Animations to remove them. Cached data left by the faces can be cleared under **Advanced → Storage**. HA's dropdown refreshes within about five seconds; labels include the slot number so duplicate names remain distinct.
@@ -291,7 +313,7 @@ python3 firmware/tools/package-firmware.py
 
 It writes the built faces and signed manifests to `dist/firmware/`, in the folder layout expected by a private server. Keep the signing key private. Self-hosted face installation has been confirmed on a device.
 
-The [release workflow](.github/workflows/release.yml) builds all nine faces when a `v*` tag is pushed. It signs the update manifests, creates a GitHub release and deploys the browser flasher and an update-file mirror to GitHub Pages. It needs the `UPDATE_SIGNING_KEY` repository secret and GitHub Pages configured for Actions. This workflow has not yet been checked end to end.
+The [release workflow](.github/workflows/release.yml) builds all eleven faces when a `v*` tag is pushed. It signs the update manifests, creates a GitHub release and deploys the browser flasher and an update-file mirror to GitHub Pages. It needs the `UPDATE_SIGNING_KEY` repository secret and GitHub Pages configured for Actions. This workflow has not yet been checked end to end.
 
 ## Display quality
 
@@ -323,7 +345,7 @@ From the repository root:
 python3 firmware/tools/preview/refresh.py
 ```
 
-This refreshes all nine face images, their animated previews, the overview and the boot replay. The README uses the same PNG files as the settings page. Rebuild and install the firmware to put new images on a clock.
+This refreshes all eleven face images, their animated previews, the overview and the boot replay. The README uses the same PNG files as the settings page. Rebuild and install the firmware to put new images on a clock.
 
 For one animated preview, use `--face football` with `showcase.py`, or `--face pacman` with `faces.py`. The sports previews replay data from `firmware/tools/preview/showcase-data.json`; they show recorded results rather than current feeds. Tetris uses a fixed clock, and the other animated faces use scripted clock scenarios.
 
@@ -333,9 +355,9 @@ These images were rendered from the current code on 14 October 2026. They help r
 
 ## Development status
 
-As of 19 October 2026 (v0.6.1), the firmware builds with ESP-IDF and Arduino as a component. The shared runtime, local setup and settings, brightness and night display, signed updater, nine faces, Home Assistant and MQTT control, the WLED overlay, Canvas and GIF saving, picture notifications and the Storage page are implemented. The drawing and feed code are still being cleaned up.
+As of 25 October 2026 (v0.8.0), the firmware builds with ESP-IDF and Arduino as a component. The shared runtime, local setup and settings, brightness and night display, signed updater, eleven faces, Home Assistant and MQTT control, the WLED overlay, Canvas and GIF saving, picture notifications and the Storage page are implemented. The drawing and feed code are still being cleaned up.
 
-The release workflow builds all nine faces, and the v0.6.1 release built successfully. A build does not mean every face has been checked on a panel after every change. The recent Words transitions and Pac-Man changes have been checked in native previews and browser mocks; the latest Pac-Man clock-colour change has not had a firmware build or device check.
+The release workflow builds all eleven faces, and the v0.7.5 release built successfully. A build does not mean every face has been checked on a panel after every change. The recent Words transitions have been checked in native previews and browser mocks. Pac-Man is now the former Pac-Man Classic (the older random-maze Pac-Man is gone) and has been flashed and run on a panel, but its Bluetooth controller support has not been tried with a real controller. Space Invaders and Pong have been flashed and played on a panel during development; the Invaders update after the last changes (fonts, date backdrop, ship icons) has been flashed but not played through.
 
 Football and Home have had device checks, including feeds, saved settings, telnet, picture notifications, GIF search, the display quality levels and the Storage page. A clock has updated itself over Wi-Fi from a GitHub release. F1 has had a short device check of memory use, update checking and its cache.
 

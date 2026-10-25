@@ -46,6 +46,9 @@
 #include <BootScreen.h>
 #include <Console.h>
 #include <TelnetConsole.h>
+#if defined(UM_PONG) || defined(UM_INVADERS)
+#include <PlaySocket.h>
+#endif
 #include <Mqtt.h>
 #include <Notice.h>
 #include <Storage.h>
@@ -281,6 +284,16 @@ static bool btMode() { return gamepad::active(); }  // the Bluetooth controller 
 #else
 static bool btMode() { return false; }
 #endif
+#if defined(UM_PONG) || defined(UM_INVADERS)
+static uint32_t playHoldUntil = 0;   // somebody is steering a game: what is not needed for it stays quiet until 20 s after the last move
+static bool playing(uint32_t now) { return playHoldUntil && (int32_t)(playHoldUntil - now) > 0; }
+static void playSteer(int dir) {   // a move from the web page, over HTTP or the WebSocket
+  if (face) face->steer(dir);
+  playHoldUntil = dir == -1 ? 0 : (millis() + 20000) | 1;
+}
+#else
+static bool playing(uint32_t) { return false; }
+#endif
 static bool telnetLow = false;  // telnet is off for now because memory is short
 static bool telnetStarted = false;  // telnet comes up after the face starts, like mDNS
 static bool updateChecking = false;  // mDNS is left off while an update check runs: its RAM goes to the TLS session
@@ -489,6 +502,8 @@ UM_FACE(word);
 UM_FACE(mario);
 UM_FACE(luigi);
 UM_FACE(pacman);
+UM_FACE(invaders);
+UM_FACE(pong);
 UM_FACE(home);
 static void sendIcon(const uint8_t *start, const uint8_t *end) {
   server.sendHeader("Cache-Control", "public, max-age=86400");
@@ -583,6 +598,13 @@ static void settingsState() {
   json += ",\"wordLanguage\":" + String(s.numberFont);
 #ifdef UM_WORD
   json += ",\"wordAnimation\":" + String(s.timeStyle & 15) + ",\"wordDate\":" + String(s.timeStyle >> 4);
+#endif
+#ifdef UM_PONG
+  json += ",\"pongBackdrop\":" + String(s.pongBackdrop);
+  json += ",\"pongSpeed\":" + String(s.pongSpeed) + ",\"pongLevel\":" + String(s.pongLevel) + ",\"pongDate\":" + String(s.pongDate) + ",\"pongDay\":" + String(s.pongDay);
+#if defined(UM_PONG) || defined(UM_INVADERS)
+  json += ",\"arcHours\":" + String(s.arcHours) + ",\"arcMinutes\":" + String(s.arcMinutes) + ",\"arcScore\":" + String(s.arcScore);
+#endif
 #endif
 #ifdef UM_PACMAN
   json += ",\"color\":" + String(s.color) + ",\"dotColor\":" + String(s.dotColor);
@@ -860,6 +882,42 @@ static void saveSettings() {
     long date;
     if (!number("wordDate", 0, 2, date)) { settingsResponse(400, "Choose a date style from the list."); return; }
     s.timeStyle = (s.timeStyle & 15) | (date << 4);
+  }
+#endif
+#ifdef UM_PONG
+  if (server.hasArg("pongDate")) {
+    long on = 0;
+    if (!number("pongDate", 0, 2, on)) { settingsResponse(400, "Choose Hidden, Above or Below."); return; }
+    s.pongDate = on;
+  }
+  if (server.hasArg("pongDay")) {
+    long on = 0;
+    if (!number("pongDay", 0, 2, on)) { settingsResponse(400, "Choose Hidden, Above or Below."); return; }
+    s.pongDay = on;
+  }
+  if (server.hasArg("pongLevel")) {
+    long level = 0;
+    if (!number("pongLevel", 0, 8, level)) { settingsResponse(400, "Choose a difficulty from the list."); return; }
+    s.pongLevel = level;
+  }
+  if (server.hasArg("pongSpeed")) {
+    long level = 0;
+    if (!number("pongSpeed", 0, 4, level)) { settingsResponse(400, "Choose a speed from the list."); return; }
+    s.pongSpeed = level;
+  }
+  if (server.hasArg("pongBackdrop")) {
+    long level;
+    if (!number("pongBackdrop", 0, 5, level)) { settingsResponse(400, "Choose a brightness from the list."); return; }
+    s.pongBackdrop = level;
+  }
+#endif
+#if defined(UM_PONG) || defined(UM_INVADERS)
+  const struct { const char *name; uint8_t *value; } arcColours[] = {{"arcHours", &s.arcHours}, {"arcMinutes", &s.arcMinutes}, {"arcScore", &s.arcScore}};
+  for (const auto &colour : arcColours) {
+    if (!server.hasArg(colour.name)) continue;
+    long choice;
+    if (!number(colour.name, 0, pacmancolors::COLOR_COUNT - 1, choice)) { settingsResponse(400, "Choose a colour from the list."); return; }
+    *colour.value = choice;
   }
 #endif
 #ifdef UM_PACMAN
@@ -1739,6 +1797,7 @@ static void postRoute(const char *uri, WebServer::THandlerFunction fn) { server.
 
 // Web requests run on the drawing task, so a submitted frame stays stable while streamed.
 static void screenPreview() {
+  if (playing(millis())) { server.send(503, "text/plain", "Paused while a game is being played."); return; }
   if (!display || display->width() != 64 || display->height() != 64) {
     server.send(503, "text/plain", "Display preview is not ready."); return;
   }
@@ -1856,13 +1915,14 @@ static void background() {
     firmwareUpdate.scheduleAfterReboot(firmwareUpdate.target());
     restartAt = now + 1500;
   }
-  firmwareUpdate.poll(now, bootDone && !portalActive && WiFi.status() == WL_CONNECTED && !wledBusy(now));  // a check that came due waits until WLED lets go
-  if (!btMode()) notice::poll(now);
-  if (!btMode()) dlna::poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
+  firmwareUpdate.poll(now, bootDone && !portalActive && WiFi.status() == WL_CONNECTED && !wledBusy(now) && !playing(now));  // a check that came due waits until WLED lets go
+  if (!btMode() && !playing(now)) notice::poll(now);
+  if (!btMode() && !playing(now)) dlna::poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
+  Mqtt::instance().setBusy(playing(now));
   Mqtt::instance().poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
-  autoUpdate(now);
+  if (!playing(now)) autoUpdate(now);
 #ifdef UM_SPORTS_SWITCH
-  sportsSwitch(now);
+  if (!playing(now)) sportsSwitch(now);
 #endif
   reportMemory();
   noteLiveData();
@@ -1906,7 +1966,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
-  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays", "sports", "sportsLog",   // Settings.cpp, sportsSwitch()
+  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
@@ -2183,12 +2243,28 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/faces/mario.png", HTTP_GET, []() { sendIcon(marioStart, marioEnd); });
   server.on("/faces/luigi.png", HTTP_GET, []() { sendIcon(luigiStart, luigiEnd); });
   server.on("/faces/pacman.png", HTTP_GET, []() { sendIcon(pacmanStart, pacmanEnd); });
+  server.on("/faces/invaders.png", HTTP_GET, []() { sendIcon(invadersStart, invadersEnd); });
+  server.on("/faces/pong.png", HTTP_GET, []() { sendIcon(pongStart, pongEnd); });
   server.on("/faces/home.png", HTTP_GET, []() { sendIcon(homeStart, homeEnd); });
   server.on("/api/screen", HTTP_GET, screenPreview);
   server.on("/api/settings", HTTP_GET, settingsState);
   postRoute("/api/settings", saveSettings);
+#if defined(UM_PACMAN) || defined(UM_INVADERS) || defined(UM_PONG)
+  postRoute("/api/play/steer", []() {   // play the face yourself: dir 0 up, 1 right, 2 down, 3 left, -1 back to the computer (what each does is up to the face)
+    const int dir = server.arg("dir").toInt();
+#if defined(UM_PONG) || defined(UM_INVADERS)
+    playSteer(dir);
+#else
+    if (face) face->steer(dir);
+#endif
+    server.send(204);
+  });
+#if defined(UM_PONG) || defined(UM_INVADERS)
+  playsocket::attach(server, playSteer);   // the same codes over a WebSocket: GET /play
+#endif
+#endif
 #ifdef UM_PACMAN
-  postRoute("/api/pacman/steer", []() {   // play Pac-Man yourself: dir 0 up, 1 right, 2 down, 3 left, -1 back to the computer
+  postRoute("/api/pacman/steer", []() {   // the old path, for a settings page that is still cached
     const int dir = server.arg("dir").toInt();
     if (face) face->steer(dir);
     server.send(204);
@@ -2302,6 +2378,9 @@ void loop() {
 #endif
     consoleLog("Ultimatrix %s settings: http://%s/ (http://%s.local/)\n", UM_MODE_NAME, WiFi.localIP().toString().c_str(), mdnsHost);
   }
+#if defined(UM_PONG) || defined(UM_INVADERS)
+  playsocket::service();   // the game controller socket is read on every pass, not only on frames
+#endif
   if ((int32_t)(now - nextFrame) >= 0) {
     uint8_t brightness = displayControl.update(*Settings::getInstance(), now, ultime::timeStatus() == timeSet,
         clockTime.getHour24() * 60 + clockTime.getMinute(), !bootDone || portalActive, face && face->handlesNight());
@@ -2345,7 +2424,7 @@ void loop() {
       mqttPixelsShown = Mqtt::instance().pixelsActive();
       const bool popup = face->alertOverridesNight();  // an alert that must show through the night clock and the birthday screen
       const bool night = displayControl.nightClockShown(face->handlesNight()) && !popup;
-      if (!btMode() && notice::active(now, displayControl.nightDimmed(face->handlesNight()) && !popup)) {  // a message sent from Home Assistant takes the panel, whatever the face; a normal one waits out the night
+      if (!btMode() && !playing(now) && notice::active(now, displayControl.nightDimmed(face->handlesNight()) && !popup)) {  // a message sent from Home Assistant takes the panel, whatever the face; a normal one waits out the night
         mqttDisplayMode = "notification";
         notice::draw(*display, now);
         noticeShown = true;
@@ -2355,7 +2434,7 @@ void loop() {
         mqttDisplayMode = "clock";
         nightClock.draw(*display, clockTime.getHour(), clockTime.getMinute(), clockTime.is24hFormat());
         nightShown = true;
-      } else if (dlna::active()) {  // a picture played from Home Assistant stays until Stop, below notices and the night clock
+      } else if (!playing(now) && dlna::active()) {  // a picture played from Home Assistant stays until Stop, below notices and the night clock
         mqttDisplayMode = "image";
         dlna::draw(*display);
         dlnaDrawn = dlnaShown = true;
@@ -2407,6 +2486,8 @@ void loop() {
     nextFrame = millis() + (face && face->animating() ? 4 : layout::frameMs);
 #elif defined(UM_SCANNER)
     nextFrame = millis() + 20;
+#elif defined(UM_PONG) || defined(UM_INVADERS)
+    nextFrame = millis() + 16;  // games: about 60 frames per second, so the movement is smooth
 #elif defined(UM_MARIO) || defined(UM_LUIGI)
     nextFrame = millis() + 33;  // smoother plumber animation at about 30 frames per second
 #else

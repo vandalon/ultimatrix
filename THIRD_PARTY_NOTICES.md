@@ -25,7 +25,7 @@ Pinned firmware dependencies and preserved licence copies:
 - Pac-Man (clockfaces/pacman): grew out of the Pac-Man clockface of the MIT-licensed Clockwise project (cw-cf-0x05
   in the Clockwise fork): the ghosts that live on the clock and leave through its floor, and the way pacman looks for food. The
   licence terms of that part are those of the Clockwise MIT licence.
-- Mario, Luigi, Goomba, Boo, Pac-Man and the ghosts are characters of Nintendo and Bandai Namco. The sprites are drawn for
+- Mario, Luigi, Goomba, Boo, Pac-Man and the ghosts, Space Invaders and Pong are characters or games of Nintendo, Bandai Namco, Taito and Atari. The sprites are drawn for
   this project from scratch; no original assets are used.
 
 The Football flip digits are derived from DejaVu Sans Condensed Bold. Retain

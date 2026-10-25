@@ -62,7 +62,7 @@ html.fs-open,html.fs-open body{overflow:hidden}
 <div class="row" id="fsrow"><button id="undo">Undo</button><button id="redo">Redo</button><button id="mirror" title="Mirror strokes left to right">Mirror</button><button id="fillshape" title="Filled rectangles">Filled</button>
 <button id="fliph">Flip ↔</button><button id="flipv">Flip ↕</button><button id="clear2" class="fs-only" hidden>Clear</button></div>
 <div class="row fs-hide"><button data-shift="-1,0">←</button><button data-shift="1,0">→</button><button data-shift="0,-1">↑</button><button data-shift="0,1">↓</button></div>
-<div class="row fs-hide"><button id="clear">Clear</button></div>
+<div class="row fs-hide"><button id="clear">Clear</button><button id="stopCanvas" title="Hand the panel back to the clock">Stop</button></div>
 </section>
 <section class="card"><h2>Saved pictures and animations</h2><div id="slots"></div><div class="paint-only">
 <div class="row"><input type="text" id="name" maxlength="15" placeholder="Name" style="width:9em"><button id="save">Save as new</button></div>
@@ -203,18 +203,20 @@ $('clear').onclick = async () => {
   } catch (e) { msg.textContent = 'Could not clear the panel: ' + e.message; }
   finally { abortPush = false; $('clear').disabled = false; }
 };
-$('stopGif').onclick = async () => {
+const stopPanel = async btn => {
   importSerial++; abortPush = true; dirty = false;  // ends a running import, then clears the panel
-  $('stopGif').disabled = true;
+  btn.disabled = true; pauseLive();
   try {
     while (busy) await new Promise(resolve => setTimeout(resolve, 30));
     await post('/api/canvas/clear');
     await post('/json/state', '{"on":false}', 'application/json');  // light off: WLED lets go of the panel
-    px.fill(0); shadow.fill(0); snapshotPending = false; playbackBusy(false);
+    px.fill(0); shadow.fill(0); render(); snapshotPending = false; playbackBusy(false);
     msg.textContent = 'Stopped. The panel is back on its face.';
   } catch (e) { msg.textContent = 'Could not stop: ' + e.message; }
-  finally { abortPush = false; $('stopGif').disabled = false; }
+  finally { abortPush = false; btn.disabled = false; }
 };
+$('stopGif').onclick = () => stopPanel($('stopGif'));
+$('stopCanvas').onclick = () => stopPanel($('stopCanvas'));
 $('undo').onclick = () => { if (undo.length) { redo.push(Uint32Array.from(px)); px = undo.pop(); render(); push(); } };
 $('redo').onclick = () => { if (redo.length) { undo.push(Uint32Array.from(px)); px = redo.pop(); render(); push(); } };
 $('mirror').onclick = e => { mirror = !mirror; e.target.classList.toggle('on', mirror); }; $('fillshape').onclick = e => { filled = !filled; e.target.classList.toggle('on', filled); };

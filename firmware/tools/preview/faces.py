@@ -13,7 +13,7 @@ import showcase  # noqa: E402  (animate() turns frames into the GIF)
 
 FIRMWARE = HERE.parent.parent
 REPO = FIRMWARE.parent
-FACES = ("home", "pacman", "mario", "luigi", "word")
+FACES = ("home", "pacman", "mario", "luigi", "word", "invaders", "pong")
 
 
 def render(face, work, extra):

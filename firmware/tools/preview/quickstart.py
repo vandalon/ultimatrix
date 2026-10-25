@@ -118,7 +118,7 @@ for i in range(70):
     out.append(im)
 
 # 4: it runs
-for n,l in zip(['home','tetris','mario','pacman','word','f1','football'],['Home Assistant','Tetris','Mario','Pac-Man','Words','Formula 1','Football']):
+for n,l in zip(['home','tetris','mario','pacman','invaders','pong','word','f1','football'],['Home Assistant','Tetris','Mario','Pac-Man','Space Invaders','Pong','Words','Formula 1','Football']):
     fr=frames(n+'.gif')
     for i in range(16):
         im,d=base(4,'Done: your clock is running')

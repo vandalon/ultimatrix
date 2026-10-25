@@ -38,6 +38,10 @@ struct Settings {
   uint8_t pacmanClockColor = 0;  // Pac-Man hours colour; 0: the face's own. With clockMinutesColor and clockShade it is packed into one byte of the record
   uint8_t clockMinutesColor = 0;  // Pac-Man minutes colour; 0: the face's own
   uint8_t clockShade = 0;  // Pac-Man background clock: 0 subtle, 1 strong
+  uint8_t arcHours = 0, arcMinutes = 0, arcScore = 0;  // Invaders and Pong: clock hours, clock minutes and score colours (pacmancolors list, 0 = the face's own); own NVS keys
+  uint8_t pongDate = 1, pongDay = 1, pongLevel = 0;     // Pong: how well the computer plays against you, 0 easiest to 8 hardest; own NVS key
+  uint8_t pongSpeed = 2;     // Pong: game speed while the computer plays, 0 slowest to 4 fastest (50 75 100 125 150 %); own NVS key
+  uint8_t pongBackdrop = 3;  // Pong: brightness of the clock behind the court, 0 off to 5 brightest; own NVS key, outside the record
   uint8_t ghostColors[4] = {};  // Pac-Man: 0 lets the face pick a contrasting pastel
   bool ballRoll = true;
   bool showRankings = true;

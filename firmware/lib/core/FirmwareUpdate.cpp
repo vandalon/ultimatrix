@@ -256,7 +256,7 @@ void FirmwareUpdate::progress(uint32_t bytes, uint32_t total) {
 }
 
 bool FirmwareUpdate::knownMode(const char *mode) {
-  static const char *const modes[] = {"home", "football", "f1", "motogp", "tetris", "word", "mario", "luigi", "pacman"};
+  static const char *const modes[] = {"home", "football", "f1", "motogp", "tetris", "word", "mario", "luigi", "pacman", "invaders", "pong"};
   for (const char *known : modes) if (mode && !strcmp(mode, known)) return true;
   return false;
 }
@@ -371,7 +371,7 @@ void FirmwareUpdate::task(void *self) {
     // Feed tasks and their stacks have already been reclaimed by service().
     std::unique_lock<std::mutex> gate(networkBudget());
 #ifdef UM_GAMEPAD
-    const bool alwaysReboot = !update._stageOnly && !bootForUpdate && gamepad::enabled();  // Bluetooth holds ~75 KB: install after a restart, which never starts it
+    const bool alwaysReboot = !update._stageOnly && !bootForUpdate && gamepad::active();  // Bluetooth holds ~75 KB: install after a restart, which never starts it
 #else
     const bool alwaysReboot = false;
 #endif

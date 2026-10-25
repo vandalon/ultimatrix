@@ -76,6 +76,20 @@ void Settings::load() {
       sportsLead = constrain(lead, 0, 120); sportsRacing = racing >= 0 && racing <= 2 ? racing : 0; sportsFav = fav != 0; sportsMax = constrain(max, 1, 12); sportsOthers = others != 0; footballOthers = fbOthers != 0; sportsHold = constrain(hold, 0, 120);
     }
   }
+  pongBackdrop = p.getUChar("pongBg", 3);
+  if (pongBackdrop > 5) pongBackdrop = 3;
+  arcHours = p.getUChar("arcHrs", 0); arcMinutes = p.getUChar("arcMin", 0); arcScore = p.getUChar("arcPts", 0);
+  if (arcHours > 10) arcHours = 0;
+  if (arcMinutes > 10) arcMinutes = 0;
+  if (arcScore > 10) arcScore = 0;
+  pongDate = p.getUChar("pongDt", 1);   // 0 hidden, 1 above the time, 2 below
+  pongDay = p.getUChar("pongDy", 1);
+  if (pongDate > 2) pongDate = 1;
+  if (pongDay > 2) pongDay = 1;
+  pongLevel = p.getUChar("pongLv", 0);
+  if (pongLevel > 8) pongLevel = 0;
+  pongSpeed = p.getUChar("pongSp", 2);
+  if (pongSpeed > 4) pongSpeed = 2;
   Record record{};
   bool valid = p.isKey("settingsV2") && p.getBytesLength("settingsV2") == sizeof(record) &&
       p.getBytes("settingsV2", &record, sizeof(record)) == sizeof(record) &&
@@ -171,6 +185,11 @@ bool Settings::save() {
     snprintf(v, sizeof(v), "%s|%s|%u|%u|%u|%u|%u|%u|%u", sportsOrder.c_str(), sportsHome.c_str(), sportsLead, sportsRacing, sportsFav ? 1 : 0, sportsMax, sportsOthers ? 1 : 0, footballOthers ? 1 : 0, sportsHold);
     p.putString("sports", v);
   }
+  if (saved) { p.putUChar("arcHrs", arcHours); p.putUChar("arcMin", arcMinutes); p.putUChar("arcPts", arcScore); }
+  if (saved) { p.putUChar("pongDt", pongDate); p.putUChar("pongDy", pongDay); }
+  if (saved) p.putUChar("pongLv", pongLevel);
+  if (saved) p.putUChar("pongSp", pongSpeed);
+  if (saved) p.putUChar("pongBg", pongBackdrop);  // and this one: the record's size must not change
   p.end();
   if (saved) { memcpy(faceOptions, options, sizeof(options)); counter()++; }
   return saved;

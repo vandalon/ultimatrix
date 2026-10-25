@@ -23,6 +23,8 @@ CLOCKS = (
     ('mario', 'Mario', 2000),
     ('luigi', 'Luigi', 2000),
     ('pacman', 'Pac-Man', 6000),
+    ('invaders', 'Space Invaders', 5000),
+    ('pong', 'Pong', 2600),
 )
 
 
@@ -112,12 +114,10 @@ def refresh(out, web_out, work, reuse):
     boot = work / 'boot' if reuse else showcase.render_boot(work)
     small_gif(boot, out / 'boot.gif', 400)
 
-    # Refresh the shorter examples too, using the same current Pac-Man/Words replay.
+    # Refresh the shorter examples too, using the same current Words replay.
     for name, face, start, end in (
         ('mario-hour', 'mario', 42000, 64000),
         ('luigi-hour', 'luigi', 42000, 64000),
-        ('pacman-refined', 'pacman', 0, 25000),
-        ('pacman-transparent-clock', 'pacman', 0, 16000),
         ('word-transitions', 'word', 19200, 35200),
     ):
         frames = clip(work / face, work, name, start, end)

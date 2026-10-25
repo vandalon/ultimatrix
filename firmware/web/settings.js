@@ -4,6 +4,7 @@ const controls = document.querySelector('#controls');
 const save = document.querySelector('#save');
 const saveBar = document.querySelector('.save-bar');
 const notice = document.querySelector('#notice');
+let invaders = false, pongSlide = false;  // the Invaders face: a tap on the controller fires
 let ownNight = false;  // Mario and Luigi paint their own night from the sun: no night schedule, only the dark-room clock
 let initial = '', busy = false, saving = false, savedSwap = false, saveTimer = 0, noticeTimer = 0;
 const field = name => form.elements.namedItem(name);
@@ -287,23 +288,39 @@ async function load() {
     document.querySelector('#nvs-banner').hidden = !(data.nvsFree < 40);
     showPin(data.pinSet);
     const racing = data.mode === 'F1' || data.mode === 'MotoGP', sporty = racing || data.mode === 'Football';
-    const pacman = data.mode === 'Pac-Man';
-    field('dither').closest('label').style.display = pacman || data.mode === 'Mario' || data.mode === 'Luigi' ? 'none' : '';  // those faces decide for themselves
+    const pacman = data.mode === 'Pac-Man', arcade = pacman || data.mode === 'Invaders' || data.mode === 'Pong';   // faces you can play from this page
+    field('dither').closest('label').style.display = arcade || data.mode === 'Mario' || data.mode === 'Luigi' ? 'none' : '';  // those faces decide for themselves
     const homeFace = data.mode === 'Home'; document.querySelector('#homeassistant').hidden = !homeFace; document.querySelector('#nav-ha').hidden = !homeFace;
     if (homeFace) { initHomeAssistant(); document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('#nav-ha').classList.add('active'); }
-    section('[data-sports]', sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || pacman); section('[data-sportfields]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', pacman);
+    section('[data-sports]', sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade); section('[data-sportfields]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', arcade);
     section('[data-football]', data.mode === 'Football'); section('[data-f1]', racing);
-    if (sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || pacman) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
-    document.querySelector('#play').hidden = data.mode !== 'Pac-Man';
+    if (sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
+    invaders = data.mode === 'Invaders'; pongSlide = data.mode === 'Pong';
+    document.querySelector('#play').hidden = !arcade;
+    if (arcade && !pacman) {   // no colours and no Bluetooth controller (yet) on these faces, and their own instructions
+      for (const node of document.querySelectorAll('[data-pacman] > :not(#play):not(#pong-opts):not(#pong-speed):not(#pong-level):not(#pong-date):not(#pong-day):not(#arc-colors):not(#arc-play-h):not(#arc-clock-h), #pad-status, #pad-power')) node.hidden = true;
+      document.querySelector('#pad-power').closest('.row').hidden = true;
+      document.querySelector('#pong-opts').hidden = data.mode !== 'Pong'; document.querySelector('#pong-speed').hidden = data.mode !== 'Pong'; document.querySelector('#pong-level').hidden = data.mode !== 'Pong';
+      document.querySelector('#play > .hint').textContent = data.mode === 'Pong'
+        ? 'Open the full-screen controller (a joystick appears wherever you touch), use the arrow keys or W S, or use a game controller. Turn the dial like the original game, by swiping up and down anywhere on the screen: your paddle (the left, orange one) follows it and stops when you stop. With the keys, up and down move it and left or right stops it. A match goes to 7 points and the score on top is yours; then, and after 20 seconds without a move, the computer players take over again.'
+        : 'Open the full-screen controller: swipe left and right anywhere to move the cannon, and every touch fires, so a second finger can fire while the first one steers. The arrow keys or A D move, the space bar fires, and so does a game controller. The clock plays again after 20 seconds without a move.';
+    }
     for (const a of document.querySelectorAll('.sidebar nav a[href="/wled"], .sidebar nav a[href="/canvas"], .sidebar nav a[href="/gifs"]')) a.hidden = !!data.btPad;   // off while the Bluetooth controller is on
     if (pacman) field('clockShade').closest('.field').hidden = true;   // this face has no background clock to dim
+    if (arcade && !pacman) {   // Invaders and Pong: the clock and the score
+      document.querySelector('#arc-colors').hidden = false; document.querySelector('#pong-date').hidden = data.mode !== 'Pong'; document.querySelector('#pong-day').hidden = data.mode !== 'Pong';
+      { const score = field('arcScore').closest('.field'), p = data.mode === 'Pong'; score.hidden = p; score.style.display = p ? 'none' : ''; score.querySelector('select').disabled = p; field('arcHours').closest('.field').querySelector('label').textContent = p ? 'Hours colour (left player)' : 'Clock hours colour'; field('arcMinutes').closest('.field').querySelector('label').textContent = p ? 'Minutes colour (right player)' : 'Clock minutes colour'; } document.querySelector('#arc-play-h').hidden = false; document.querySelector('#arc-clock-h').hidden = false;
+      for (const name of ['arcHours', 'arcMinutes', 'arcScore']) field(name).replaceChildren(...['Default', 'Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'].map((label, value) => new Option(label, value)));
+    }
     if (pacman) {
       const colours = ['Default', 'Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'];
       for (const name of ['ghost1Color', 'ghost2Color', 'ghost3Color', 'ghost4Color', 'dotColor', 'pacmanClockColor', 'clockMinutesColor']) field(name).replaceChildren(...colours.map((label, value) => new Option(label, value)));
     }
     if (data.mode === 'MotoGP') document.querySelector('[data-f1] .field > label').textContent = 'Favourite riders';
     if (racing) form.querySelector('[name=timeStyle] option[value="0"]').remove();
+    { const lv = field('pongLevel'), out = document.querySelector('#pong-level-out'); if (lv && !lv.dataset.wired) { lv.dataset.wired = '1'; lv.addEventListener('input', () => { out.textContent = +lv.value + 1; }); } }
     Object.entries(data.settings).forEach(([name, value]) => { const input = field(name); if (!input) return; if (input.tagName === 'SELECT' && ![...input.options].some(o => o.value === String(value))) input.add(new Option(value, value)); if (input.type === 'checkbox') input.checked = Boolean(value); else input.value = name === 'use24h' ? (value ? '1' : '0') : name === 'timeStyle' && racing && Number(value) === 0 ? 2 : value; });
+    { const lv = field('pongLevel'); if (lv) document.querySelector('#pong-level-out').textContent = +lv.value + 1; }
     loadBirthdays(field('birthdays').value);
     if (data.settings.sportsOrder !== undefined) { document.querySelector('#sports').hidden = false; document.querySelector('#nav-sports').hidden = false; sportsInit(data.settings); }
     document.querySelector('#sun-hint').textContent = data.sunTimes || '';
@@ -455,7 +472,7 @@ async function refreshFirmware() {
     if (state.ready) { busy = true; controls.disabled = true; save.disabled = true; message('Firmware verified. Your clock is restarting.'); setTimeout(reconnect, 2500); updatePolling = false; }
     else if (state.lowMemory && updatePolling) { updatePolling = false; document.querySelector('#firmware-update').disabled = false; offerReboot(state.message).catch(error => message(error.message, true)); }
     else if (state.busy) { updatePolling = true; setTimeout(refreshFirmware, 1200); }
-    else updatePolling = false;
+    else { if (updatePolling && state.failed) message(state.message, true); updatePolling = false; }   // the banner goes away when it fails: say why
   } catch (_) { if (updatePolling) setTimeout(refreshFirmware, 1500); }
 }
 let updateMode = '';
@@ -1002,10 +1019,46 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
   const pad = document.querySelector('#pad'), play = document.querySelector('#play');
   if (!pad) return;
   let busy = false, queued = null;
+  // Pong and Invaders take their moves over one open WebSocket (/play); until it is up, or when it cannot be opened
+  // (Pac-Man has none), every move is a POST as before. Paddle positions (200..300) are sent at most every 16 ms, newest only.
+  let ws = null, wsUp = false, wsDead = false, wsRetry = 0, posPending = null, posTimer = 0, posAt = 0;
+  function socketOpen() {
+    if (ws || wsDead || !window.WebSocket) return;
+    let opened = false;
+    try { ws = new WebSocket('ws://' + location.host + '/play'); } catch (_) { wsDead = true; return; }
+    ws.onopen = () => {
+      opened = true;
+      try { const t = sessionStorage.getItem('umToken'); if (t) ws.send('t' + t); } catch (_) { /* no token: only matters with a PIN */ }
+      wsUp = true; wsRetry = 0;
+    };
+    ws.onclose = ws.onerror = () => {
+      const was = ws; ws = null; wsUp = false;
+      if (was && was.readyState < 2) { try { was.close(); } catch (_) { /* gone */ } }
+      if (!opened) { if (++wsRetry >= 3) wsDead = true; }   // never opened: the face has no socket, or the clock is busy; stop after a few tries
+      if (!wsDead) setTimeout(socketOpen, 1000);
+    };
+  }
+  function socketSend(dir) {
+    if (dir >= 200) {
+      posPending = dir;
+      const wait = posAt + 16 - performance.now();
+      if (wait <= 0) flushPos(); else if (!posTimer) posTimer = setTimeout(flushPos, wait);
+      return;
+    }
+    flushPos();   // a pending position goes first, so the order is kept
+    ws.send(String(dir));
+  }
+  function flushPos() {
+    posTimer = 0;
+    if (posPending === null || !wsUp) return;
+    ws.send(String(posPending)); posPending = null; posAt = performance.now();
+  }
   async function steer(dir) {
+    if (!wsDead && !ws) socketOpen();
+    if (wsUp) { try { socketSend(+dir); return; } catch (_) { /* fall back to a POST */ } }
     if (busy) { queued = dir; return; }
     busy = true;
-    try { await fetch('/api/pacman/steer', { method: 'POST', body: new URLSearchParams({ dir }) }); } catch (_) { /* the next move tries again */ }
+    try { await fetch('/api/play/steer', { method: 'POST', body: new URLSearchParams({ dir }) }); } catch (_) { /* the next move tries again */ }
     busy = false;
     if (queued !== null) { const next = queued; queued = null; steer(next); }
   }
@@ -1020,28 +1073,69 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
   const ctrl = document.querySelector('#ctrl'), base = document.querySelector('#ctrl-base'), cknob = document.querySelector('#ctrl-knob');
   if (ctrl) {
     let id = null, ox = 0, oy = 0, cdir = null;
+    const sens = document.querySelector('#ctrl-sens');   // 1 to 5, kept in this browser
+    try { sens.value = localStorage.getItem('ctrlSens') || '3'; } catch (_) { /* the default stays */ }
+    sens.addEventListener('input', () => { try { localStorage.setItem('ctrlSens', sens.value); } catch (_) { /* not kept */ } });
+    const gain = () => [1, 1.5, 2.2, 3.2, 4.5][(+sens.value || 3) - 1];
     const open = (on) => { ctrl.hidden = !on; document.body.style.overflow = on ? 'hidden' : ''; if (!on) { id = null; base.hidden = true; } };
     document.querySelector('#ctrl-open').addEventListener('click', () => open(true));
     document.querySelector('#ctrl-close').addEventListener('click', () => open(false));
     document.querySelector('#ctrl-ai').addEventListener('click', () => { buzz(25); steer(-1); });
     document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !ctrl.hidden) open(false); });
-    const move = (event) => {   // the stick trails the finger, so the direction is the way the finger is moving, wherever it is on the screen
+    // Pong: a dial like the original paddle controller. Turning it (going round it with a finger, anywhere on the screen) moves the paddle; the angle is kept between grips.
+    const dial = document.createElement('div'), mark = document.createElement('div');
+    dial.style.cssText = 'position:absolute;left:50%;top:44%;width:240px;height:240px;margin:-120px 0 0 -120px;border-radius:50%;border:3px solid rgba(255,255,255,.55);background:radial-gradient(circle,rgba(255,255,255,.14),rgba(255,255,255,.04));pointer-events:none;display:none';
+    mark.style.cssText = 'position:absolute;left:50%;top:10px;width:10px;height:44px;margin-left:-5px;border-radius:5px;background:var(--accent,#e8b400)';
+    dial.append(mark); ctrl.append(dial);
+    let dialAngle = 0, lastY = 0, lastX = 0;   // degrees, -120 to 120
+    // Invaders: the same, sideways. A swipe left or right moves a slider (the cannon); any touch fires
+    const track = document.createElement('div'), puck = document.createElement('div');
+    track.style.cssText = 'position:absolute;left:8%;right:8%;top:44%;height:8px;margin-top:-4px;border-radius:4px;background:rgba(255,255,255,.3);pointer-events:none;display:none';
+    puck.style.cssText = 'position:absolute;top:50%;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;background:var(--accent,#e8b400);box-shadow:0 2px 8px rgba(0,0,0,.5)';
+    track.append(puck); ctrl.append(track);
+    const hint = ctrl.querySelector('p');
+    const showDial = () => {
+      hint.textContent = invaders ? 'Swipe left and right to move. Tap to shoot.' : pongSlide ? 'Swipe up and down to turn the dial' : 'Touch anywhere and drag';
+      dial.style.display = pongSlide ? 'block' : 'none'; dial.style.transform = 'rotate(' + dialAngle + 'deg)';
+      track.style.display = invaders ? 'block' : 'none'; puck.style.left = Math.round((dialAngle + 120) / 240 * 100) + '%';
+    };
+    new MutationObserver(showDial).observe(ctrl, { attributes: true, attributeFilter: ['hidden'] });
+    const turn = (event) => {   // a swipe up or down turns the dial, wherever it is on the screen
+      const d = (event.clientY - lastY) * 240 / (innerHeight * 0.5); lastY = event.clientY;
+      dialAngle = Math.max(-120, Math.min(120, dialAngle + d * gain()));   // stops exactly at the ends, so reversing reacts at once
+      dial.style.transform = 'rotate(' + dialAngle + 'deg)';
+      const pct = Math.round((dialAngle + 120) / 240 * 100);
+      if (pct !== cdir) { cdir = pct; if (pct % 4 === 0) buzz(6); steer(200 + pct); }
+    };
+    const slide = (event) => {   // a swipe left or right moves the slider, wherever it is on the screen
+      const d = (event.clientX - lastX) * 240 / (innerWidth * 0.6); lastX = event.clientX;
+      dialAngle = Math.max(-120, Math.min(120, dialAngle + d * gain()));
+      puck.style.left = Math.round((dialAngle + 120) / 240 * 100) + '%';
+      const pct = Math.round((dialAngle + 120) / 240 * 100);
+      if (pct !== cdir) { cdir = pct; if (pct % 4 === 0) buzz(6); steer(200 + pct); }
+    };
+    const move = (event) => {   // the stick
+      if (pongSlide) return turn(event);
+      if (invaders) return slide(event);
       let dx = event.clientX - ox, dy = event.clientY - oy;
-      const length = Math.hypot(dx, dy), reach = 40;
+      const length = Math.hypot(dx, dy), reach = 40 / gain();
       if (length > reach) { ox += dx * (length - reach) / length; oy += dy * (length - reach) / length; dx = event.clientX - ox; dy = event.clientY - oy; base.style.left = ox + 'px'; base.style.top = oy + 'px'; }
       cknob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
-      if (Math.hypot(dx, dy) < 22) return;
+      if (Math.hypot(dx, dy) < 22 / gain()) return;
       const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0);
       if (dir !== cdir) { cdir = dir; buzz(12); steer(dir); }
     };
     ctrl.addEventListener('pointerdown', (event) => {
-      if (id !== null || event.target.closest('button')) return;
+      if (event.target.closest('button')) return;
+      if (invaders) { event.preventDefault(); buzz(15); steer(4); }   // every touch fires, also a second finger while the first one steers
+      if (id !== null) return;
       event.preventDefault(); id = event.pointerId; ctrl.setPointerCapture(id);
-      ox = event.clientX; oy = event.clientY; cdir = null; cknob.style.transform = '';
+      ox = event.clientX; oy = event.clientY; cdir = null; cknob.style.transform = ''; if (pongSlide) { lastY = event.clientY; showDial(); return; }
+      if (invaders) { lastX = event.clientX; showDial(); return; }
       base.style.left = ox + 'px'; base.style.top = oy + 'px'; base.hidden = false; buzz(8);
     });
     ctrl.addEventListener('pointermove', (event) => { if (event.pointerId === id) move(event); });
-    const end = (event) => { if (event.pointerId !== id) return; id = null; base.hidden = true; };
+    const end = (event) => { if (event.pointerId !== id) return; if (pongSlide || (invaders && cdir !== null)) { steer(200 + Math.round((dialAngle + 120) / 240 * 100)); /* the final place once more, in case the last move was dropped */ } id = null; base.hidden = true; };
     ctrl.addEventListener('pointerup', end); ctrl.addEventListener('pointercancel', end);
   }
   // A Bluetooth controller paired with the clock itself: status, Pair (a minute of listening) and Forget.
@@ -1070,6 +1164,7 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
   }
   const keys = { ArrowUp: 0, ArrowRight: 1, ArrowDown: 2, ArrowLeft: 3, w: 0, d: 1, s: 2, a: 3, W: 0, D: 1, S: 2, A: 3 };
   document.addEventListener('keydown', (event) => {
+    if (invaders && event.key === ' ' && !play.hidden && !/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(document.activeElement.tagName)) { event.preventDefault(); steer(4); return; }
     if (play.hidden || event.repeat || event.ctrlKey || event.metaKey || !(event.key in keys) || /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
     event.preventDefault(); steer(keys[event.key]);
   });

@@ -40,6 +40,8 @@ body:
         - Mario
         - Luigi
         - Pac-Man
+        - Space Invaders
+        - Pong
         - Scanner / Bridge
         - Not face related
     validations:
