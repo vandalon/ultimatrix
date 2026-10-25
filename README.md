@@ -29,7 +29,7 @@ There are nine clock faces. Each has its own firmware image, so the clock runs o
 | <img src="docs/previews/word.gif" alt="Words clock" width="128" height="128"> | Words | `word` | The time in 16 languages, with a weekday, date and minute bar. Choose letter shuffle, letter lift, pixel dissolve, soft wipe, all four in rotation, or no transition. |
 | <img src="docs/previews/mario.gif" alt="Mario clock" width="128" height="128"> | Mario | `mario` | Mario in scrolling worlds, with clock blocks showing the time. |
 | <img src="docs/previews/luigi.gif" alt="Luigi clock" width="128" height="128"> | Luigi | `luigi` | A Luigi version of the scrolling-world clock. |
-| <img src="firmware/web/faces/pacman.png" alt="Pac-Man clock" width="128" height="128"> | Pac-Man | `pacman` | A game that plays itself in a maze of 8 by 7 lanes with the clock box in the middle: the level top left, the score bottom left, the spare lives bottom right and the time on the right. It has a score (10 a dot, 50 a power pellet, 200 and doubling for the ghosts) and a life more every 6000 points, up to three spares. Four ghosts wait in the box, which dims whatever they sit over, and leave through its floor. Every level gets a new maze that is as different from the last as it can be. Border, dots, hours and minutes colour and each ghost have colour choices. |
+| <img src="firmware/web/faces/pacman.png" alt="Pac-Man clock" width="128" height="128"> | Pac-Man | `pacman` | A game that plays itself in a maze of 8 by 7 lanes with the clock box in the middle: the level top left, the score bottom left, the spare lives bottom right and the time on the right. It has a score (10 a dot, 50 a power pellet, 200 and doubling for the ghosts) and a life more every 6000 points, up to three spares. Four ghosts wait in the box, which dims whatever they sit over, and leave through its floor. Every level gets a new maze that is as different from the last as it can be. Pac-Man plays like a novice, casual, good or expert player, picked for each new game. You can take over from the settings page (see [Playing Pac-Man yourself](#playing-pac-man-yourself)). Border, dots, hours and minutes colour and each ghost have colour choices. |
 
 Football starts with Eredivisie and KNVB Cup selected, and the Dutch national team as a favourite. Competitions are grouped by country, and favourite teams have a searchable picker.
 
@@ -142,7 +142,7 @@ Set **Network → Clock name** to identify each clock in MQTT and WLED, for exam
 
 Open the clock's address from a phone or computer on the same network. Most changes save automatically and apply while the clock runs. Swapping blue and green needs **Save & restart**. Changing Wi-Fi or installing a face also restarts the clock.
 
-The page has controls for brightness, rotation, time format, timezone, time server and the current face. Sports faces add page timing and favourites. Words adds language and transition choices. Mario and Luigi add the world picker. Pac-Man adds its colour controls; the default clock colour keeps off-white hours and green minutes.
+The page has controls for brightness, rotation, time format, timezone, time server and the current face. Sports faces add page timing and favourites. Words adds language and transition choices. Mario and Luigi add the world picker. Pac-Man adds its colour controls (the clock is yellow by default) and the Play yourself card.
 
 The page and its assets are stored in firmware flash. A new setting only appears after installing firmware that contains it. If an updated page still looks old, reload it without using the browser cache.
 
@@ -161,6 +161,17 @@ Most faces can switch to a dim numeric clock during chosen hours, from sunset to
 Mario and Luigi scenes follow sunrise and sunset rather than the night schedule. A dark room can switch them to the dim numeric clock.
 
 Changes tied to sunrise and sunset need a detected location. Automatic brightness and the night schedule are off by default.
+
+### Playing Pac-Man yourself
+
+With the Pac-Man face, the Clock mode card on the settings page has a **Play yourself** card. Any move takes over from the computer; Pac-Man keeps going and takes your turn at the next crossing. The clock plays again after 20 seconds without a move, or at once when you press **AI**.
+
+- **Keys:** arrow keys or W A S D.
+- **Touch:** **Open full-screen controller** fills the screen. Put a finger down anywhere and drag: a joystick appears under your finger and follows it, so the direction is simply the way your finger moves. Letting go keeps Pac-Man going. Android phones vibrate briefly; iPhones do not give feedback while dragging.
+- **A game controller on your phone or computer:** pair it with that device (Bluetooth or USB), press a button once so the browser sees it, then use the d-pad or left stick. Start hands control back to the clock. This costs the clock nothing.
+- **A Bluetooth LE controller paired with the clock itself (experimental, off by default):** turn **Bluetooth** on in the card (this restarts the clock), press **Pair controller** (the clock restarts into Bluetooth), switch the controller to pairing mode and keep it within a metre or two. A paired controller connects again whenever it is switched on. Only Bluetooth LE controllers work (for example Xbox Series controllers on recent firmware, which I have not tried with this firmware). PlayStation, Switch and most Android gamepads use classic Bluetooth and do not. This part has never been tried with a real controller.
+
+Bluetooth needs about 75 KB of the clock's memory, so it only runs while a controller is paired (or for about 70 seconds after you press Pair); with the setting on and nothing paired, the clock uses no extra memory. While it runs, WLED, Canvas, Animations, DLNA, notifications and the telnet console are switched off; Home Assistant MQTT keeps working. A firmware update restarts the clock first, so the download has the whole memory. Forgetting the controller restarts the clock back to normal.
 
 ### Control from Home Assistant (MQTT, optional)
 
@@ -335,7 +346,7 @@ These images were rendered from the current code on 14 October 2026. They help r
 
 As of 19 October 2026 (v0.6.1), the firmware builds with ESP-IDF and Arduino as a component. The shared runtime, local setup and settings, brightness and night display, signed updater, nine faces, Home Assistant and MQTT control, the WLED overlay, Canvas and GIF saving, picture notifications and the Storage page are implemented. The drawing and feed code are still being cleaned up.
 
-The release workflow builds all nine faces, and the v0.6.1 release built successfully. A build does not mean every face has been checked on a panel after every change. The recent Words transitions and Pac-Man changes have been checked in native previews and browser mocks; the latest Pac-Man clock-colour change has not had a firmware build or device check.
+The release workflow builds all nine faces, and the v0.6.1 release built successfully. A build does not mean every face has been checked on a panel after every change. The recent Words transitions have been checked in native previews and browser mocks. Pac-Man is now the former Pac-Man Classic (the older random-maze Pac-Man is gone) and has been flashed and run on a panel, but its Bluetooth controller support has not been tried with a real controller.
 
 Football and Home have had device checks, including feeds, saved settings, telnet, picture notifications, GIF search, the display quality levels and the Storage page. A clock has updated itself over Wi-Fi from a GitHub release. F1 has had a short device check of memory use, update checking and its cache.
 
