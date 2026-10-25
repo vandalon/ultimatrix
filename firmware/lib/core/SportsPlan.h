@@ -105,17 +105,22 @@ inline const char *decide(const Events (&events)[SPORTS], time_t now, const Conf
 // events that are on now are over (hold included). True when the log changed. A switch under way (the old image still runs
 // for a minute) is not mistaken for it.
 inline bool noticeManual(Log &log, const Events (&events)[SPORTS], time_t now, const Config &cfg, const char *current) {
-  if (!log.target[0] || !strcmp(current, log.target) || !strcmp(current, log.seen) || (log.last && now >= log.last && now - log.last < 600)) return false;
-  strlcpy(log.seen, current, sizeof(log.seen));
-  log.pausedUntil = 0;
-  // Chosen by hand, but it is the very sport the clock would pick now: nothing to override, and it goes home after the event like any other switch
+  if (!log.target[0] || !strcmp(current, log.target) || (log.last && now >= log.last && now - log.last < 600)) return false;
+  // Chosen by hand, but it is the very sport the clock would pick now (also when an earlier version paused for it): nothing to override,
+  // and it goes home after the event like any other switch
   const int here = sportOfMode(current);
   for (uint8_t i = 0; i < cfg.orderCount; ++i) {
     if (!wanted(events[cfg.order[i]], now, cfg, false)) continue;
-    if (cfg.order[i] == here) strlcpy(log.target, current, sizeof(log.target));
+    if (cfg.order[i] == here) {
+      strlcpy(log.target, current, sizeof(log.target)); strlcpy(log.seen, current, sizeof(log.seen));
+      log.pausedUntil = 0;
+      return true;
+    }
     break;
   }
-  if (!strcmp(log.target, current)) return true;
+  if (!strcmp(current, log.seen)) return false;
+  strlcpy(log.seen, current, sizeof(log.seen));
+  log.pausedUntil = 0;
   for (uint8_t i = 0; i < cfg.orderCount; ++i) {
     const Events &e = events[cfg.order[i]];
     for (uint8_t k = 0; k < e.count; ++k) {
