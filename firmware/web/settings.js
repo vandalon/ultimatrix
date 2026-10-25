@@ -75,7 +75,7 @@ async function sportsPlan() {
   const on = r => r.l || (d.now >= r.s - d.lead && d.now < r.e);
   const lines = rows.filter(r => r.e + d.hold > d.now).map(r => {
     const from = r.s - d.lead, until = r.e;
-    const rival = rows.find(o => o !== r && o.rank < r.rank && (o.l || (o.s - d.lead < until && o.e > from)));
+    const rival = rows.find(o => o !== r && o.rank < r.rank && o.s - d.lead < until && Math.max(o.e, o.l ? d.now : 0) > from);  // only one that is on at the same time
     let status;
     const finished = r.e <= d.now && !r.l;
     const next = finished && rows.find(o => o.id === r.id && o.s >= r.e && o.s - r.e <= d.bridge);
