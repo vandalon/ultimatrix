@@ -279,7 +279,7 @@ void FirmwareUpdate::task(void *self) {
 #ifdef UM_HOME
     const bool alwaysReboot = !bootForUpdate;  // the Home face keeps too much live data to download beside it: always install after a restart
 #elif defined(UM_GAMEPAD)
-    const bool alwaysReboot = !bootForUpdate && gamepad::enabled();  // Bluetooth holds ~75 KB: install after a restart, which never starts it
+    const bool alwaysReboot = !bootForUpdate && gamepad::active();  // Bluetooth holds ~75 KB: install after a restart, which never starts it
 #else
     const bool alwaysReboot = false;
 #endif
