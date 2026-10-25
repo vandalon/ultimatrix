@@ -26,7 +26,7 @@ idf_build_set_property(COMPILE_DEFINITIONS "WEBSERVER_MAX_LINE_WAIT=2000" APPEND
 idf_build_set_property(COMPILE_DEFINITIONS "WEBSERVER_MAX_HEADER_WAIT=3000" APPEND)
 # A browser also opens sockets it sends nothing on (speculative connections). The server is single threaded, so each one blocks every other
 # request for HTTP_MAX_DATA_WAIT (5 s, a hard #define in the library): a page switch is sometimes five seconds slow. Drop silent clients sooner.
-idf_build_set_property(COMPILE_DEFINITIONS "HTTP_MAX_DATA_WAIT=750" APPEND)
+idf_build_set_property(COMPILE_DEFINITIONS "HTTP_MAX_DATA_WAIT=250" APPEND)
 project(ultimatrix)
 # The library defines HTTP_MAX_DATA_WAIT without #ifndef: make it overridable (idempotent, runs after the component manager has fetched it).
 set(_ws_header "${CMAKE_CURRENT_LIST_DIR}/managed_components/espressif__arduino-esp32/libraries/WebServer/src/WebServer.h")
