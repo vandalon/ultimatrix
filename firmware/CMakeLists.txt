@@ -24,7 +24,20 @@ set(PROJECT_VER "${ULTIMATRIX_VERSION}-${ULTIMATRIX_MODE}")
 # page, a phone app and the editor open together). Keep both waits well under the watchdog.
 idf_build_set_property(COMPILE_DEFINITIONS "WEBSERVER_MAX_LINE_WAIT=2000" APPEND)
 idf_build_set_property(COMPILE_DEFINITIONS "WEBSERVER_MAX_HEADER_WAIT=3000" APPEND)
+# A browser also opens sockets it sends nothing on (speculative connections). The server is single threaded, so each one blocks every other
+# request for HTTP_MAX_DATA_WAIT (5 s, a hard #define in the library): a page switch is sometimes five seconds slow. Drop silent clients sooner.
+idf_build_set_property(COMPILE_DEFINITIONS "HTTP_MAX_DATA_WAIT=750" APPEND)
 project(ultimatrix)
+# The library defines HTTP_MAX_DATA_WAIT without #ifndef: make it overridable (idempotent, runs after the component manager has fetched it).
+set(_ws_header "${CMAKE_CURRENT_LIST_DIR}/managed_components/espressif__arduino-esp32/libraries/WebServer/src/WebServer.h")
+if(EXISTS "${_ws_header}")
+    file(READ "${_ws_header}" _ws_text)
+    string(FIND "${_ws_text}" "#ifndef HTTP_MAX_DATA_WAIT" _ws_done)
+    if(_ws_done EQUAL -1)
+        string(REGEX REPLACE "#define HTTP_MAX_DATA_WAIT +5000" "#ifndef HTTP_MAX_DATA_WAIT\n#define HTTP_MAX_DATA_WAIT 5000\n#endif" _ws_text "${_ws_text}")
+        file(WRITE "${_ws_header}" "${_ws_text}")
+    endif()
+endif()
 # Static RAM budget per face: what a face reserves at link time is missing from the heap in every boot, the update-only boot included.
 if(TARGET ultimatrix.elf)
     set(ULTIMATRIX_STATIC_RAM_KB 60 CACHE STRING "Static RAM budget (KB) per face")
