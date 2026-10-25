@@ -1090,18 +1090,22 @@ static void mqttCheckUpdate() { firmwareUpdate.checkNow(false); }
 static void mqttInstallUpdate() { firmwareUpdate.request(); }
 
 // The Face select in Home Assistant: the same signed install as the settings page, started by an explicit choice
-static void mqttSwitchFace(const char *mode) {
-  if (!FirmwareUpdate::knownMode(mode)) return;
-  if (firmwareUpdate.activateStaged(mode)) { consoleLog("[Face] Switching to %s from the spare slot\n", mode); return; }  // prepared ahead of time: only a restart
-  const bool accepted = firmwareUpdate.request(mode, false);
+// `force`: install even while a live match or session is running (the sports switch leaves it on purpose). True when the switch started.
+static bool switchFace(const char *mode, bool force) {
+  if (!FirmwareUpdate::knownMode(mode)) return false;
+  if (firmwareUpdate.activateStaged(mode)) { consoleLog("[Face] Switching to %s from the spare slot\n", mode); return true; }  // prepared ahead of time: only a restart
+  const bool accepted = firmwareUpdate.request(mode, force);
   FirmwareUpdate::Status status; firmwareUpdate.status(status);
   if (!accepted && status.lowMemory) {  // too little memory with this face running: restart first and install before the feeds start
     consoleLog("[MQTT] Switching face to %s needs a restart first\n", mode);
     firmwareUpdate.scheduleAfterReboot(mode);
     restartAt = millis() + 1000;
+    return true;
   } else if (!accepted) consoleLog("[MQTT] Face switch refused: %s\n", status.message);
   else consoleLog("[MQTT] Switching face to %s\n", mode);
+  return accepted;
 }
+static void mqttSwitchFace(const char *mode) { switchFace(mode, false); }
 
 static void mqttUpdateInfo(Mqtt::UpdateInfo &out) {
   FirmwareUpdate::Status status; firmwareUpdate.status(status);
@@ -1279,7 +1283,7 @@ static void sportsSwitch(uint32_t now) {
           sportsplan::noteSwitch(log, wall, plan.home);
           saveLog();
           consoleLog("[Sports] nothing is on: switching to the home face %s\n", plan.home);
-          mqttSwitchFace(plan.home);
+          switchFace(plan.home, true);
           return;
         }
       }
@@ -1288,10 +1292,11 @@ static void sportsSwitch(uint32_t now) {
   const char *target = sportsplan::decide(events, wall, plan, log, UM_MODE_ID);
   if (!target) { sportsStageAhead(now, wall, plan, events, log); return; }
   if (!FirmwareUpdate::knownMode(target)) return;
-  sportsplan::noteSwitch(log, wall, target);  // counted before the install: a refused one is not retried for the minimum gap
+  const sportsplan::Log before = log;
+  sportsplan::noteSwitch(log, wall, target);
   saveLog();
   consoleLog("[Sports] switching to %s\n", target);
-  mqttSwitchFace(target);
+  if (!switchFace(target, true)) { log = before; saveLog(); }  // refused (busy, no memory): not counted, tried again in 15 seconds
 }
 
 // Settings > Sports > Prepare a face now: the same staging the clock does by itself ahead of an event
