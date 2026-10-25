@@ -383,7 +383,7 @@ async function refreshFirmware() {
     if (state.ready) { busy = true; controls.disabled = true; save.disabled = true; message('Firmware verified. Your clock is restarting.'); setTimeout(reconnect, 2500); updatePolling = false; }
     else if (state.lowMemory && updatePolling) { updatePolling = false; document.querySelector('#firmware-update').disabled = false; offerReboot(state.message).catch(error => message(error.message, true)); }
     else if (state.busy) { updatePolling = true; setTimeout(refreshFirmware, 1200); }
-    else updatePolling = false;
+    else { if (updatePolling && state.failed) message(state.message, true); updatePolling = false; }   // the banner goes away when it fails: say why
   } catch (_) { if (updatePolling) setTimeout(refreshFirmware, 1500); }
 }
 let updateMode = '';
