@@ -26,6 +26,11 @@ are ready. A successful build does not establish hardware or live-feed reliabili
   with the clock box in the middle; it replaced an older arcade-style Pac-Man, and the old `pacmanclassic` mode no longer exists.
   The computer player plays at a skill picked for each game (novice to expert). `Clockface::steer(dir)` (0 up, 1 right, 2 down, 3 left, -1 back
   to the computer) takes a human move from `POST /api/pacman/steer`, the keys and the touch controller on the settings page.
+- Space Invaders (`clockfaces/invaders`) and Pong (`clockfaces/pong`) are feedless faces that play themselves; `steer(dir)` takes a human
+  move (Invaders: left/right/up for fire/down for stop; Pong: up/down/stop). Moves arrive over `POST /api/play/steer` or the `/play`
+  WebSocket (`lib/core/PlaySocket`, text frames, first frame `t<token>` when an admin PIN is set). While someone steers, `main.cpp`
+  holds back notices, update checks, MQTT state/camera and the live preview until 20 s after the last move, and the display loop
+  runs at a 16 ms frame pace. Shared drawing: `lib/faces/BoldFont.h`, `FaceKit` View.fade.
 - Tetris is a build with no feeds: the falling-piece clock (time and date) with the same runtime, settings page
   and previews. It is built the way Football and F1 were reshaped: `lib/tetris` holds const data and layout functions,
   `TetrisScreens` decides what falls when and fills a fixed-size `Frame`, `TetrisRenderer` paints a `Frame`, and the
