@@ -1129,10 +1129,10 @@ uint8_t MatrixPanel_I2S_DMA::applyGain(uint8_t brt)
     return brt;
   }
   unsigned gain = brt * 256u / floor_;  // 8.8
-  // The gain stops at 1/8: below that the dimmest content (the night clock) would round to nothing, so the window narrows again,
+  // The gain stops at 1/16: below that the dimmest content (the night clock) would round to nothing, so the window narrows again,
   // but never below half the floor (4 clocks in the narrowest plane): at 1 or 2 clocks the plane weights drift and white turns yellow.
   // The lowest brightness settings therefore all give the same dimming, except for the red night clock (m_deepDim): it needs the dimmest output.
-  constexpr unsigned kMinGain = 32;
+  constexpr unsigned kMinGain = 16;  // 1/16: the window narrows later, short pulses lose red-vs-green/blue light unevenly and greys turn pink around 6 %
   uint8_t window = floor_;
   if (gain < kMinGain) { gain = kMinGain; window = (uint8_t)(brt * 256u / kMinGain); if (!m_deepDim) window = std::max<uint8_t>(window, floor_ / 2u); }
   const int depth = m_cfg.getPixelColorDepthBits();
@@ -1140,6 +1140,7 @@ uint8_t MatrixPanel_I2S_DMA::applyGain(uint8_t brt)
   const unsigned max_val = (1u << depth) - 1;
   for (int v = 0; v < 256; v++) {
     unsigned out = (lumConvTab_12bit[v] * gain + (1u << (shift - 1))) >> shift;
+    if (v && !out) out = 1;  // dim content must not round to nothing at 1/16
     g_gainTable[v] = out > max_val ? max_val : out;
   }
   bcmMonotonic(g_gainTable, depth, lsbMsbTransitionBit);

@@ -76,6 +76,8 @@ void Settings::load() {
       sportsLead = constrain(lead, 0, 120); sportsRacing = racing >= 0 && racing <= 2 ? racing : 0; sportsFav = fav != 0; sportsMax = constrain(max, 1, 12); sportsOthers = others != 0; footballOthers = fbOthers != 0; sportsHold = constrain(hold, 0, 120); sportsBridge = constrain(bridge, 0, 240);
     }
   }
+  nbaTeams = p.getString("nbaTeams", "");
+  if (nbaTeams.length() > 60) nbaTeams = "";
   pongBackdrop = p.getUChar("pongBg", 3);
   if (pongBackdrop > 5) pongBackdrop = 3;
   arcHours = p.getUChar("arcHrs", 0); arcMinutes = p.getUChar("arcMin", 0); arcScore = p.getUChar("arcPts", 0);
@@ -189,6 +191,7 @@ bool Settings::save() {
   if (saved) { p.putUChar("pongDt", pongDate); p.putUChar("pongDy", pongDay); }
   if (saved) p.putUChar("pongLv", pongLevel);
   if (saved) p.putUChar("pongSp", pongSpeed);
+  if (saved) p.putString("nbaTeams", nbaTeams);
   if (saved) p.putUChar("pongBg", pongBackdrop);  // and this one: the record's size must not change
   p.end();
   if (saved) { memcpy(faceOptions, options, sizeof(options)); counter()++; }

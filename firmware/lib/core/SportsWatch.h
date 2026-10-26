@@ -20,6 +20,7 @@ class SportsWatch {
       bool othersFav = true;    // Football: also each favourite's next match, wherever it is played
       char leagues[420] = "";   // Football: ESPN league codes, comma separated (Settings footballLeagues)
       char teams[420] = "";     // Football: "id:ABBR:n" entries, comma separated (Settings footballTeams)
+      char nbaTeams[64] = "";   // NBA: favourite teams as abbreviations, comma separated (Settings nbaTeams)
     };
     static SportsWatch &instance();
     void configure(const Config &cfg);  // starts, restarts or stops the task as needed
@@ -33,6 +34,7 @@ class SportsWatch {
     time_t refreshF1(const Config &cfg, time_t now);
     time_t refreshMotoGp(const Config &cfg, time_t now);
     time_t refreshFootball(const Config &cfg, time_t now);
+    time_t refreshNba(const Config &cfg, time_t now);
     void publish(uint8_t sport, const sportsplan::Events &found);
     SemaphoreHandle_t _lock = nullptr;
     sportsplan::Events _events[sportsplan::SPORTS];

@@ -57,7 +57,8 @@ function timezoneMode() {
   document.querySelector('#timezone-field').style.opacity = auto ? 0.45 : 1;
 }
 // Sports: which sports may take the panel, in priority order (hidden field sportsOrder, "f1,football")
-const SPORTS = [['f1', 'F1'], ['motogp', 'MotoGP'], ['football', 'Football']];
+const SPORTS = [['f1', 'F1'], ['motogp', 'MotoGP'], ['football', 'Football'], ['nba', 'NBA']];
+const NBA_TEAMS = [['ATL', 'Atlanta Hawks'], ['BOS', 'Boston Celtics'], ['BKN', 'Brooklyn Nets'], ['CHA', 'Charlotte Hornets'], ['CHI', 'Chicago Bulls'], ['CLE', 'Cleveland Cavaliers'], ['DAL', 'Dallas Mavericks'], ['DEN', 'Denver Nuggets'], ['DET', 'Detroit Pistons'], ['GS', 'Golden State Warriors'], ['HOU', 'Houston Rockets'], ['IND', 'Indiana Pacers'], ['LAC', 'LA Clippers'], ['LAL', 'Los Angeles Lakers'], ['MEM', 'Memphis Grizzlies'], ['MIA', 'Miami Heat'], ['MIL', 'Milwaukee Bucks'], ['MIN', 'Minnesota Timberwolves'], ['NO', 'New Orleans Pelicans'], ['NY', 'New York Knicks'], ['OKC', 'Oklahoma City Thunder'], ['ORL', 'Orlando Magic'], ['PHI', 'Philadelphia 76ers'], ['PHX', 'Phoenix Suns'], ['POR', 'Portland Trail Blazers'], ['SAC', 'Sacramento Kings'], ['SA', 'San Antonio Spurs'], ['TOR', 'Toronto Raptors'], ['UTAH', 'Utah Jazz'], ['WSH', 'Washington Wizards']].map(([value, label]) => ({ value, label }));
 // The plan under Sports: what the clock found in the schedules and what it will do about it (computed here from /api/sports)
 let sportsPlanTimer = 0;
 async function sportsPlan() {
@@ -296,9 +297,10 @@ async function load() {
     field('dither').closest('label').style.display = arcade || data.mode === 'Mario' || data.mode === 'Luigi' ? 'none' : '';  // those faces decide for themselves
     const homeFace = data.mode === 'Home'; document.querySelector('#homeassistant').hidden = !homeFace; document.querySelector('#nav-ha').hidden = !homeFace;
     if (homeFace) { initHomeAssistant(); document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('#nav-ha').classList.add('active'); }
-    section('[data-sports]', sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade); section('[data-sportfields]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', arcade);
-    section('[data-football]', data.mode === 'Football'); section('[data-f1]', racing);
-    if (sporty || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
+    section('[data-sports]', sporty || data.mode === 'NBA' || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade); section('[data-sportfields]', sporty || data.mode === 'NBA'); section('[data-clockanim]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', arcade);
+    section('[data-football]', data.mode === 'Football'); section('[data-f1]', racing); section('[data-nba]', data.mode === 'NBA');
+    if (data.mode === 'NBA') choices('#nba-teams', 'nbaTeams', NBA_TEAMS, data.settings.nbaTeams);
+    if (sporty || data.mode === 'NBA' || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
     invaders = data.mode === 'Invaders'; pongSlide = data.mode === 'Pong';
     document.querySelector('#play').hidden = !arcade;
     if (arcade && !pacman) {   // no colours and no Bluetooth controller (yet) on these faces, and their own instructions

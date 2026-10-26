@@ -64,6 +64,13 @@ elseif(ULTIMATRIX_MODE MATCHES "^(word|mario|luigi|pacman|invaders|pong)$")
             list(APPEND mode_definitions UM_GAMEPAD)
         endif()
     endif()
+elseif(ULTIMATRIX_MODE STREQUAL "nba")
+    # NBA scores: its own small ESPN scoreboard feed and the face
+    set(sport "nba-feed")
+    list(APPEND sources
+        "${root}/lib/${sport}/NbaTicker.cpp"
+        "${root}/clockfaces/nba/NbaRenderer.cpp")
+    set(mode_definitions UM_SIMPLE_FACE UM_NBA UM_MODE_NAME="NBA")
 elseif(ULTIMATRIX_MODE STREQUAL "home")
     # The Home Assistant face: its own client (WebSocket, one template subscription) and renderer
     set(sport "ha-feed")
@@ -183,7 +190,7 @@ add_dependencies(${COMPONENT_LIB} web_gz)
 # Installable-app manifest and its LED-matrix U icons.
 target_add_binary_data(${COMPONENT_LIB} "${root}/web/manifest.webmanifest" TEXT)
 # Clock face thumbnails for the face picker (64x64, one frame of each face).
-foreach(thumb football f1 motogp tetris word mario luigi pacman invaders pong home)
+foreach(thumb football f1 motogp tetris word mario luigi pacman invaders pong nba home)
     target_add_binary_data(${COMPONENT_LIB} "${root}/web/faces/${thumb}.png" BINARY)
 endforeach()
 foreach(icon icon-192 icon-512 icon-maskable-192 apple-touch-icon favicon-32)

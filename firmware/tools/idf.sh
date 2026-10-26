@@ -3,7 +3,7 @@ set -euo pipefail
 firmware_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 project_root=$(cd "$firmware_root/.." && pwd)
 mode=${1:-football}
-case "$mode" in football|f1|motogp|tetris|word|mario|luigi|pacman|invaders|pong|home|bridge|scanner) ;; *) echo "Usage: $0 {football|f1|motogp|tetris|word|mario|luigi|pacman|invaders|pong|home|bridge|scanner} [idf.py actions/options]" >&2; exit 2 ;; esac
+case "$mode" in football|f1|motogp|tetris|word|mario|luigi|pacman|invaders|pong|nba|home|bridge|scanner) ;; *) echo "Usage: $0 {football|f1|motogp|tetris|word|mario|luigi|pacman|invaders|pong|nba|home|bridge|scanner} [idf.py actions/options]" >&2; exit 2 ;; esac
 if [ $# -gt 0 ]; then shift; fi
 if [ $# -eq 0 ]; then set -- build; fi
 export IDF_CCACHE_ENABLE=1

@@ -504,6 +504,7 @@ UM_FACE(luigi);
 UM_FACE(pacman);
 UM_FACE(invaders);
 UM_FACE(pong);
+UM_FACE(nba);
 UM_FACE(home);
 static void sendIcon(const uint8_t *start, const uint8_t *end) {
   server.sendHeader("Cache-Control", "public, max-age=86400");
@@ -598,6 +599,9 @@ static void settingsState() {
   json += ",\"wordLanguage\":" + String(s.numberFont);
 #ifdef UM_WORD
   json += ",\"wordAnimation\":" + String(s.timeStyle & 15) + ",\"wordDate\":" + String(s.timeStyle >> 4);
+#endif
+#ifdef UM_NBA
+  json += ",\"nbaTeams\":" + jsonText(s.nbaTeams);
 #endif
 #ifdef UM_PONG
   json += ",\"pongBackdrop\":" + String(s.pongBackdrop);
@@ -788,8 +792,11 @@ static bool applyZonePlace(Settings &s) {
 
 static void saveSettings() {
   long bright, rotation;
+#if !defined(UM_SIMPLE_FACE) || defined(UM_NBA)
+  long seconds, results;
+#endif
 #ifndef UM_SIMPLE_FACE
-  long seconds, results, style;
+  long style;
 #endif
   String zone = server.arg("timezone");
   bool autoZone = server.hasArg("autoTimezone");  // the timezone field is disabled (not sent) while this is ticked
@@ -798,9 +805,11 @@ static void saveSettings() {
   if (leagueCount > 10) { settingsResponse(400, "Choose up to 10 competitions."); return; }
   if (!number("brightness", 1, 255, bright)) { settingsResponse(400, "Choose a brightness using the slider."); return; }
   if (!number("rotation", 0, 3, rotation)) { settingsResponse(400, "Choose a display orientation."); return; }
-#ifndef UM_SIMPLE_FACE
+#if !defined(UM_SIMPLE_FACE) || defined(UM_NBA)
   if (!number("matchSecs", 3, 60, seconds)) { settingsResponse(400, "Page duration must be between 3 and 60 seconds."); return; }
   if (!number("resultMins", 0, 1440, results)) { settingsResponse(400, "Keep results for between 0 and 1440 minutes."); return; }
+#endif
+#ifndef UM_SIMPLE_FACE
   if (!number("timeStyle", 0, 5, style)) { settingsResponse(400, "Choose a clock animation."); return; }
 #endif
   if (!autoZone && !ultime::posixForZone(zone.c_str())) { settingsResponse(400, "Choose a supported timezone from the suggestions."); return; }
@@ -857,8 +866,11 @@ static void saveSettings() {
   else s.timezone = zone;
   s.manualTimezone = !autoZone;
   applyZonePlace(s);
+#if !defined(UM_SIMPLE_FACE) || defined(UM_NBA)
+  s.matchSecs = seconds; s.resultMins = results;
+#endif
 #ifndef UM_SIMPLE_FACE
-  s.matchSecs = seconds; s.resultMins = results; s.timeStyle = style;
+  s.timeStyle = style;
 #endif
 #if defined(UM_MARIO) || defined(UM_LUIGI)
   if (server.hasArg("marioWorld")) {
@@ -959,6 +971,13 @@ static void saveSettings() {
   s.numberFont = server.hasArg("numberFont") ? 1 : 0;
 #elif defined(UM_F1)
   s.f1Drivers = selectedValues("f1Drivers"); s.f1Flags = server.hasArg("f1Flags");
+#elif defined(UM_NBA)
+  {
+    String teams = selectedValues("nbaTeams");
+    if (teams.length() > 60) { settingsResponse(400, "Choose at most 12 favourite teams."); return; }
+    for (size_t i = 0; i < teams.length(); ++i) if (!isupper((unsigned char)teams[i]) && teams[i] != ',') { settingsResponse(400, "Choose the teams from the list."); return; }
+    s.nbaTeams = teams;
+  }
 #endif
   if (!s.save()) {
     settingsResponse(500, "Could not save settings. Please try again.");
@@ -1228,7 +1247,7 @@ static void sportsSwitch(uint32_t now) {
     sportsplan::parseOrder(s.sportsOrder.c_str(), plan);
     for (uint8_t i = 0; i < plan.orderCount; ++i) cfg.sports[plan.order[i]] = true;
     cfg.racing = s.sportsRacing; cfg.favouritesOnly = s.sportsFav; cfg.othersFav = s.sportsOthers;
-    strlcpy(cfg.leagues, s.footballLeagues.c_str(), sizeof(cfg.leagues)); strlcpy(cfg.teams, s.footballTeams.c_str(), sizeof(cfg.teams));
+    strlcpy(cfg.leagues, s.footballLeagues.c_str(), sizeof(cfg.leagues)); strlcpy(cfg.teams, s.footballTeams.c_str(), sizeof(cfg.teams)); strlcpy(cfg.nbaTeams, s.nbaTeams.c_str(), sizeof(cfg.nbaTeams));
     watch.configure(cfg);
     active = !s.sportsOrder.isEmpty();
     if (settingsSeen && active && !s.sportsHome.isEmpty() && (s.sportsOrder != lastOrder || s.sportsHome != lastHome)) { settleHome = true; settleSince = now; }
@@ -1977,7 +1996,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
-  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
+  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
@@ -2256,6 +2275,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/faces/pacman.png", HTTP_GET, []() { sendIcon(pacmanStart, pacmanEnd); });
   server.on("/faces/invaders.png", HTTP_GET, []() { sendIcon(invadersStart, invadersEnd); });
   server.on("/faces/pong.png", HTTP_GET, []() { sendIcon(pongStart, pongEnd); });
+  server.on("/faces/nba.png", HTTP_GET, []() { sendIcon(nbaStart, nbaEnd); });
   server.on("/faces/home.png", HTTP_GET, []() { sendIcon(homeStart, homeEnd); });
   server.on("/api/screen", HTTP_GET, screenPreview);
   server.on("/api/settings", HTTP_GET, settingsState);

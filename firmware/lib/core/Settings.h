@@ -42,6 +42,7 @@ struct Settings {
   uint8_t pongDate = 1, pongDay = 1, pongLevel = 0;     // Pong: how well the computer plays against you, 0 easiest to 8 hardest; own NVS key
   uint8_t pongSpeed = 2;     // Pong: game speed while the computer plays, 0 slowest to 4 fastest (50 75 100 125 150 %); own NVS key
   uint8_t pongBackdrop = 3;  // Pong: brightness of the clock behind the court, 0 off to 5 brightest; own NVS key, outside the record
+  String nbaTeams;  // NBA: favourite teams as abbreviations, comma separated ("LAL,BOS"); own NVS key "nbaTeams"
   uint8_t ghostColors[4] = {};  // Pac-Man: 0 lets the face pick a contrasting pastel
   bool ballRoll = true;
   bool showRankings = true;

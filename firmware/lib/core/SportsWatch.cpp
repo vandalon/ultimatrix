@@ -230,7 +230,7 @@ void SportsWatch::loop() {
         continue;
       }
       if (now < due[s]) continue;
-      due[s] = now + (s == F1 ? refreshF1(cfg, now) : s == MOTOGP ? refreshMotoGp(cfg, now) : refreshFootball(cfg, now));  // one sport per second at most
+      due[s] = now + (s == F1 ? refreshF1(cfg, now) : s == MOTOGP ? refreshMotoGp(cfg, now) : s == FOOTBALL ? refreshFootball(cfg, now) : refreshNba(cfg, now));  // one sport per second at most
       break;
     }
   }
@@ -384,6 +384,62 @@ time_t SportsWatch::refreshMotoGp(const Config &cfg, time_t now) {
   publish(MOTOGP, found);
   const time_t wait = nextPoll(found, now);
   return wait == kSlow && eventStart - now > 2 * 86400 ? 3600 : wait;  // the weekend is days away: the plan only changes when the organisers move a session
+}
+
+// ---- NBA: today's board; favourites are matched by team abbreviation ----
+struct NbaScan {
+  struct Game { char date[24] = "", state[8] = "", name[14] = ""; char team[2][5] = {"", ""}; } m[15];
+  int count = 0;
+  static void leaf(void *sink, const char (*path)[JsonScan::KEY], int n, const char *value, bool) {
+    NbaScan &scan = *(NbaScan *)sink;
+    if (n < 3 || strcmp(path[0], "events")) return;
+    const int k = atoi(path[1]);
+    if (k < 0 || k >= 15) return;
+    scan.count = std::max(scan.count, k + 1);
+    if (jsonPathIs(path, n, "events.*.date")) strlcpy(scan.m[k].date, value, sizeof(scan.m[k].date));
+    else if (jsonPathIs(path, n, "events.*.status.type.state")) strlcpy(scan.m[k].state, value, sizeof(scan.m[k].state));
+    else if (jsonPathIs(path, n, "events.*.shortName")) strlcpy(scan.m[k].name, value, sizeof(scan.m[k].name));
+    else if (jsonPathIs(path, n, "events.*.competitions.0.competitors.*.team.abbreviation")) strlcpy(scan.m[k].team[atoi(path[5]) & 1], value, 5);
+  }
+};
+
+static bool inTeamList(const char *list, const char *abbr) {
+  const size_t len = strlen(abbr);
+  for (const char *p = list; *p;) {
+    const char *end = strchr(p, ',');
+    const size_t n = end ? (size_t)(end - p) : strlen(p);
+    if (n == len && !strncasecmp(p, abbr, len)) return true;
+    if (!end) break;
+    p = end + 1;
+  }
+  return false;
+}
+
+time_t SportsWatch::refreshNba(const Config &cfg, time_t now) {
+  Events found;
+  found.checkedAt = now;
+  if (!cfg.favouritesOnly || cfg.nbaTeams[0]) {
+    NbaScan *scan = new NbaScan;
+    const bool ok = get("http://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", NbaScan::leaf, scan);
+    if (ok) {
+      for (int i = 0; i < scan->count; ++i) {
+        const auto &m = scan->m[i];
+        const time_t start = parseEspnDate(m.date);
+        if (!start || (cfg.favouritesOnly && !inTeamList(cfg.nbaTeams, m.team[0]) && !inTeamList(cfg.nbaTeams, m.team[1]))) continue;
+        time_t secs = 160 * 60;
+        const bool over = !strcmp(m.state, "post");
+        if (over) {  // the final buzzer: kept for the stay after the end, then dropped
+          secs = finishedAt(NBA, start, secs, now) - start;
+          if (start + secs + 2 * 3600 <= now) continue;
+        }
+        addEvent(found, start, secs, !over && !strcmp(m.state, "in"), m.name);
+      }
+    }
+    delete scan;
+    if (!ok) return kRetry;
+  }
+  publish(NBA, found);
+  return nextPoll(found, now);
 }
 
 time_t SportsWatch::refreshFootball(const Config &cfg, time_t now) {

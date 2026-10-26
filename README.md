@@ -25,6 +25,7 @@ There are eleven clock faces, three of them [games](#playable-games). Each has i
 - **Football** (`football`): Live scores, fixtures, results, league tables and goal celebrations. Choose up to 10 competitions and 8 favourite teams.
 - **Formula 1** (`f1`): Race weekends, session results, standings and live timing. Favourite drivers get priority on race screens.
 - **MotoGP** (`motogp`): Race weekends, results, standings and live timing, using the same display layout as F1.
+- **NBA** (`nba`): Today's games from ESPN, one at a time on a half-court background: both teams with record and score, the quarter and game clock, a quarter bar and, on a second page, the points per quarter. Live games come first, with the row that just scored lit and a short animation of the ball dropping through the net. Between them: today's list, the coming days, and the East and West tables with streaks. Choose favourite teams in settings and they come first; with the sports auto-switch the clock moves to NBA when a (favourite) game starts.
 - **Tetris** (`tetris`): Falling pieces that form the time and date.
 - **Words** (`word`): The time in 16 languages, with a weekday, date and minute bar. Choose letter shuffle, letter lift, pixel dissolve, soft wipe, all four in rotation, or no transition.
 - **Mario** (`mario`): Mario in scrolling worlds, with clock blocks showing the time.
