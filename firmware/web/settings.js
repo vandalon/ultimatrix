@@ -1006,7 +1006,7 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
     const open = (on) => { ctrl.hidden = !on; document.body.style.overflow = on ? 'hidden' : ''; if (!on) { id = null; base.hidden = true; } };
     document.querySelector('#ctrl-open').addEventListener('click', () => open(true));
     document.querySelector('#ctrl-close').addEventListener('click', () => open(false));
-    document.querySelector('#ctrl-ai').addEventListener('click', () => { buzz(25); steer(-1); });
+    document.querySelector('#ctrl-computer').addEventListener('click', () => { buzz(25); steer(-1); });
     document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !ctrl.hidden) open(false); });
     // Pong: a dial like the original paddle controller. Turning it (going round it with a finger, anywhere on the screen) moves the paddle; the angle is kept between grips.
     const dial = document.createElement('div'), mark = document.createElement('div');

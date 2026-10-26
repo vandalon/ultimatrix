@@ -24,18 +24,8 @@ are ready. A successful build does not establish hardware or live-feed reliabili
   (`IClockface::handlesNight/setNight`) and shows World 1-2 underground.
 - Pac-Man (`clockfaces/pacman`) is a feedless face whose maze is a random 8 x 7 lattice of lanes (3 px walls, dots 4 px apart)
   with the clock box in the middle; it replaced an older arcade-style Pac-Man, and the old `pacmanclassic` mode no longer exists.
-  Its AI plays at a skill picked for each game (novice to expert). `Clockface::steer(dir)` (0 up, 1 right, 2 down, 3 left, -1 back
+  The computer player plays at a skill picked for each game (novice to expert). `Clockface::steer(dir)` (0 up, 1 right, 2 down, 3 left, -1 back
   to the computer) takes a human move from `POST /api/pacman/steer`, the keys and the touch controller on the settings page.
-- Bluetooth LE controller (`lib/core/Gamepad.cpp`, `HidReport.h`, `sdkconfig.bt`; `UM_GAMEPAD`, build option `ULTIMATRIX_BLUETOOTH`,
-  Pac-Man only): the clock is the NimBLE central. It scans for devices advertising the HID service (0x1812) or a gamepad appearance,
-  bonds (NimBLE keeps the bond in NVS namespace `nimble_bond`), discovers the HID report map, subscribes to input reports and turns
-  the d-pad or left stick into steering. Costs: about 190 KB of flash, 10 KB of static RAM (the face's budget is 70 KB) and about
-  75 KB of heap while it runs, leaving roughly 25 KB free with a worst case near 5 KB. The start is decided at boot: the stack runs
-  only when the setting (NVS `btPad`) is on and a controller is bonded, or after **Pair**, which sets an RTC flag and restarts the
-  clock into Bluetooth for about 70 seconds (nothing paired by then, or Forget, restarts it back out). Otherwise `gamepad::boot()`
-  hands the controller memory back to the heap. While the stack runs, WLED/Canvas/GIFs (`wled::suspend`), DLNA, notifications and
-  telnet are off and an update restarts the clock first (an update-only boot never starts Bluetooth); MQTT stays. Only the parser
-  is unit-tested (on the host); connecting, bonding and steering have not been tried with a real controller.
 - Tetris is a build with no feeds: the falling-piece clock (time and date) with the same runtime, settings page
   and previews. It is built the way Football and F1 were reshaped: `lib/tetris` holds const data and layout functions,
   `TetrisScreens` decides what falls when and fills a fixed-size `Frame`, `TetrisRenderer` paints a `Frame`, and the

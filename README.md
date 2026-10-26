@@ -7,7 +7,7 @@
   <img src="docs/photos/home-assistant-now-playing.jpg" alt="Home Assistant Now playing page on the LED matrix clock" width="24%">
 </p>
 
-Ultimatrix is an LED matrix clock for an ESP32 and a 64×64 HUB75 panel. It can show live sports, build the time from falling Tetris blocks, spell it out in words, or run an animated Mario, Luigi or Pac-Man scene, or play Space Invaders or Pong while it tells the time.
+Ultimatrix is an LED matrix clock for an ESP32 and a 64×64 HUB75 panel. It can show live sports, build the time from falling Tetris blocks, spell it out in words, or run an animated Mario or Luigi scene, or play Pac-Man, Space Invaders or Pong while it tells the time. Those three games you can [play yourself](#playable-games) from your phone.
 
 Ultimatrix is inspired by the original [Clockwise](https://github.com/jnthas/clockwise) project by Jonathan Thas. Thank you for the idea and the groundwork.
 
@@ -15,52 +15,58 @@ The HUB75 panel driver is a memory-optimised fork of [ESP32-HUB75-MatrixPanel-DM
 
 Start with the [hardware setup guide](docs/HARDWARE.md), then [install from your browser](https://vandalon.github.io/ultimatrix/) (Chrome or Edge, USB cable that carries data). Details: [Install](#install).
 
-There are eleven clock faces. Each has its own firmware image, so the clock runs one face at a time. You can switch faces from the local settings page by installing another signed image over Wi-Fi.
+There are eleven clock faces, three of them [games](#playable-games). Each has its own firmware image, so the clock runs one face at a time. You can switch faces from the local settings page by installing another signed image over Wi-Fi.
 
 ## Clock faces
 
-| Preview | Face | Build name | What it shows |
-| --- | --- | --- | --- |
-| <img src="docs/previews/home.gif" alt="Home Assistant clock" width="128" height="128"> | Home | `home` | The clock with Home Assistant beside it: an Energy page, the one it starts on (house, solar or battery, and grid, now and today, with the last 20 hours), and a Home page (temperature, humidity, who is home, and icons for doors, windows, garage, washer, lights and the alarm). Alerts for the doorbell, a finished washer, a door left open and the alarm. It connects to Home Assistant over its WebSocket API with a long-lived access token, set up on the settings page. |
-| <img src="docs/previews/football.gif" alt="Football clock" width="128" height="128"> | Football | `football` | Live scores, fixtures, results, league tables and goal celebrations. Choose up to 10 competitions and 8 favourite teams. |
-| <img src="docs/previews/f1.gif" alt="Formula 1 clock" width="128" height="128"> | Formula 1 | `f1` | Race weekends, session results, standings and live timing. Favourite drivers get priority on race screens. |
-| <img src="docs/previews/motogp.gif" alt="MotoGP clock" width="128" height="128"> | MotoGP | `motogp` | Race weekends, results, standings and live timing, using the same display layout as F1. |
-| <img src="docs/previews/tetris.gif" alt="Tetris clock" width="128" height="128"> | Tetris | `tetris` | Falling pieces that form the time and date. |
-| <img src="docs/previews/word.gif" alt="Words clock" width="128" height="128"> | Words | `word` | The time in 16 languages, with a weekday, date and minute bar. Choose letter shuffle, letter lift, pixel dissolve, soft wipe, all four in rotation, or no transition. |
-| <img src="docs/previews/mario.gif" alt="Mario clock" width="128" height="128"> | Mario | `mario` | Mario in scrolling worlds, with clock blocks showing the time. |
-| <img src="docs/previews/luigi.gif" alt="Luigi clock" width="128" height="128"> | Luigi | `luigi` | A Luigi version of the scrolling-world clock. |
-| <img src="firmware/web/faces/pacman.png" alt="Pac-Man clock" width="128" height="128"> | Pac-Man | `pacman` | A game that plays itself in a maze of 8 by 7 lanes with the clock box in the middle: the level top left, the score bottom left, the spare lives bottom right and the time on the right. It has a score (10 a dot, 50 a power pellet, 200 and doubling for the ghosts) and a life more every 6000 points, up to three spares. Four ghosts wait in the box, which dims whatever they sit over, and leave through its floor. Every level gets a new maze that is as different from the last as it can be. Pac-Man plays like a novice, casual, good or expert player, picked for each new game. You can take over from the settings page (see [Playing Pac-Man yourself](#playing-pac-man-yourself)). Border, dots, hours and minutes colour and each ghost have colour choices. |
-| <img src="docs/previews/invaders.gif" alt="Space Invaders clock" width="128" height="128"> | Space Invaders | `invaders` | A game that plays itself: five columns of squids, crabs and octopuses in three rows march down towards four shields that crumble, bombs fall, and the cannon dodges and shoots. The time is along the top, with the score and your spare cannons (up to four) stacked on its right. While the computer plays, the date is the backdrop (the day number with the weekday and month beside it) and the field is slightly dimmed; while you play, the backdrop is the level. The mystery ship flies by every minute (a bigger one at the hour; shoot it for 50 to 300 points), waves get faster, and a life more comes every 1500 points. Clock hours, minutes and score have colour choices. You can take over from the settings page (see [Playing Space Invaders and Pong yourself](#playing-space-invaders-and-pong-yourself)). |
-| <img src="docs/previews/pong.gif" alt="Pong clock" width="128" height="128"> | Pong | `pong` | The time is a big background clock behind the court (hours in the left player's colour, minutes in the right player's) with the score on top and optional weekday and date above or below it. The two computer players rally, and when the minute turns the left one lets the ball go by so the right one scores and the minute changes (at the hour the right one lets it go, so the left one scores and the hour changes). Nine difficulty levels, a game speed, the brightness of the background clock and the colours are settings. You can take the left paddle yourself from the settings page: a match goes to 7 and then the computers take over again. |
+<table><tr><td><img src="docs/previews/home.gif" alt="Home Assistant clock" title="Home Assistant clock" width="110" style="width:110px;max-width:110px"></td><td><img src="docs/previews/football.gif" alt="Football clock" title="Football clock" width="110" style="width:110px;max-width:110px"></td><td><img src="docs/previews/f1.gif" alt="Formula 1 clock" title="Formula 1 clock" width="110" style="width:110px;max-width:110px"></td><td><img src="docs/previews/motogp.gif" alt="MotoGP clock" title="MotoGP clock" width="110" style="width:110px;max-width:110px"></td></tr><tr><td><img src="docs/previews/tetris.gif" alt="Tetris clock" title="Tetris clock" width="110" style="width:110px;max-width:110px"></td><td><img src="docs/previews/word.gif" alt="Words clock" title="Words clock" width="110" style="width:110px;max-width:110px"></td><td><img src="docs/previews/mario.gif" alt="Mario clock" title="Mario clock" width="110" style="width:110px;max-width:110px"></td><td><img src="docs/previews/luigi.gif" alt="Luigi clock" title="Luigi clock" width="110" style="width:110px;max-width:110px"></td></tr></table>
 
-Football starts with Eredivisie and KNVB Cup selected, and the Dutch national team as a favourite. Competitions are grouped by country, and favourite teams have a searchable picker.
+- **Home** (`home`): The clock with Home Assistant beside it: an Energy page, the one it starts on (house, solar or battery, and grid, now and today, with the last 20 hours), and a Home page (temperature, humidity, who is home, and icons for doors, windows, garage, washer, lights and the alarm). Alerts for the doorbell, a finished washer, a door left open and the alarm. It connects to Home Assistant over its WebSocket API with a long-lived access token, set up on the settings page.
+- **Football** (`football`): Live scores, fixtures, results, league tables and goal celebrations. Choose up to 10 competitions and 8 favourite teams.
+- **Formula 1** (`f1`): Race weekends, session results, standings and live timing. Favourite drivers get priority on race screens.
+- **MotoGP** (`motogp`): Race weekends, results, standings and live timing, using the same display layout as F1.
+- **Tetris** (`tetris`): Falling pieces that form the time and date.
+- **Words** (`word`): The time in 16 languages, with a weekday, date and minute bar. Choose letter shuffle, letter lift, pixel dissolve, soft wipe, all four in rotation, or no transition.
+- **Mario** (`mario`): Mario in scrolling worlds, with clock blocks showing the time.
+- **Luigi** (`luigi`): A Luigi version of the scrolling-world clock.
 
-### Playing Space Invaders and Pong yourself
+## Playable games
 
-Both games play themselves and keep the time. To take over, open the clock's settings page while the face is running and open the **full-screen touch controller** under **Play yourself**. The controller sends your moves over a WebSocket, and the clock pauses notices, update checks and the live preview while you play. The clock plays again after 20 seconds without a move, or when you press **Computer**; the game restarts whenever control changes hands.
+Pac-Man, Space Invaders and Pong play themselves and keep the time. You can take over from the clock's settings page while the face is running; the games below list their rules and controls.
 
-- **Space Invaders**: swipe left and right anywhere to move the cannon (like Pong's dial, but sideways), and every touch fires, so a second finger can fire while the first steers. The arrow keys or A D move and the space bar fires. A life more comes at every 1500 points, up to four.
-- **Pong**: you play the left paddle against the computer; swipe up and down anywhere to turn the dial like the original game. The labels show YOU and CMP, the score shows the match (first to 7) and afterwards the computers take over again.
+<table><tr><td><img src="docs/previews/pacman.gif" alt="Pac-Man clock" title="Pac-Man clock" width="110" style="width:110px;max-width:110px"></td><td><img src="docs/previews/invaders.gif" alt="Space Invaders clock" title="Space Invaders clock" width="110" style="width:110px;max-width:110px"></td><td><img src="docs/previews/pong.gif" alt="Pong clock" title="Pong clock" width="110" style="width:110px;max-width:110px"></td></tr></table>
 
-Controller sensitivity is a slider in the settings page, and Pong has a difficulty from 1 to 9.
+
+### Taking over
+
+- **Settings page:** on a game face, the Clock mode card has a **Play yourself** card.
+- **While you play,** the clock pauses notices, update checks, MQTT state and the live preview.
+- **Full-screen touch controller:** press **Open full-screen controller**, put a finger down anywhere and drag. Pac-Man shows a joystick under your finger that follows it, so the direction is simply the way your finger moves; letting go keeps Pac-Man going. Android phones vibrate briefly; iPhones give no feedback while dragging. For Invaders and Pong, swipe instead (below). The controller sends your moves over a WebSocket (`/play`). **Controller sensitivity** is a slider on the page (saved in the browser; higher moves the paddle or cannon more for the same finger movement).
+- **Keyboard:** Pac-Man arrow keys or W A S D; Space Invaders arrow keys or A D to move and the space bar to fire.
+- **Computer plays by default.** Any move takes over; the clock plays again after 20 seconds without a move, or at once when you press **Computer**. The game restarts whenever control changes hands in Invaders and Pong. Pac-Man keeps going and takes your turn at the next crossing.
+
+### Controls per game
+
+- **Pac-Man:** drag any direction.
+- **Space Invaders:** swipe left and right anywhere to move the cannon (like Pong's dial, but sideways); every touch fires, so a second finger can fire while the first steers.
+- **Pong:** swipe up and down anywhere to turn the dial like the original game. The labels show YOU and CMP and the score shows the match.
 
 ## Home Assistant
 
-The `home` face needs Home Assistant on the same network (or reachable from it).
+The `home` face needs Home Assistant on the same network. It connects over the WebSocket API (HTTP or HTTPS; the certificate is not verified) and subscribes to one template that Home Assistant renders, so it only receives a short line of values when they change.
 
-1. In Home Assistant open your profile, Security, and create a long-lived access token.
-2. Switch the clock to the Home face (settings page, Clock face), open its settings page and fill in the Home Assistant card: address (for example `homeassistant.local:8123`) and the token. The clock keeps the token and never shows it again.
-3. Choose the pages (the Energy page comes first; it is left out until you enter its entities) and what each tile and icon shows. Every slot detects its entities by itself while its entity field is empty (all door sensors, all lights, the average temperature and so on, shown as grey tags; the refresh button detects again). Remove a grey tag, or type an entity or group, to use your own list instead. The energy rows use the entity IDs of your power and energy sensors.
+1. In Home Assistant, open your profile, Security, and create a long-lived access token.
+2. Switch the clock to the Home face, open its settings page and fill in the Home Assistant card: the address (for example `homeassistant.local:8123`) and the token. The clock keeps the token and never shows it again.
+3. Choose the pages and what each tile shows. Empty entity fields detect their entities automatically (shown as grey tags); remove a tag or type an entity or group to use your own list.
 
-The Home page has up to six configurable tiles, spread evenly over the panel. Each can show temperature, humidity, people home, power, a custom number, CO₂, rain, EV charge, energy price, outdoor humidity, weather, or nothing. Defaults are indoor temperature, indoor humidity, EV charge and weather. EV charge is one tile with three entities, all detected when left empty: the charge (battery percentage), whether the car is charging and whether it is plugged in. The car icon is the same green in every state and gets a bolt while charging and a plug while plugged in; CO₂ and rain also need a sensor; energy price, when empty, uses the Energy dashboard’s grid tariff. CO₂ is shown in ppm; rain and price use the sensor’s numeric value without conversion or a unit suffix.
+**Pages**
+- **Energy** (first; hidden until you enter its entities): house, solar or battery and grid, now and today, with the last 20 hours. "Fill from Home Assistant" reads your Energy dashboard sensors into the empty fields.
+- **Home**: up to six tiles (temperature, humidity, people home, power, custom number, CO₂, rain, EV charge, energy price, outdoor humidity, weather or nothing), state icons for doors, windows, garage, washer, lights and the alarm, and a bottom bar of counts (low batteries, offline devices, water leaks, open blinds, media playing, heating). Choose an entity or group to limit a count.
+- **Now playing** (optional): title and artist over the album cover of the first of up to four media players that is playing. JPEG covers on Home Assistant only. Optionally the cover also shows dimmed behind the other pages.
 
-Weather follows the current condition and temperature of a `weather.*` entity. When empty, the first available weather entity is used, and Outdoor humidity reads its humidity. Choose an entity to use a specific weather entity or outdoor humidity sensor. Counts appear below the state icons, and the clock colon gently breathes over three seconds. Both data pages use a plain black background. The default bottom bar shows low batteries, offline devices, water leaks, open blinds, playing media and active heating; each slot remains configurable. Low batteries includes percentage sensors at 20% or less and low-battery binary sensors, deduplicated by device. Offline counts devices with unavailable entities; entities without an assigned device count separately. Blinds includes blinds, curtains, shades and shutters that are not closed. Heating counts climate entities whose current action is heating. Choose an entity or group instead of the detected ones to limit a count. For Lights, the detected lights count individually; with your own selection, lights that are on are counted once per Home Assistant area. Lights without an area are excluded from this room count. Occupied rooms counts distinct Home Assistant areas with active motion, occupancy or presence sensors; assign sensors to areas to include them. Washer-done popups have their own Washer running field under Alerts and work without a visible washer icon. Existing fourth-slot washer settings move there automatically.
+**Alerts** for the alarm, doorbell, a finished washer and a door left open each have their own options: also at night, full brightness, and flashing the panel.
 
-The optional Now playing page shows the title and artist over a full-panel album cover for the first of the media players you pick (up to four, with suggestions as you type) that is playing. It only appears in the rotation while one is playing, and long titles scroll. The cover comes from the player's picture through Home Assistant (JPEG only; other pictures, or none, show a music note), so it needs the same access token. It is shown only when the picture is on Home Assistant itself. An option, off by default, also shows that cover dimmed to a quarter of its brightness behind every other page while something plays; it stays still while pages slide.
-
-Entity fields suggest matching entities from Home Assistant as you type. "Fill from Home Assistant" on the Energy page reads the sensors of Home Assistant's own Energy dashboard (grid, solar and battery meters, and power sensors where they exist) into the empty fields; anything you typed stays. Meters that count for ever are fine for the kWh columns: the clock shows their change since midnight, taken from Home Assistant's statistics. For the grid and solar meters it takes the first sensor listed (the import side, and the first tariff).
-
-The clock opens one WebSocket to `/api/websocket`, signs in with the token and subscribes to a single template that Home Assistant renders itself, so it only receives a short line of values whenever they change. Each popup (alarm, doorbell, a finished washer, a door left open) has its own options: also at night (it shows through the night clock and the birthday screen), full brightness while it is up, and flashing the whole panel in its colour. HTTP and HTTPS connections are supported. HTTPS is reported working on the current Home Assistant setup; the certificate is not verified, like the other feeds. Preview the screens with `python3 firmware/tools/preview/home.py` (needs ffmpeg).
+Preview the screens with `python3 firmware/tools/preview/home.py` (needs ffmpeg).
 
 ## Hardware
 
@@ -153,7 +159,7 @@ Set **Network → Clock name** to identify each clock in MQTT and WLED, for exam
 
 Open the clock's address from a phone or computer on the same network. Most changes save automatically and apply while the clock runs. Swapping blue and green needs **Save & restart**. Changing Wi-Fi or installing a face also restarts the clock.
 
-The page has controls for brightness, rotation, time format, timezone, time server and the current face. Sports faces add page timing and favourites. Words adds language and transition choices. Mario and Luigi add the world picker. Pac-Man adds its colour controls (the clock is yellow by default) and the Play yourself card.
+The page has controls for brightness, rotation, time format, timezone, time server and the current face. Sports faces add page timing and favourites. Words adds language and transition choices. Mario and Luigi add the world picker. Pac-Man, Space Invaders and Pong add their colour and game controls and the Play yourself card (see [Playable games](#playable-games)).
 
 The page and its assets are stored in firmware flash. A new setting only appears after installing firmware that contains it. If an updated page still looks old, reload it without using the browser cache.
 
@@ -172,17 +178,6 @@ Most faces can switch to a dim numeric clock during chosen hours, from sunset to
 Mario and Luigi scenes follow sunrise and sunset rather than the night schedule. A dark room can switch them to the dim numeric clock.
 
 Changes tied to sunrise and sunset need a detected location. Automatic brightness and the night schedule are off by default.
-
-### Playing Pac-Man yourself
-
-With the Pac-Man face, the Clock mode card on the settings page has a **Play yourself** card. Any move takes over from the computer; Pac-Man keeps going and takes your turn at the next crossing. The clock plays again after 20 seconds without a move, or at once when you press **AI**.
-
-- **Keys:** arrow keys or W A S D.
-- **Touch:** **Open full-screen controller** fills the screen. Put a finger down anywhere and drag: a joystick appears under your finger and follows it, so the direction is simply the way your finger moves. Letting go keeps Pac-Man going. Android phones vibrate briefly; iPhones do not give feedback while dragging.
-- **A game controller on your phone or computer:** pair it with that device (Bluetooth or USB), press a button once so the browser sees it, then use the d-pad or left stick. Start hands control back to the clock. This costs the clock nothing.
-- **A Bluetooth LE controller paired with the clock itself (experimental, off by default):** turn **Bluetooth** on in the card (this restarts the clock), press **Pair controller** (the clock restarts into Bluetooth), switch the controller to pairing mode and keep it within a metre or two. A paired controller connects again whenever it is switched on. Only Bluetooth LE controllers work (for example Xbox Series controllers on recent firmware, which I have not tried with this firmware). PlayStation, Switch and most Android gamepads use classic Bluetooth and do not. This part has never been tried with a real controller.
-
-Bluetooth needs about 75 KB of the clock's memory, so it only runs while a controller is paired (or for about 70 seconds after you press Pair); with the setting on and nothing paired, the clock uses no extra memory. While it runs, WLED, Canvas, Animations, DLNA, notifications and the telnet console are switched off; Home Assistant MQTT keeps working. A firmware update restarts the clock first, so the download has the whole memory. Forgetting the controller restarts the clock back to normal.
 
 ### Control from Home Assistant (MQTT, optional)
 
@@ -349,15 +344,15 @@ This refreshes all eleven face images, their animated previews, the overview and
 
 For one animated preview, use `--face football` with `showcase.py`, or `--face pacman` with `faces.py`. The sports previews replay data from `firmware/tools/preview/showcase-data.json`; they show recorded results rather than current feeds. Tetris uses a fixed clock, and the other animated faces use scripted clock scenarios.
 
-Browse the saved previews: [Home](docs/previews/home.gif), [Football](docs/previews/football.gif), [F1](docs/previews/f1.gif), [MotoGP](docs/previews/motogp.gif), [Tetris](docs/previews/tetris.gif), [Words](docs/previews/word.gif), [Mario](docs/previews/mario.gif), [Luigi](docs/previews/luigi.gif), [Pac-Man](docs/previews/pacman.gif) and [boot screens](docs/previews/boot.gif). More recent examples cover [Words transitions](docs/previews/word-transitions.gif) and [Pac-Man clock colours](docs/previews/pacman-clock-colours.png).
+Browse the saved previews: [Home](docs/previews/home.gif), [Football](docs/previews/football.gif), [F1](docs/previews/f1.gif), [MotoGP](docs/previews/motogp.gif), [Tetris](docs/previews/tetris.gif), [Words](docs/previews/word.gif), [Mario](docs/previews/mario.gif), [Luigi](docs/previews/luigi.gif), [Pac-Man](docs/previews/pacman.gif), [Space Invaders](docs/previews/invaders.gif), [Pong](docs/previews/pong.gif) and [boot screens](docs/previews/boot.gif). More recent examples cover [Words transitions](docs/previews/word-transitions.gif) and [Pac-Man clock colours](docs/previews/pacman-clock-colours.png).
 
 These images were rendered from the current code on 14 October 2026. They help review the drawing; they do not establish how it looks or behaves on a real panel.
 
 ## Development status
 
-As of 25 October 2026 (v0.8.0), the firmware builds with ESP-IDF and Arduino as a component. The shared runtime, local setup and settings, brightness and night display, signed updater, eleven faces, Home Assistant and MQTT control, the WLED overlay, Canvas and GIF saving, picture notifications and the Storage page are implemented. The drawing and feed code are still being cleaned up.
+As of 26 October 2026 (v0.8.0), the firmware builds with ESP-IDF and Arduino as a component. The shared runtime, local setup and settings, brightness and night display, signed updater, eleven faces, Home Assistant and MQTT control, the WLED overlay, Canvas and GIF saving, picture notifications and the Storage page are implemented. The drawing and feed code are still being cleaned up.
 
-The release workflow builds all eleven faces, and the v0.7.5 release built successfully. A build does not mean every face has been checked on a panel after every change. The recent Words transitions have been checked in native previews and browser mocks. Pac-Man is now the former Pac-Man Classic (the older random-maze Pac-Man is gone) and has been flashed and run on a panel, but its Bluetooth controller support has not been tried with a real controller. Space Invaders and Pong have been flashed and played on a panel during development; the Invaders update after the last changes (fonts, date backdrop, ship icons) has been flashed but not played through.
+The release workflow builds all eleven faces, and the v0.7.5 release built successfully. A build does not mean every face has been checked on a panel after every change. The recent Words transitions have been checked in native previews and browser mocks. Pac-Man is now the former Pac-Man Classic (the older random-maze Pac-Man is gone) and has been flashed and run on a panel. Space Invaders and Pong have been flashed and played on a panel during development; the Invaders update after the last changes (fonts, date backdrop, ship icons) has been flashed but not played through.
 
 Football and Home have had device checks, including feeds, saved settings, telnet, picture notifications, GIF search, the display quality levels and the Storage page. A clock has updated itself over Wi-Fi from a GitHub release. F1 has had a short device check of memory use, update checking and its cache.
 
