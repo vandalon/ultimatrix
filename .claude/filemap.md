@@ -1,5 +1,5 @@
 # Ultimatrix file map
-ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 8 clock faces plus a bridge image, web settings UI. Use this index to choose targeted reads. Skips dependency internals, build output, generated files and binary assets.
+ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 11 clock faces (home, football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong) plus a bridge image, web settings UI. Use this index to choose targeted reads. Skips dependency internals, build output, generated files and binary assets.
 
 ## Root
 - AGENTS.md -> CLAUDE.md: shared Codex/Claude project rules (one source)

@@ -787,7 +787,7 @@ async function initHomeAssistant() {
     const evBlock = haEl('div', {className: 'ha-ev'}, ...ev.map(e => haEl('div', {className: 'ha-ev-row'}, haEl('span', {className: 'hint', textContent: e.name, title: 'One entity. Remove the others from the detected list to choose.'}), e.found.refresh, haEl('div', {}, e.field, e.found.preview))));
     const sync = () => { const isEv = type.value === '7'; if (!isEv && !HA_TILE_MULTI.includes(+type.value) && entity.value.includes(',')) entity.value = entity.value.split(',')[0]; unit.hidden = type.value !== '4'; entity.style.display = isEv ? 'none' : ''; auto.preview.style.display = isEv ? 'none' : ''; evBlock.hidden = !isEv; };
     type.addEventListener('change', sync); sync(); auto.sync(); ev.forEach(e => e.found.sync());
-    tiles.append(haEl('div', {className: 'ha-row'}, type, auto.refresh, haEl('div', {}, entity, auto.preview, evBlock), unit));
+    tiles.append(haEl('div', {className: 'ha-row'}, type, auto.refresh, haEl('div', {className: 'ha-entities'}, entity, auto.preview, evBlock), unit));
     rows.tiles.push({type, autoBox, entity, unit, ev});
   });
   body.append(tiles);
@@ -798,7 +798,7 @@ async function initHomeAssistant() {
     const auto = haAutoRow(type, autoBox, entity, value => value === '8', HA_ICON_AUTO, HA_ICON_DETECT, HA_ICON_NOTE, false, true);
     const sync = () => { alert.hidden = !['0', '1', '2'].includes(type.value); };
     type.addEventListener('change', sync); sync(); auto.sync();
-    icons.append(haEl('div', {className: 'ha-row'}, type, auto.refresh, haEl('div', {}, entity, auto.preview), alert));
+    icons.append(haEl('div', {className: 'ha-row'}, type, auto.refresh, haEl('div', {className: 'ha-entities'}, entity, auto.preview), alert));
     rows.icons.push({type, autoBox, entity, alert});
   });
   body.append(icons);
@@ -1084,7 +1084,7 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
     const open = (on) => { ctrl.hidden = !on; document.body.style.overflow = on ? 'hidden' : ''; if (!on) { id = null; base.hidden = true; } };
     document.querySelector('#ctrl-open').addEventListener('click', () => open(true));
     document.querySelector('#ctrl-close').addEventListener('click', () => open(false));
-    document.querySelector('#ctrl-ai').addEventListener('click', () => { buzz(25); steer(-1); });
+    document.querySelector('#ctrl-computer').addEventListener('click', () => { buzz(25); steer(-1); });
     document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !ctrl.hidden) open(false); });
     // Pong: a dial like the original paddle controller. Turning it (going round it with a finger, anywhere on the screen) moves the paddle; the angle is kept between grips.
     const dial = document.createElement('div'), mark = document.createElement('div');
