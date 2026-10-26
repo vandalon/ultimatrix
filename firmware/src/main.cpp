@@ -1330,7 +1330,7 @@ static void sportsInfo() {
   json += "],\"sports\":{";
   for (uint8_t i = 0; i < plan.orderCount; ++i) {
     const sportsplan::Events &e = events[plan.order[i]];
-    json += String(i ? ",\"" : "\"") + sportsplan::kModes[plan.order[i]] + "\":{\"checked\":" + String((long)e.checkedAt) + ",\"events\":[";
+    json += String(i ? ",\"" : "\"") + sportsplan::kModes[plan.order[i]] + "\":{\"checked\":" + String((long)e.checkedAt) + ",\"next\":" + String((long)e.nextAt) + ",\"nextName\":" + jsonText(String(e.nextName)) + ",\"events\":[";
     for (uint8_t k = 0; k < e.count; ++k)
       json += String(k ? "," : "") + "{\"s\":" + String((long)e.list[k].start) + ",\"e\":" + String((long)e.list[k].end) + ",\"l\":" + (e.list[k].live ? "true" : "false") + ",\"n\":" + jsonText(e.list[k].label) + "}";
     json += "]}";

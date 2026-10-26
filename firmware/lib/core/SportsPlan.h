@@ -24,6 +24,8 @@ struct Events {
   Event list[kMaxEvents];
   uint8_t count = 0;
   time_t checkedAt = 0;  // when the feed was last read; 0: never
+  time_t nextAt = 0;     // when nothing is coming: the first event of the next season, if it is already published
+  char nextName[20] = "";
 };
 
 struct Config {

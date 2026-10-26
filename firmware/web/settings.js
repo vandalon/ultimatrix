@@ -87,9 +87,11 @@ async function sportsPlan() {
     else status = 'Switches at ' + time(from);
     return '<tr><td>' + names[r.id] + '</td><td>' + (r.n || '') + '</td><td>' + time(r.s) + '</td><td>' + status + '</td></tr>';
   });
+  const upcoming = id => (d.sports[id]?.events || []).some(e => e.e + d.hold > d.now);
+  const seasons = d.order.filter(id => !upcoming(id) && d.sports[id]?.next > d.now).map(id => names[id] + ' ' + (d.sports[id].nextName ? d.sports[id].nextName + ', ' : '') + time(d.sports[id].next));
   const checked = Math.max(0, ...Object.values(d.sports).map(x => x.checked || 0));
   box.innerHTML = (lines.length ? '<table class="plan"><thead><tr><th>Sport</th><th>What</th><th>Starts</th><th>Plan</th></tr></thead><tbody>' + lines.join('') + '</tbody></table>' : 'Nothing found yet. The clock reads the schedules every few minutes.')
-    + '<small>' + (checked ? 'Schedules read ' + time(checked) + '. ' : '') + d.today + ' of ' + d.max + ' automatic switches used today. ' + (d.spare ? 'Ready in the spare slot: ' + (SPORTS.find(s => s[0] === d.spare)?.[1] || d.spare) + ' (a switch to it takes seconds).' : 'Nothing is prepared in the spare slot yet.') + (d.home ? '' : ' No home face: the clock stays on the sport face after the event.') + '</small>';
+    + (seasons.length ? '<small>Next season: ' + seasons.join('; ') + '.</small> ' : '') + '<small>' + (checked ? 'Schedules read ' + time(checked) + '. ' : '') + d.today + ' of ' + d.max + ' automatic switches used today. ' + (d.spare ? 'Ready in the spare slot: ' + (SPORTS.find(s => s[0] === d.spare)?.[1] || d.spare) + ' (a switch to it takes seconds).' : 'Nothing is prepared in the spare slot yet.') + (d.home ? '' : ' No home face: the clock stays on the sport face after the event.') + '</small>';
 }
 document.querySelector('#sportsPrepGo')?.addEventListener('click', async () => {
   const msg = document.querySelector('#sportsPrepMsg'), mode = document.querySelector('#sportsPrep').value;
