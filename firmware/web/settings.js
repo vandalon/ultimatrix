@@ -56,6 +56,80 @@ function timezoneMode() {
   field('timezone').disabled = auto; document.querySelector('#device-timezone').disabled = auto;
   document.querySelector('#timezone-field').style.opacity = auto ? 0.45 : 1;
 }
+// Sports: which sports may take the panel, in priority order (hidden field sportsOrder, "f1,football")
+const SPORTS = [['f1', 'F1'], ['motogp', 'MotoGP'], ['football', 'Football']];
+// The plan under Sports: what the clock found in the schedules and what it will do about it (computed here from /api/sports)
+let sportsPlanTimer = 0;
+async function sportsPlan() {
+  const box = document.querySelector('#sports-plan');
+  clearTimeout(sportsPlanTimer);
+  sportsPlanTimer = setTimeout(sportsPlan, 60000);
+  if (document.hidden) return;
+  let d;
+  try { d = await (await fetch('/api/sports', { cache: 'no-store' })).json(); } catch (_) { box.textContent = 'The clock did not answer.'; return; }
+  if (!d.order.length) { box.textContent = 'Tick a sport above to see what the clock will switch to.'; return; }
+  const names = Object.fromEntries(SPORTS), rows = [];
+  d.order.forEach((id, rank) => (d.sports[id]?.events || []).forEach(e => rows.push({ id, rank, ...e })));
+  rows.sort((a, b) => a.s - b.s || a.rank - b.rank);
+  const time = t => new Date(t * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const on = r => r.l || (d.now >= r.s - d.lead && d.now < r.e);
+  const lines = rows.filter(r => r.e + d.hold > d.now).map(r => {
+    const from = r.s - d.lead, until = r.e;
+    const rival = rows.find(o => o !== r && o.rank < r.rank && o.s - d.lead < until && Math.max(o.e, o.l ? d.now : 0) > from);  // only one that is on at the same time
+    let status;
+    const finished = r.e <= d.now && !r.l;
+    const next = finished && rows.find(o => o.id === r.id && o.s >= r.e && o.s - r.e <= d.bridge);
+    if (next) status = d.mode === r.id ? 'Finished, stays for ' + next.n : 'Finished';
+    else if (finished) status = d.mode === r.id ? 'Finished, home at ' + time(r.e + d.hold) : 'Finished';
+    else if (d.paused > from) status = 'Paused: you chose a face by hand';
+    else if (rival) status = 'Skipped: ' + names[rival.id] + ' ' + rival.n + ' is on';
+    else if (on(r)) status = d.mode === r.id ? 'On now' : 'On now, switching';
+    else status = 'Switches at ' + time(from);
+    return '<tr><td>' + names[r.id] + '</td><td>' + (r.n || '') + '</td><td>' + time(r.s) + '</td><td>' + status + '</td></tr>';
+  });
+  const upcoming = id => (d.sports[id]?.events || []).some(e => e.e + d.hold > d.now);
+  const seasons = d.order.filter(id => !upcoming(id) && d.sports[id]?.next > d.now).map(id => names[id] + ' ' + (d.sports[id].nextName ? d.sports[id].nextName + ', ' : '') + time(d.sports[id].next));
+  const checked = Math.max(0, ...Object.values(d.sports).map(x => x.checked || 0));
+  box.innerHTML = (lines.length ? '<table class="plan"><thead><tr><th>Sport</th><th>What</th><th>Starts</th><th>Plan</th></tr></thead><tbody>' + lines.join('') + '</tbody></table>' : 'Nothing found yet. The clock reads the schedules every few minutes.')
+    + (seasons.length ? '<small>Next season: ' + seasons.join('; ') + '.</small> ' : '') + '<small>' + (checked ? 'Schedules read ' + time(checked) + '. ' : '') + d.today + ' of ' + d.max + ' automatic switches used today. ' + (d.spare ? 'Ready in the spare slot: ' + (SPORTS.find(s => s[0] === d.spare)?.[1] || d.spare) + ' (a switch to it takes seconds).' : 'Nothing is prepared in the spare slot yet.') + (d.home ? '' : ' No home face: the clock stays on the sport face after the event.') + '</small>';
+}
+document.querySelector('#sportsPrepGo')?.addEventListener('click', async () => {
+  const msg = document.querySelector('#sportsPrepMsg'), mode = document.querySelector('#sportsPrep').value;
+  msg.textContent = 'Asking the clock…';
+  try {
+    const r = await fetch('/api/sports/prepare', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'mode=' + encodeURIComponent(mode) });
+    const j = await r.json().catch(() => ({}));
+    msg.textContent = j.message || (r.ok ? 'Done.' : 'The clock refused.');
+    if (r.status === 202) for (let i = 1; i <= 24; i++) setTimeout(sportsPlan, i * 5000);  // the plan footer shows when the spare slot is ready
+  } catch (_) { msg.textContent = 'The clock did not answer.'; }
+});
+function sportsInit(settings) {
+  const list = document.querySelector('#sports-list'), box = field('sportsOrder');
+  const chosen = (settings.sportsOrder || '').split(',').filter(id => SPORTS.some(s => s[0] === id));
+  let order = [...chosen, ...SPORTS.map(s => s[0]).filter(id => !chosen.includes(id))], on = new Set(chosen);
+  const save = () => { box.value = order.filter(id => on.has(id)).join(','); render(); dirty(); setTimeout(sportsPlan, 2500); };
+  function render() {
+    list.replaceChildren(...order.map((id, i) => {
+      const row = document.createElement('div'); row.className = 'bday';
+      const check = document.createElement('input'); check.type = 'checkbox'; check.checked = on.has(id); check.ariaLabel = SPORTS.find(s => s[0] === id)[1];
+      check.onchange = () => { check.checked ? on.add(id) : on.delete(id); save(); };
+      const name = document.createElement('span'); name.textContent = (i + 1) + '. ' + SPORTS.find(s => s[0] === id)[1];
+      const up = document.createElement('button'); up.type = 'button'; up.className = 'secondary'; up.textContent = '↑'; up.disabled = i === 0;
+      up.onclick = () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; save(); };
+      const down = document.createElement('button'); down.type = 'button'; down.className = 'secondary'; down.textContent = '↓'; down.disabled = i === order.length - 1;
+      down.onclick = () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; save(); };
+      row.append(check, name, up, down); return row;
+    }));
+  }
+  box.value = chosen.join(',');
+  sportsPlan();
+  const home = field('sportsHome');
+  home.replaceChildren(new Option('Stay on the sports face', ''), ...[...document.querySelectorAll('#faces [data-face]')].map(b => new Option(b.querySelector('b').textContent, b.dataset.face)));
+  home.value = settings.sportsHome || '';
+  document.querySelector('#sportsPrep').replaceChildren(...[...document.querySelectorAll('#faces [data-face]')].map(b => new Option(b.querySelector('b').textContent, b.dataset.face)));
+  render();
+}
+
 function dirty() {
   if (busy) return;
   const pending = field('swapBlueGreen').checked !== savedSwap;
@@ -252,6 +326,7 @@ async function load() {
     Object.entries(data.settings).forEach(([name, value]) => { const input = field(name); if (!input) return; if (input.tagName === 'SELECT' && ![...input.options].some(o => o.value === String(value))) input.add(new Option(value, value)); if (input.type === 'checkbox') input.checked = Boolean(value); else input.value = name === 'use24h' ? (value ? '1' : '0') : name === 'timeStyle' && racing && Number(value) === 0 ? 2 : value; });
     { const lv = field('pongLevel'); if (lv) document.querySelector('#pong-level-out').textContent = +lv.value + 1; }
     loadBirthdays(field('birthdays').value);
+    if (data.settings.sportsOrder !== undefined) { document.querySelector('#sports').hidden = false; document.querySelector('#nav-sports').hidden = false; sportsInit(data.settings); }
     document.querySelector('#sun-hint').textContent = data.sunTimes || '';
     document.querySelector('#mode-name').textContent = data.mode; currentFace = data.modeId; markFace();
     document.querySelector('#sport-heading').textContent = data.mode + ' preferences';
@@ -375,12 +450,13 @@ document.querySelectorAll('.sidebar nav a').forEach(link => link.addEventListene
 load();
 
 let updatePolling = false, currentFace = '';
+const betaServer = 'https://raw.githubusercontent.com/vandalon/ultimatrix/beta-updates';
 async function refreshFirmware() {
   try {
     const response = await fetch('/api/firmware', {cache:'no-store'}); if (!response.ok) return;
     const state = await response.json();
     document.querySelector('#firmware-version').textContent = state.version;
-    { const field = document.querySelector('#update-server'); if (document.activeElement !== field) field.value = state.server || ''; }
+    { const field = document.querySelector('#update-server'); if (document.activeElement !== field) field.value = state.server || ''; document.querySelector('#update-beta').checked = (state.server || '') === betaServer; }
     document.querySelector('#firmware-memory').textContent = Math.round(state.freeHeap / 1024) + ' KiB';
     document.querySelector('#firmware-status').textContent = state.message;
     document.querySelector('#firmware-latest').textContent = state.checking ? 'Checking…' : state.available ? state.latest + ' available' : state.checkedAt ? 'Up to date' : '—';
@@ -428,11 +504,13 @@ async function startUpdate(question, mode, force) {
 const installQuestion = 'Download and install the signed update? Your clock will restart. Unsaved settings will be discarded.';
 document.querySelector('#firmware-update').addEventListener('click', () => startUpdate(installQuestion));
 document.querySelector('#update-banner-install').addEventListener('click', () => startUpdate(installQuestion));
-document.querySelector('#update-server-save').addEventListener('click', async () => {
-  const body = new URLSearchParams({url: document.querySelector('#update-server').value.trim()});
+async function saveUpdateServer(url) {
+  const body = new URLSearchParams({url});
   try { const response = await fetch('/api/firmware/server', {method:'POST', body}); const result = await response.json(); document.querySelector('#firmware-status').textContent = result.message; } catch (_) {}
   setTimeout(refreshFirmware, 500);
-});
+}
+document.querySelector('#update-server-save').addEventListener('click', () => saveUpdateServer(document.querySelector('#update-server').value.trim()));
+document.querySelector('#update-beta').addEventListener('change', event => saveUpdateServer(event.target.checked ? betaServer : ''));
 async function runCheck(force) {
   document.querySelector('#firmware-check').disabled = true;
   try {

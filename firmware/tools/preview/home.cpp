@@ -21,6 +21,7 @@ namespace ezt { time_t fakeNow = 0; }
 ConsoleStub Console;
 void (*onFlip)(MatrixPanel_I2S_DMA *) = nullptr;
 std::atomic<bool> firmwareUpdating{false};
+std::atomic<int> firmwareInstallPercent{-1};
 
 // The values Home Assistant would give, set per scene
 static ha::Snapshot gSnapshot;
@@ -296,9 +297,9 @@ int main(int argc, char **argv) {
   phase(1);
   capture("Alarm flashing, lit phase");
 
-  firmwareUpdating = true; step(50);
+  firmwareInstallPercent = 62; step(50);
   capture("Updating the panel");
-  firmwareUpdating = false;
+  firmwareInstallPercent = -1;
 
   // Now playing: an album cover made of a gradient and a disc, in two rooms
   for (int y = 0; y < ha::media::kArt; y++)

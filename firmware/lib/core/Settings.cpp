@@ -66,6 +66,16 @@ void Settings::load() {
   dither = p.getBool("dither", false);
   birthdays = p.getString("birthdays", "");
   if (birthdays.length() > 260) birthdays = "";
+  {  // "order|home|lead|racing|fav|max"
+    String v = p.getString("sports", "");
+    int a = v.indexOf('|'), b = a < 0 ? -1 : v.indexOf('|', a + 1);
+    int lead = 10, racing = 0, fav = 1, max = 4, others = 1, fbOthers = 1, hold = 15, bridge = 60;
+    sportsOrder = ""; sportsHome = "";
+    if (a >= 0 && b >= 0 && v.length() < 100 && sscanf(v.c_str() + b + 1, "%d|%d|%d|%d|%d|%d|%d|%d", &lead, &racing, &fav, &max, &others, &fbOthers, &hold, &bridge) >= 4) {
+      sportsOrder = v.substring(0, a); sportsHome = v.substring(a + 1, b);
+      sportsLead = constrain(lead, 0, 120); sportsRacing = racing >= 0 && racing <= 2 ? racing : 0; sportsFav = fav != 0; sportsMax = constrain(max, 1, 12); sportsOthers = others != 0; footballOthers = fbOthers != 0; sportsHold = constrain(hold, 0, 120); sportsBridge = constrain(bridge, 0, 240);
+    }
+  }
   pongBackdrop = p.getUChar("pongBg", 3);
   if (pongBackdrop > 5) pongBackdrop = 3;
   arcHours = p.getUChar("arcHrs", 0); arcMinutes = p.getUChar("arcMin", 0); arcScore = p.getUChar("arcPts", 0);
@@ -133,7 +143,8 @@ void Settings::load() {
 bool Settings::save() {
   if (!validClockName(clockName)) return false;
   if (timezone.length() > 80 || ntpServer.isEmpty() || ntpServer.length() > 128 ||
-      footballLeagues.length() > 400 || footballTeams.length() > 400 || f1Drivers.length() > 400 || birthdays.length() > 260) return false;
+      footballLeagues.length() > 400 || footballTeams.length() > 400 || f1Drivers.length() > 400 || birthdays.length() > 260 ||
+      sportsOrder.length() > 40 || sportsHome.length() > 15) return false;
   if (color >= pacmancolors::WALL_COUNT || dotColor >= pacmancolors::COLOR_COUNT || pacmanClockColor >= pacmancolors::COLOR_COUNT ||
       clockMinutesColor >= pacmancolors::COLOR_COUNT || clockShade > 1) return false;
   for (uint8_t ghost : ghostColors) if (ghost >= pacmancolors::COLOR_COUNT) return false;
@@ -169,6 +180,11 @@ bool Settings::save() {
   if (saved) p.putBool("nightClock", nightClock);  // own key too: the record stays as it is
   if (saved) p.putBool("autoUpdate", autoUpdate);  // own key, so records saved before this setting keep it on
   if (saved) p.putString("birthdays", birthdays);  // own key as well: the record stays as it is
+  if (saved) {
+    char v[100];
+    snprintf(v, sizeof(v), "%s|%s|%u|%u|%u|%u|%u|%u|%u|%u", sportsOrder.c_str(), sportsHome.c_str(), sportsLead, sportsRacing, sportsFav ? 1 : 0, sportsMax, sportsOthers ? 1 : 0, footballOthers ? 1 : 0, sportsHold, sportsBridge);
+    p.putString("sports", v);
+  }
   if (saved) { p.putUChar("arcHrs", arcHours); p.putUChar("arcMin", arcMinutes); p.putUChar("arcPts", arcScore); }
   if (saved) { p.putUChar("pongDt", pongDate); p.putUChar("pongDy", pongDay); }
   if (saved) p.putUChar("pongLv", pongLevel);

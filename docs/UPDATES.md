@@ -11,6 +11,12 @@ Updates are signed application images. The clock never accepts an unsigned or ol
 - Clocks check once a day. With Automatic updates on (default, Settings > Advanced) a newer release is installed by itself; a failed install is retried once after a restart with no face loaded (update screen with progress bar).
 - A manual run of the workflow (workflow_dispatch) builds without releasing.
 
+## Beta channel
+
+- Push a tag with `-beta` in it (`git tag v0.8.0-beta.1 && git push origin v0.8.0-beta.1`). The same workflow builds and signs all faces, but publishes no release and leaves Pages alone. It force-pushes the signed files to the single-commit branch `beta-updates` (`<face>/manifest.json`, `manifest.sig`, image), replacing the previous beta.
+- Easiest: switch on Settings > Advanced > Firmware updates > Beta updates (it fills in the address below; switching off clears it). Or a clock joins the beta by entering `https://raw.githubusercontent.com/vandalon/ultimatrix/beta-updates` as the update server (Settings > Advanced). Empty goes back to stable releases.
+- Replay protection is per source (see below), so beta and stable do not block each other. A clock on stable only moves to a newer stable when it is switched back; the beta source keeps offering the last beta until the next beta tag.
+
 ## Private server (own hosting, testing)
 
 Settings, Advanced, "Update server": a base URL such as `http://192.168.7.77/ultiMatrix` (http or https). Empty means GitHub. Layout: `<base>/<face>/manifest.json`, `manifest.sig` and the image.

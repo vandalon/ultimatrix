@@ -51,6 +51,16 @@ struct Settings {
   bool dither = false;  // smoother dark colours at low brightness (HUB75 ordered dithering); own NVS key
   bool telnet = false;  // LAN console on port 23, unauthenticated: off unless switched on
   String f1Drivers;
+  String sportsOrder;  // sports that may take over the panel when they are on, best first: "f1,motogp,football" (SportsPlan.h); empty: off. One own NVS key "sports" with the fields below
+  String sportsHome;   // mode to go back to when nothing is on (empty: stay on the sports face)
+  uint8_t sportsLead = 10;  // minutes before the start the switch happens
+  uint8_t sportsRacing = 0;  // 0 qualifying and races, 1 races only, 2 every session
+  uint8_t sportsMax = 4;  // automatic switches into a sport per day
+  uint8_t sportsBridge = 60;  // minutes: between two sessions of the same sport this close together the clock stays (0 = off)
+  uint8_t sportsHold = 15;  // minutes the clock stays on a sport after it finished (end of the session, full time) before it goes home
+  bool sportsFav = true;  // Football: only matches of the favourite teams
+  bool sportsOthers = true;  // switching: also the favourites' matches in competitions that are not followed (looked up per team)
+  bool footballOthers = true;  // Football face: also show the favourites' matches in competitions that are not followed
   String birthdays;  // "MMDD:NAME:YYYY" entries, comma separated (Birthdays.h); own NVS key, outside the settings record
   String footballLeagues = UM_DEFAULT_FOOTBALL_LEAGUES;
   String footballTeams = UM_DEFAULT_FOOTBALL_TEAMS;

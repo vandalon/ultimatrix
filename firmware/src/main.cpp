@@ -55,6 +55,10 @@
 #include <AdminPin.h>
 #include <DlnaRenderer.h>
 #include <GzipAsset.h>
+#ifdef UM_SPORTS_SWITCH
+#include <Preferences.h>
+#include <SportsWatch.h>
+#endif
 #include <nvs.h>
 #ifdef UM_WLED_OVERLAY
 #include <Wled.h>
@@ -72,6 +76,7 @@ static void allocationFailed(size_t, uint32_t, const char *) {
 }
 
 std::atomic<bool> firmwareUpdating{false};
+std::atomic<int> firmwareInstallPercent{-1};
 std::atomic<bool> liveEventOn{false};
 std::atomic<bool> liveFavouriteOn{false};
 volatile bool faceBootDone = false;
@@ -577,9 +582,17 @@ static void settingsState() {
   json += ",\"resultMins\":" + String(s.resultMins) + ",\"timeStyle\":" + String(s.timeStyle);
   json += ",\"dither\":" + String(s.dither ? "true" : "false") + ",\"swapBlueGreen\":" + String(s.swapBlueGreen ? "true" : "false") + ",\"telnet\":" + String(s.telnet ? "true" : "false") + ",\"autoUpdate\":" + String(s.autoUpdate ? "true" : "false");
   json += ",\"birthdays\":" + jsonText(s.birthdays);
+#ifdef UM_SPORTS_SWITCH
+  json += ",\"sportsOrder\":" + jsonText(s.sportsOrder) + ",\"sportsHome\":" + jsonText(s.sportsHome) + ",\"sportsLead\":" + String(s.sportsLead);
+  json += ",\"sportsOthers\":" + String(s.sportsOthers ? "true" : "false");
+  json += ",\"sportsRacing\":" + String(s.sportsRacing) + ",\"sportsFav\":" + String(s.sportsFav ? "true" : "false") + ",\"sportsMax\":" + String(s.sportsMax) + ",\"sportsHold\":" + String(s.sportsHold) + ",\"sportsBridge\":" + String(s.sportsBridge);
+#endif
   json += ",\"fbLeagues\":" + jsonText(s.footballLeagues) + ",\"fbTeams\":" + jsonText(s.footballTeams);
   json += ",\"f1Drivers\":" + jsonText(s.f1Drivers);
   json += ",\"showRankings\":" + String(s.showRankings ? "true" : "false");
+#ifdef UM_FOOTBALL_ONLY
+  json += ",\"footballOthers\":" + String(s.footballOthers ? "true" : "false");
+#endif
   json += ",\"ballRoll\":" + String(s.ballRoll ? "true" : "false");
   json += ",\"numberFont\":" + String(s.numberFont == 1 ? "true" : "false");
   json += ",\"wordLanguage\":" + String(s.numberFont);
@@ -927,9 +940,22 @@ static void saveSettings() {
   s.dither = server.hasArg("dither");
   s.telnet = server.hasArg("telnet");
   s.autoUpdate = server.hasArg("autoUpdate");
+#ifdef UM_SPORTS_SWITCH
+  if (server.hasArg("sportsOrder")) {  // the sports page sends all of its fields together
+    s.sportsOrder = server.arg("sportsOrder");
+    s.sportsHome = FirmwareUpdate::knownMode(server.arg("sportsHome").c_str()) ? server.arg("sportsHome") : String();
+    s.sportsLead = constrain(server.arg("sportsLead").toInt(), 0, 120);
+    s.sportsRacing = server.arg("sportsRacing").toInt() == 1 ? 1 : server.arg("sportsRacing").toInt() == 2 ? 2 : 0;
+    s.sportsMax = constrain(server.arg("sportsMax").toInt(), 1, 12);
+    s.sportsHold = constrain(server.arg("sportsHold").toInt(), 0, 120);
+    s.sportsBridge = constrain(server.arg("sportsBridge").toInt(), 0, 240);
+    s.sportsFav = server.hasArg("sportsFav");
+    s.sportsOthers = server.hasArg("sportsOthers");
+  }
+#endif
 #ifdef UM_FOOTBALL_ONLY
   s.footballLeagues = selectedValues("fbLeagues"); s.footballTeams = server.arg("fbTeams");
-  s.showRankings = server.hasArg("showRankings"); s.ballRoll = server.hasArg("ballRoll");
+  s.showRankings = server.hasArg("showRankings"); s.footballOthers = server.hasArg("footballOthers"); s.ballRoll = server.hasArg("ballRoll");
   s.numberFont = server.hasArg("numberFont") ? 1 : 0;
 #elif defined(UM_F1)
   s.f1Drivers = selectedValues("f1Drivers"); s.f1Flags = server.hasArg("f1Flags");
@@ -1064,17 +1090,22 @@ static void mqttCheckUpdate() { firmwareUpdate.checkNow(false); }
 static void mqttInstallUpdate() { firmwareUpdate.request(); }
 
 // The Face select in Home Assistant: the same signed install as the settings page, started by an explicit choice
-static void mqttSwitchFace(const char *mode) {
-  if (!FirmwareUpdate::knownMode(mode)) return;
-  const bool accepted = firmwareUpdate.request(mode, false);
+// `force`: install even while a live match or session is running (the sports switch leaves it on purpose). True when the switch started.
+static bool switchFace(const char *mode, bool force) {
+  if (!FirmwareUpdate::knownMode(mode)) return false;
+  if (firmwareUpdate.activateStaged(mode)) { consoleLog("[Face] Switching to %s from the spare slot\n", mode); return true; }  // prepared ahead of time: only a restart
+  const bool accepted = firmwareUpdate.request(mode, force);
   FirmwareUpdate::Status status; firmwareUpdate.status(status);
   if (!accepted && status.lowMemory) {  // too little memory with this face running: restart first and install before the feeds start
     consoleLog("[MQTT] Switching face to %s needs a restart first\n", mode);
     firmwareUpdate.scheduleAfterReboot(mode);
     restartAt = millis() + 1000;
+    return true;
   } else if (!accepted) consoleLog("[MQTT] Face switch refused: %s\n", status.message);
   else consoleLog("[MQTT] Switching face to %s\n", mode);
+  return accepted;
 }
+static void mqttSwitchFace(const char *mode) { switchFace(mode, false); }
 
 static void mqttUpdateInfo(Mqtt::UpdateInfo &out) {
   FirmwareUpdate::Status status; firmwareUpdate.status(status);
@@ -1123,6 +1154,7 @@ static void saveUpdateServer() {
 static void requestFirmwareUpdate() {
   String mode = server.arg("mode");
   if (mode.length() && !FirmwareUpdate::knownMode(mode.c_str())) { settingsResponse(400, "Unknown clock face."); return; }
+  if (mode.length() && firmwareUpdate.activateStaged(mode.c_str())) { consoleLog("[Face] Switching to %s from the spare slot\n", mode.c_str()); settingsResponse(202, "Switching to the prepared face. Restarting."); return; }
   bool accepted = firmwareUpdate.request(mode.c_str(), server.hasArg("force"));
   FirmwareUpdate::Status status; firmwareUpdate.status(status);
   if (!accepted && liveDataActive() && !status.lowMemory) {
@@ -1148,6 +1180,165 @@ static void autoUpdate(uint32_t now) {
   // A failure (too little memory included) is retried once by background() with a restart and no face loaded
   if (firmwareUpdate.request()) { tried = true; consoleLog("[Firmware] Automatic update started: %s\n", latest.version); }
 }
+
+#ifdef UM_SPORTS_SWITCH
+// Sports that may take the panel (Settings > Sports): when one is on, or about to start, the clock installs that sport's face
+// with the same signed install as the Face select, and goes back to the home face once nothing is on (SportsPlan.h decides).
+static sportsplan::Log sportsLog;
+
+// Prepares the face the clock will need next in the spare slot, so the switch is a restart: the sport that starts within 6 hours, or the
+// home face while a sport face we switched to is running. Only when nothing is live and the running image has proved itself.
+static void sportsStageAhead(uint32_t now, time_t wall, const sportsplan::Config &plan, const sportsplan::Events (&events)[sportsplan::SPORTS], const sportsplan::Log &log) {
+  static uint32_t nextTry = 0, day = 0, stagedToday = 0;
+  if ((int32_t)(now - nextTry) < 0 || liveDataActive() || FirmwareUpdate::pendingVerification()) return;
+  nextTry = now + 10 * 60000;
+  if (day != (uint32_t)(wall / 86400)) { day = (uint32_t)(wall / 86400); stagedToday = 0; }
+  if (stagedToday >= 6) return;  // flash wear: a few writes a day at most
+  const char *want = nullptr;
+  time_t first = 0;  // the sport that is on or starts first comes first; priority only breaks a tie
+  for (uint8_t i = 0; i < plan.orderCount; ++i) {
+    const char *mode = sportsplan::kModes[plan.order[i]];
+    if (!strcmp(mode, UM_MODE_ID)) continue;
+    const sportsplan::Events &e = events[plan.order[i]];
+    for (uint8_t k = 0; k < e.count; ++k) {
+      if (e.list[k].end <= wall || e.list[k].start - wall >= 6 * 3600) continue;
+      const time_t at = e.list[k].start > wall ? e.list[k].start : wall;
+      if (!want || at < first) { want = mode; first = at; }
+    }
+  }
+  if (!want && log.target[0] && !strcmp(log.target, UM_MODE_ID) && plan.home[0] && strcmp(plan.home, UM_MODE_ID)) want = plan.home;
+  if (!want || !FirmwareUpdate::knownMode(want) || firmwareUpdate.spareHolds(want)) return;
+  if (firmwareUpdate.stage(want)) { ++stagedToday; consoleLog("[Sports] preparing %s ahead of time\n", want); }
+}
+
+static void sportsSwitch(uint32_t now) {
+  static uint32_t seenSaves = ~0u, nextCheck = 0;
+  sportsplan::Log &log = sportsLog;
+  static bool logLoaded = false;
+  Settings &s = *Settings::getInstance();
+  static bool active = false, settleHome = false, settingsSeen = false;  // settleHome: sports or home face were just chosen, go to the home face once if nothing is on
+  static uint32_t settleSince = 0;
+  static String lastOrder, lastHome;
+  if (updateOnly || (s.sportsOrder.isEmpty() && !active)) return;  // nothing chosen: no object made, no task
+  SportsWatch &watch = SportsWatch::instance();
+  if (seenSaves != Settings::saveCount()) {
+    seenSaves = Settings::saveCount();
+    SportsWatch::Config cfg;
+    sportsplan::Config plan;
+    sportsplan::parseOrder(s.sportsOrder.c_str(), plan);
+    for (uint8_t i = 0; i < plan.orderCount; ++i) cfg.sports[plan.order[i]] = true;
+    cfg.racing = s.sportsRacing; cfg.favouritesOnly = s.sportsFav; cfg.othersFav = s.sportsOthers;
+    strlcpy(cfg.leagues, s.footballLeagues.c_str(), sizeof(cfg.leagues)); strlcpy(cfg.teams, s.footballTeams.c_str(), sizeof(cfg.teams));
+    watch.configure(cfg);
+    active = !s.sportsOrder.isEmpty();
+    if (settingsSeen && active && !s.sportsHome.isEmpty() && (s.sportsOrder != lastOrder || s.sportsHome != lastHome)) { settleHome = true; settleSince = now; }
+    lastOrder = s.sportsOrder; lastHome = s.sportsHome; settingsSeen = true;
+  }
+  if (active) watch.poll();  // the schedule task ends itself while an update check or install runs: start it again
+  if (s.sportsOrder.isEmpty() || (int32_t)(now - nextCheck) < 0) return;
+  nextCheck = now + 15000;
+  if (!bootDone || portalActive || welcomeMode || updateOnly || restartAt || scheduledMode[0] || WiFi.status() != WL_CONNECTED || wledBusy(now)) return;
+  FirmwareUpdate::Status status; firmwareUpdate.status(status);
+  if (status.busy || status.ready) return;
+  Preferences p;
+  if (!logLoaded) {
+    logLoaded = true;
+    if (p.begin("ultimatrix", true)) {
+      String v = p.getString("sportsLog", "");
+      char target[16] = "", seen[16] = "";
+      unsigned day = 0, count = 0; long last = 0, paused = 0;
+      if (sscanf(v.c_str(), "%u,%u,%ld,%15[^,],%15[^,],%ld", &day, &count, &last, target, seen, &paused) >= 3) {  // "-" stands for an empty name
+        log.day = day; log.count = count; log.last = last; log.pausedUntil = paused;
+        strlcpy(log.target, strcmp(target, "-") ? target : "", sizeof(log.target)); strlcpy(log.seen, strcmp(seen, "-") ? seen : "", sizeof(log.seen));
+      }
+      p.end();
+    }
+  }
+  sportsplan::Config plan;
+  sportsplan::parseOrder(s.sportsOrder.c_str(), plan);
+  strlcpy(plan.home, s.sportsHome.c_str(), sizeof(plan.home));
+  plan.leadSecs = s.sportsLead * 60; plan.maxPerDay = s.sportsMax; plan.holdSecs = s.sportsHold * 60; plan.bridgeSecs = s.sportsBridge * 60;
+  sportsplan::Events events[sportsplan::SPORTS];
+  watch.events(events);
+  const time_t wall = time(nullptr);
+  auto saveLog = [&]() {
+    if (!p.begin("ultimatrix", false)) return;
+    char v[80];
+    snprintf(v, sizeof(v), "%u,%u,%ld,%s,%s,%ld", (unsigned)log.day, (unsigned)log.count, (long)log.last, log.target[0] ? log.target : "-", log.seen[0] ? log.seen : "-", (long)log.pausedUntil);
+    p.putString("sportsLog", v);
+    p.end();
+  };
+  if (sportsplan::noticeManual(log, events, wall, plan, UM_MODE_ID)) { saveLog(); consoleLog("[Sports] face chosen by hand: no automatic switch until the events now on are over\n"); }
+  if (settleHome) {  // a new setup: the home face is where the clock belongs while nothing is on, wherever it was left
+    if (!strcmp(UM_MODE_ID, plan.home) || !plan.orderCount) settleHome = false;
+    else {
+      bool known = true, anyOn = false;
+      for (uint8_t i = 0; i < plan.orderCount; ++i) {
+        known &= events[plan.order[i]].checkedAt != 0;
+        anyOn |= sportsplan::wanted(events[plan.order[i]], wall, plan, false);
+      }
+      if (known || now - settleSince > 300000) {  // the schedules are read (or could not be for 5 minutes)
+        settleHome = false;
+        if (!anyOn && FirmwareUpdate::knownMode(plan.home)) {
+          sportsplan::noteSwitch(log, wall, plan.home);
+          saveLog();
+          consoleLog("[Sports] nothing is on: switching to the home face %s\n", plan.home);
+          switchFace(plan.home, true);
+          return;
+        }
+      }
+    }
+  }
+  const char *target = sportsplan::decide(events, wall, plan, log, UM_MODE_ID);
+  if (!target) { sportsStageAhead(now, wall, plan, events, log); return; }
+  if (!FirmwareUpdate::knownMode(target)) return;
+  const sportsplan::Log before = log;
+  sportsplan::noteSwitch(log, wall, target);
+  saveLog();
+  consoleLog("[Sports] switching to %s\n", target);
+  if (!switchFace(target, true)) { log = before; saveLog(); }  // refused (busy, no memory): not counted, tried again in 15 seconds
+}
+
+// Settings > Sports > Prepare a face now: the same staging the clock does by itself ahead of an event
+static void sportsPrepare() {
+  const String mode = server.arg("mode");
+  if (!FirmwareUpdate::knownMode(mode.c_str())) { settingsResponse(400, "Choose a face."); return; }
+  if (mode == UM_MODE_ID) { settingsResponse(409, "That face is already running."); return; }
+  if (FirmwareUpdate::pendingVerification()) { settingsResponse(409, "The running version has not been confirmed yet; try again in a few minutes."); return; }
+  if (firmwareUpdate.spareHolds(mode.c_str())) { settingsResponse(200, "That face is already prepared."); return; }
+  if (liveDataActive()) { settingsResponse(409, "A live match or session is running; preparing waits until it has ended."); return; }
+  if (firmwareUpdate.stage(mode.c_str())) { settingsResponse(202, "Preparing. The feeds pause for about a minute."); return; }
+  FirmwareUpdate::Status status; firmwareUpdate.status(status);
+  settingsResponse(409, status.busy ? "An update or preparation is already running." : "Not enough free memory to prepare a face right now.");
+}
+
+// The plan on the settings page: what the watcher found and the rules, so the page can show what will happen when
+static void sportsInfo() {
+  Settings &s = *Settings::getInstance();
+  sportsplan::Config plan;
+  sportsplan::parseOrder(s.sportsOrder.c_str(), plan);
+  plan.holdSecs = s.sportsHold * 60; plan.bridgeSecs = s.sportsBridge * 60;
+  sportsplan::Events events[sportsplan::SPORTS];
+  if (plan.orderCount) SportsWatch::instance().events(events);
+  const time_t wall = time(nullptr);
+  String json = "{\"now\":" + String((long)wall) + ",\"mode\":\"" UM_MODE_ID "\",\"home\":" + jsonText(s.sportsHome) + ",\"lead\":" + String(s.sportsLead * 60);
+  json += ",\"hold\":" + String(plan.holdSecs) + ",\"bridge\":" + String(plan.bridgeSecs) + ",\"paused\":" + String((long)sportsLog.pausedUntil) + ",\"max\":" + String(s.sportsMax);
+  char spare[16]; firmwareUpdate.spareMode(spare, sizeof(spare));
+  json += ",\"spare\":" + jsonText(spare);
+  json += ",\"today\":" + String(sportsLog.day == (uint32_t)(wall / 86400) ? sportsLog.count : 0) + ",\"order\":[";
+  for (uint8_t i = 0; i < plan.orderCount; ++i) json += String(i ? ",\"" : "\"") + sportsplan::kModes[plan.order[i]] + "\"";
+  json += "],\"sports\":{";
+  for (uint8_t i = 0; i < plan.orderCount; ++i) {
+    const sportsplan::Events &e = events[plan.order[i]];
+    json += String(i ? ",\"" : "\"") + sportsplan::kModes[plan.order[i]] + "\":{\"checked\":" + String((long)e.checkedAt) + ",\"next\":" + String((long)e.nextAt) + ",\"nextName\":" + jsonText(String(e.nextName)) + ",\"events\":[";
+    for (uint8_t k = 0; k < e.count; ++k)
+      json += String(k ? "," : "") + "{\"s\":" + String((long)e.list[k].start) + ",\"e\":" + String((long)e.list[k].end) + ",\"l\":" + (e.list[k].live ? "true" : "false") + ",\"n\":" + jsonText(e.list[k].label) + "}";
+    json += "]}";
+  }
+  json += "}}";
+  server.send(200, "application/json", json);
+}
+#endif
 
 // Low-memory fallback: restart first, then update before the feeds start.
 static void rebootForFirmwareUpdate() {
@@ -1741,6 +1932,9 @@ static void background() {
   Mqtt::instance().setBusy(playing(now));
   Mqtt::instance().poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
   if (!playing(now)) autoUpdate(now);
+#ifdef UM_SPORTS_SWITCH
+  if (!playing(now)) sportsSwitch(now);
+#endif
   reportMemory();
   noteLiveData();
   shedOnLowMemory();
@@ -1783,7 +1977,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
-  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays", "pongBg", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
+  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
@@ -2117,6 +2311,10 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/firmware/reboot", rebootForFirmwareUpdate);
   postRoute("/api/firmware/check", checkFirmware);
   postRoute("/api/firmware/server", saveUpdateServer);
+#ifdef UM_SPORTS_SWITCH
+  server.on("/api/sports", HTTP_GET, sportsInfo);
+  postRoute("/api/sports/prepare", sportsPrepare);
+#endif
   server.on("/api/storage", HTTP_GET, storageState);
   postRoute("/api/storage/clear", storageClear);
   postRoute("/api/storage/reformat", storageReformat);

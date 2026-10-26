@@ -7,7 +7,14 @@ public:
   struct Status { char message[96]; uint32_t received, total; bool busy, ready, failed, lowMemory; };
   // mode: clock face to install; null or empty updates the running face.
   // force: pause a live match or session (its feed stops for the duration) instead of waiting for it to end.
-  bool request(const char *mode = nullptr, bool force = false);
+  bool request(const char *mode = nullptr, bool force = false) { return queue(mode, force, false); }
+  // The spare slot can hold a verified face ahead of time, so a switch is a restart instead of a download.
+  // stage(): like request(), but only writes the spare slot; the running image stays the one that boots. Refused while the running
+  // image has not proved itself (the spare slot is its rollback target), on the Home face (too little memory) and for the running face.
+  bool stage(const char *mode);
+  bool spareMode(char *out, size_t size);  // the face the spare slot holds, if valid
+  bool spareHolds(const char *mode);       // the spare slot holds a valid image of this face (staged, or the face the clock was on before)
+  bool activateStaged(const char *mode);   // boots the spare slot's image: status().ready is then set, the caller restarts
   // The outcome of the last background check; kept in NVS so the boot screen knows before the network is up.
   struct Latest { char version[32]; char error[64]; uint32_t checkedAt; bool available, checking; };
   void begin();  // loads the cached check result
@@ -45,6 +52,8 @@ private:
   uint32_t _stoppingAt = 0, _finishedAt = 0;
   bool _workerRunning = false, _force = false;
   TaskHandle_t _worker = nullptr;
+  bool queue(const char *mode, bool force, bool stageOnly);
+  bool _stageOnly = false;
   void check();
   void run();
   void message(const char *text, bool failed = false);

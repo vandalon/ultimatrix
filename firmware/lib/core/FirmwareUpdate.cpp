@@ -59,6 +59,57 @@ uint32_t releaseFloor() {
   const time_t kMargin = 2 * 24 * 3600;
   return at > kMargin ? (uint32_t)(at - kMargin) : 0;
 }
+// What the spare OTA slot holds: written when a face is staged and when the clock leaves a slot (it then keeps the old face, which
+// makes the way back instant). Valid only while the slot is still the spare one and still holds that very image.
+struct Spare { char mode[16]; char version[32]; uint8_t elf[32]; uint32_t release, address; };
+bool loadSpare(Spare &s) {
+  Preferences p;
+  if (!p.begin("um-updates", true)) return false;
+  memset(&s, 0, sizeof(s));
+  strlcpy(s.mode, p.getString("spMode", "").c_str(), sizeof(s.mode));
+  strlcpy(s.version, p.getString("spVer", "").c_str(), sizeof(s.version));
+  const bool ok = s.mode[0] && p.getBytes("spElf", s.elf, sizeof(s.elf)) == sizeof(s.elf);
+  s.release = p.getUInt("spRel", 0); s.address = p.getUInt("spAddr", 0);
+  p.end();
+  return ok;
+}
+void saveSpare(const Spare &s) {
+  Preferences p;
+  if (!p.begin("um-updates", false)) return;
+  p.putString("spMode", s.mode); p.putString("spVer", s.version); p.putBytes("spElf", s.elf, sizeof(s.elf));
+  p.putUInt("spRel", s.release); p.putUInt("spAddr", s.address);
+  p.end();
+}
+void clearSpare() {
+  Preferences p;
+  if (!p.begin("um-updates", false)) return;
+  p.remove("spMode"); p.remove("spVer"); p.remove("spElf"); p.remove("spRel"); p.remove("spAddr");
+  p.end();
+}
+bool spareValid(Spare &s) {
+  if (!loadSpare(s)) return false;
+  const esp_partition_t *slot = esp_ota_get_next_update_partition(nullptr);
+  esp_app_desc_t description;
+  return slot && slot->address == s.address && esp_ota_get_partition_description(slot, &description) == ESP_OK &&
+         !strncmp(description.project_name, "ultimatrix", sizeof(description.project_name)) &&
+         !strncmp(description.version, s.version, sizeof(description.version)) &&
+         !memcmp(description.app_elf_sha256, s.elf, sizeof(s.elf)) && s.release >= releaseFloor();
+}
+// The running image as the spare of the next boot: call right after the other slot became the boot partition
+void rememberRunningAsSpare() {
+  const esp_partition_t *running = esp_ota_get_running_partition();
+  const esp_app_desc_t *app = esp_app_get_description();
+  if (!running) return;
+  Spare s{};
+  strlcpy(s.mode, kMode, sizeof(s.mode)); strlcpy(s.version, app->version, sizeof(s.version));
+  memcpy(s.elf, app->app_elf_sha256, sizeof(s.elf)); s.address = running->address;
+  Preferences history;
+  char key[24]; historyKey(key, sizeof(key), kMode);
+  s.release = history.begin("um-updates", true) ? history.getUInt(key, 0) : 0;
+  history.end();
+  if (!s.release) s.release = releaseFloor();  // flashed over USB: no release number was ever recorded; it is the build that is running
+  saveSpare(s);
+}
 size_t minFreeBlock() {
   char url[9]; fileUrl(url, sizeof(url), "", "");
   return strncmp(url, "https://", 8) ? kMinFreeBlock : kMinFreeBlockTls;
@@ -201,6 +252,7 @@ void FirmwareUpdate::message(const char *value, bool failed) {
 }
 void FirmwareUpdate::progress(uint32_t bytes, uint32_t total) {
   std::lock_guard<std::mutex> guard(_lock); _status.received = bytes; _status.total = total;
+  if (!_stageOnly && total) firmwareInstallPercent = (int)((uint64_t)bytes * 100 / total);
 }
 
 bool FirmwareUpdate::knownMode(const char *mode) {
@@ -249,7 +301,48 @@ bool FirmwareUpdate::takeScheduled(char *mode, size_t size) {
   return true;
 }
 
-bool FirmwareUpdate::request(const char *mode, bool force) {
+bool FirmwareUpdate::stage(const char *mode) {
+  if (!mode || !*mode || !knownMode(mode) || !strcmp(mode, kMode) || pendingVerification()) return false;
+  if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < minFreeBlock()) return false;
+  return queue(mode, false, true);
+}
+
+bool FirmwareUpdate::spareMode(char *out, size_t size) {
+  Spare s;
+  out[0] = 0;
+  if (!spareValid(s)) return false;
+  strlcpy(out, s.mode, size);
+  return true;
+}
+
+bool FirmwareUpdate::spareHolds(const char *mode) {
+  Spare s;
+  return mode && spareValid(s) && !strcmp(s.mode, mode);
+}
+
+bool FirmwareUpdate::activateStaged(const char *mode) {
+  std::lock_guard<std::mutex> guard(_lock);
+  if (!mode || !*mode || _status.busy || _status.ready || _latest.checking || _workerRunning || _pending != Work::None || firmwareUpdating || pendingVerification() || !strcmp(mode, kMode)) return false;
+  Spare spare;
+  if (!spareValid(spare) || strcmp(spare.mode, mode)) return false;
+  const esp_partition_t *slot = esp_ota_get_next_update_partition(nullptr);
+  if (esp_ota_set_boot_partition(slot) != ESP_OK) return false;  // verifies the image again
+  rememberRunningAsSpare();
+  Preferences history;
+  if (history.begin("um-updates", false)) {  // the same bookkeeping as an install
+    char key[24]; historyKey(key, sizeof(key), mode);
+    char digestKey[28]; snprintf(digestKey, sizeof(digestKey), "%sd", key);
+    if (spare.release >= history.getUInt(key, 0)) { history.putUInt(key, spare.release); history.putBytes(digestKey, spare.elf, sizeof(spare.elf)); }
+    history.remove("availElf"); history.remove("availVer"); history.remove("chk");
+    history.end();
+  }
+  strlcpy(_target, mode, sizeof(_target));
+  _status = Status{"Clock face installed. Restarting Ultimatrix.", 0, 0, false, true, false, false};
+  consoleLog("[Firmware] Switching to %s from the spare slot\n", mode);
+  return true;
+}
+
+bool FirmwareUpdate::queue(const char *mode, bool force, bool stageOnly) {
   std::lock_guard<std::mutex> guard(_lock);
   if (_status.busy || _status.ready || _latest.checking || _workerRunning) return false;
   std::unique_lock<std::mutex> gate(networkBudget(), std::try_to_lock);
@@ -261,9 +354,10 @@ bool FirmwareUpdate::request(const char *mode, bool force) {
   if (_lastAttempt && millis() - _lastAttempt < 30000) { strlcpy(_status.message, "Wait 30 seconds before checking again.", sizeof(_status.message)); return false; }
   _lastAttempt = millis();
   strlcpy(_target, mode && *mode ? mode : kMode, sizeof(_target));
+  _stageOnly = stageOnly;
   _status = Status{"Checking signed update manifest.", 0, 0, true, false, false, false};
   firmwareUpdating = true;
-  consoleLog("[Firmware] Install queued for %s\n", _target);
+  consoleLog("[Firmware] %s queued for %s\n", stageOnly ? "Staging" : "Install", _target);
   _pending = Work::Install; _force = force;
   _stoppingAt = millis();
   strlcpy(_status.message, "Stopping feeds before updating.", sizeof(_status.message));
@@ -276,14 +370,14 @@ void FirmwareUpdate::task(void *self) {
   {
     // Feed tasks and their stacks have already been reclaimed by service().
     std::unique_lock<std::mutex> gate(networkBudget());
-#ifdef UM_HOME
-    const bool alwaysReboot = !bootForUpdate;  // the Home face keeps too much live data to download beside it: always install after a restart
-#elif defined(UM_GAMEPAD)
-    const bool alwaysReboot = !bootForUpdate && gamepad::active();  // Bluetooth holds ~75 KB: install after a restart, which never starts it
+#ifdef UM_GAMEPAD
+    const bool alwaysReboot = !update._stageOnly && !bootForUpdate && gamepad::active();  // Bluetooth holds ~75 KB: install after a restart, which never starts it
 #else
     const bool alwaysReboot = false;
 #endif
-    if (alwaysReboot || heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < minFreeBlock()) {
+    if (update._stageOnly && heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < minFreeBlock()) {
+      update.message("Not enough free memory to prepare a face ahead of time.", true);  // staging never restarts the clock
+    } else if (alwaysReboot || heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < minFreeBlock()) {
       update.message(alwaysReboot ? "Restarting to install the update." : "Not enough free memory while the clock is running. Restarting to install the update.", true);
       std::lock_guard<std::mutex> guard(update._lock); update._status.lowMemory = true;
     } else update.run();
@@ -293,6 +387,11 @@ void FirmwareUpdate::task(void *self) {
 }
 
 void FirmwareUpdate::run() {
+  struct InstallShown {  // the Home face shows UPDATING for a real install only; cleared on every way out except success (the restart follows)
+    bool active;
+    ~InstallShown() { if (active) firmwareInstallPercent = -1; }
+  } shown{!_stageOnly};
+  if (shown.active) firmwareInstallPercent = 0;
   const esp_partition_t *partition = esp_ota_get_next_update_partition(nullptr);
   Manifest info;
   if (const char *error = fetchManifest(_target, info, partition)) { message(error, true); return; }
@@ -322,6 +421,7 @@ void FirmwareUpdate::run() {
     message("This is not a matching Ultimatrix application image.", true); return;
   }
   ImageWrite write;
+  clearSpare();  // the slot is about to be overwritten
   if (esp_ota_begin(partition, OTA_WITH_SEQUENTIAL_WRITES, &write.handle) != ESP_OK) { message("Cannot begin update. Startup may still need verification.", true); return; }
   write.active = true;
   mbedtls_sha256_context hash; mbedtls_sha256_init(&hash); mbedtls_sha256_starts(&hash, 0);
@@ -340,7 +440,17 @@ void FirmwareUpdate::run() {
     message("Firmware transfer or checksum failed. Current image retained.", true); return;
   }
   esp_err_t result = esp_ota_end(write.handle); write.active = false;
+  if (_stageOnly) {  // verified and written; the running image stays the one that boots
+    if (result != ESP_OK) { message("Firmware validation failed. Nothing staged.", true); return; }
+    Spare staged{};
+    strlcpy(staged.mode, _target, sizeof(staged.mode)); strlcpy(staged.version, info.version, sizeof(staged.version));
+    memcpy(staged.elf, elfHash, sizeof(staged.elf)); staged.release = releaseId; staged.address = partition->address;
+    saveSpare(staged);
+    message("Clock face prepared.");
+    return;
+  }
   if (result != ESP_OK || esp_ota_set_boot_partition(partition) != ESP_OK) { message("Firmware validation failed. Current image retained.", true); return; }
+  rememberRunningAsSpare();  // the old slot still holds the face the clock leaves: the way back needs no download (before the release below is recorded)
   // Record the authenticated release only once the image is active, so a failed activation does not use the release up.
   if (history.begin("um-updates", false)) {
     char key[24]; historyKey(key, sizeof(key), _target);
@@ -351,6 +461,7 @@ void FirmwareUpdate::run() {
   if (history.begin("um-updates", false)) {  // the cached "update available" is about the build that was just replaced
     history.remove("availElf"); history.remove("availVer"); history.remove("chk"); history.end();
   }
+  shown.active = false; firmwareInstallPercent = 100;  // installed: the screen stays on 100% until the restart
   message(strcmp(_target, kMode) ? "Clock face installed. Restarting Ultimatrix." : "Firmware verified. Restarting Ultimatrix.");
   std::lock_guard<std::mutex> guard(_lock); _status.ready = true;
 }

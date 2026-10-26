@@ -9,6 +9,7 @@ if [ $# -eq 0 ]; then set -- build; fi
 export IDF_CCACHE_ENABLE=1
 export IDF_TOOLS_PATH="${IDF_TOOLS_PATH:-$project_root/.tools/espressif}"
 export IDF_PATH="${IDF_PATH:-$project_root/.tools/esp-idf}"
+[ -d "$IDF_PATH" ] && IDF_PATH="$(cd "$IDF_PATH" && pwd -P)"  # the real path, so a worktree whose .tools is a link does not make CMake warn that IDF_PATH changed
 if [ ! -f "$IDF_PATH/export.sh" ]; then
   echo "ESP-IDF is missing. Run tools/setup-idf.sh first." >&2
   exit 1
