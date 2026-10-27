@@ -230,7 +230,7 @@ void SportsWatch::loop() {
         continue;
       }
       if (now < due[s]) continue;
-      due[s] = now + (s == F1 ? refreshF1(cfg, now) : s == MOTOGP ? refreshMotoGp(cfg, now) : s == FOOTBALL ? refreshFootball(cfg, now) : refreshNba(cfg, now));  // one sport per second at most
+      due[s] = now + (s == F1 ? refreshF1(cfg, now) : s == MOTOGP ? refreshMotoGp(cfg, now) : s == FOOTBALL ? refreshFootball(cfg, now) : s == NBA ? refreshNba(cfg, now) : refreshMlb(cfg, now));  // one sport per second at most
       break;
     }
   }
@@ -386,12 +386,12 @@ time_t SportsWatch::refreshMotoGp(const Config &cfg, time_t now) {
   return wait == kSlow && eventStart - now > 2 * 86400 ? 3600 : wait;  // the weekend is days away: the plan only changes when the organisers move a session
 }
 
-// ---- NBA: today's board; favourites are matched by team abbreviation ----
-struct NbaScan {
+// ---- NBA and MLB: today's board (ESPN's scoreboard has the same shape); favourites are matched by team abbreviation ----
+struct DayScan {
   struct Game { char date[24] = "", state[8] = "", name[14] = ""; char team[2][5] = {"", ""}; } m[15];
   int count = 0;
   static void leaf(void *sink, const char (*path)[JsonScan::KEY], int n, const char *value, bool) {
-    NbaScan &scan = *(NbaScan *)sink;
+    DayScan &scan = *(DayScan *)sink;
     if (n < 3 || strcmp(path[0], "events")) return;
     const int k = atoi(path[1]);
     if (k < 0 || k >= 15) return;
@@ -415,21 +415,21 @@ static bool inTeamList(const char *list, const char *abbr) {
   return false;
 }
 
-time_t SportsWatch::refreshNba(const Config &cfg, time_t now) {
+time_t SportsWatch::refreshBoard(uint8_t sport, const char *url, const char *teams, time_t gameSecs, const Config &cfg, time_t now) {
   Events found;
   found.checkedAt = now;
-  if (!cfg.favouritesOnly || cfg.nbaTeams[0]) {
-    NbaScan *scan = new NbaScan;
-    const bool ok = get("http://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", NbaScan::leaf, scan);
+  if (!cfg.favouritesOnly || teams[0]) {
+    DayScan *scan = new DayScan;
+    const bool ok = get(url, DayScan::leaf, scan);
     if (ok) {
       for (int i = 0; i < scan->count; ++i) {
         const auto &m = scan->m[i];
         const time_t start = parseEspnDate(m.date);
-        if (!start || (cfg.favouritesOnly && !inTeamList(cfg.nbaTeams, m.team[0]) && !inTeamList(cfg.nbaTeams, m.team[1]))) continue;
-        time_t secs = 160 * 60;
+        if (!start || (cfg.favouritesOnly && !inTeamList(teams, m.team[0]) && !inTeamList(teams, m.team[1]))) continue;
+        time_t secs = gameSecs;
         const bool over = !strcmp(m.state, "post");
         if (over) {  // the final buzzer: kept for the stay after the end, then dropped
-          secs = finishedAt(NBA, start, secs, now) - start;
+          secs = finishedAt(sport, start, secs, now) - start;
           if (start + secs + 2 * 3600 <= now) continue;
         }
         addEvent(found, start, secs, !over && !strcmp(m.state, "in"), m.name);
@@ -438,8 +438,16 @@ time_t SportsWatch::refreshNba(const Config &cfg, time_t now) {
     delete scan;
     if (!ok) return kRetry;
   }
-  publish(NBA, found);
+  publish(sport, found);
   return nextPoll(found, now);
+}
+
+time_t SportsWatch::refreshNba(const Config &cfg, time_t now) {
+  return refreshBoard(NBA, "http://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", cfg.nbaTeams, 160 * 60, cfg, now);
+}
+
+time_t SportsWatch::refreshMlb(const Config &cfg, time_t now) {
+  return refreshBoard(MLB, "http://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard", cfg.mlbTeams, 200 * 60, cfg, now);
 }
 
 time_t SportsWatch::refreshFootball(const Config &cfg, time_t now) {

@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong, nba, home]
+        mode: [football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong, nba, mlb, home]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Check that every stored settings key is in the boot allowlist

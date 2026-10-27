@@ -84,6 +84,14 @@ void Settings::load() {
   if (nbaTables > 2) nbaTables = 0;
   nbaTeams = p.getString("nbaTeams", "");
   if (nbaTeams.length() > 60) nbaTeams = "";
+  mlbExtra = p.getUChar("mlbExtra", 0) != 0;
+  mlbLiveOnly = p.getUChar("mlbLive", 1) != 0;
+  mlbIdle = p.getUChar("mlbIdle", 0);
+  if (mlbIdle > 2) mlbIdle = 0;
+  mlbTables = p.getUChar("mlbTab", 0);
+  if (mlbTables > 2) mlbTables = 0;
+  mlbTeams = p.getString("mlbTeams", "");
+  if (mlbTeams.length() > 60) mlbTeams = "";
   pongBackdrop = p.getUChar("pongBg", 3);
   if (pongBackdrop > 5) pongBackdrop = 3;
   arcHours = p.getUChar("arcHrs", 0); arcMinutes = p.getUChar("arcMin", 0); arcScore = p.getUChar("arcPts", 0);
@@ -202,6 +210,11 @@ bool Settings::save() {
   if (saved) p.putUChar("nbaIdle", nbaIdle);
   if (saved) p.putUChar("nbaLive", nbaLiveOnly ? 1 : 0);
   if (saved) p.putUChar("nbaExtra", nbaExtra ? 1 : 0);
+  if (saved) p.putString("mlbTeams", mlbTeams);
+  if (saved) p.putUChar("mlbTab", mlbTables);
+  if (saved) p.putUChar("mlbIdle", mlbIdle);
+  if (saved) p.putUChar("mlbLive", mlbLiveOnly ? 1 : 0);
+  if (saved) p.putUChar("mlbExtra", mlbExtra ? 1 : 0);
   if (saved) p.putUChar("pongBg", pongBackdrop);  // and this one: the record's size must not change
   p.end();
   if (saved) { memcpy(faceOptions, options, sizeof(options)); counter()++; }

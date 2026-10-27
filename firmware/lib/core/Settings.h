@@ -46,6 +46,11 @@ struct Settings {
   bool nbaLiveOnly = true;  // NBA: while a game is live only the live games (and their quarters) are shown; own NVS key "nbaLive"
   uint8_t nbaIdle = 0;  // NBA: what to show while no game is live: 0 the next-up page (the big clock when nothing is coming), 1 the big clock, 2 both in turn; own NVS key "nbaIdle"
   uint8_t nbaTables = 0;  // NBA: the East and West tables in the round: 0 off, 1 when no game is live, 2 always; own NVS key "nbaTab"
+  bool mlbExtra = false;  // MLB: the extra pages in the round (today's games, line scores, favourites, tables); off: only the next-up page / big clock, and the live games; own NVS key "mlbExtra"
+  bool mlbLiveOnly = true;  // MLB: while a game is live only the live games (and their line scores) are shown; own NVS key "mlbLive"
+  uint8_t mlbIdle = 0;  // MLB: what to show while no game is live: 0 the next-up page (the big clock when nothing is coming), 1 the big clock, 2 both in turn; own NVS key "mlbIdle"
+  uint8_t mlbTables = 0;  // MLB: the AL and NL tables in the round: 0 off, 1 when no game is live, 2 always; own NVS key "mlbTab"
+  String mlbTeams;  // MLB: favourite teams as abbreviations, comma separated ("NYY,LAD"); own NVS key "mlbTeams"
   String nbaTeams;  // NBA: favourite teams as abbreviations, comma separated ("LAL,BOS"); own NVS key "nbaTeams"
   uint8_t ghostColors[4] = {};  // Pac-Man: 0 lets the face pick a contrasting pastel
   bool ballRoll = true;

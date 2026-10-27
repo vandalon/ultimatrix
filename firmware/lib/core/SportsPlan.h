@@ -11,8 +11,8 @@
 // found in the sports feeds and by the settings the user chose.
 namespace sportsplan {
 
-enum Sport : uint8_t { F1, MOTOGP, FOOTBALL, NBA, SPORTS };
-static const char *const kModes[SPORTS] = {"f1", "motogp", "football", "nba"};  // the firmware mode that shows each sport
+enum Sport : uint8_t { F1, MOTOGP, FOOTBALL, NBA, MLB, SPORTS };
+static const char *const kModes[SPORTS] = {"f1", "motogp", "football", "nba", "mlb"};  // the firmware mode that shows each sport
 
 struct Event {
   time_t start = 0, end = 0;  // UTC; end is when the event is expected to be over
