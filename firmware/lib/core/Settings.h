@@ -42,6 +42,10 @@ struct Settings {
   uint8_t pongDate = 1, pongDay = 1, pongLevel = 0;     // Pong: how well the computer plays against you, 0 easiest to 8 hardest; own NVS key
   uint8_t pongSpeed = 2;     // Pong: game speed while the computer plays, 0 slowest to 4 fastest (50 75 100 125 150 %); own NVS key
   uint8_t pongBackdrop = 3;  // Pong: brightness of the clock behind the court, 0 off to 5 brightest; own NVS key, outside the record
+  bool nbaExtra = false;  // NBA: the extra pages in the round (today's games, quarter scores, favourites, tables); off: only the next-up page / big clock, and the live games; own NVS key "nbaExtra"
+  bool nbaLiveOnly = true;  // NBA: while a game is live only the live games (and their quarters) are shown; own NVS key "nbaLive"
+  uint8_t nbaIdle = 0;  // NBA: what to show while no game is live: 0 the next-up page (the big clock when nothing is coming), 1 the big clock, 2 both in turn; own NVS key "nbaIdle"
+  uint8_t nbaTables = 0;  // NBA: the East and West tables in the round: 0 off, 1 when no game is live, 2 always; own NVS key "nbaTab"
   String nbaTeams;  // NBA: favourite teams as abbreviations, comma separated ("LAL,BOS"); own NVS key "nbaTeams"
   uint8_t ghostColors[4] = {};  // Pac-Man: 0 lets the face pick a contrasting pastel
   bool ballRoll = true;

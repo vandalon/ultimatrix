@@ -76,6 +76,12 @@ void Settings::load() {
       sportsLead = constrain(lead, 0, 120); sportsRacing = racing >= 0 && racing <= 2 ? racing : 0; sportsFav = fav != 0; sportsMax = constrain(max, 1, 12); sportsOthers = others != 0; footballOthers = fbOthers != 0; sportsHold = constrain(hold, 0, 120); sportsBridge = constrain(bridge, 0, 240);
     }
   }
+  nbaExtra = p.getUChar("nbaExtra", 0) != 0;
+  nbaLiveOnly = p.getUChar("nbaLive", 1) != 0;
+  nbaIdle = p.getUChar("nbaIdle", 0);
+  if (nbaIdle > 2) nbaIdle = 0;
+  nbaTables = p.getUChar("nbaTab", 0);
+  if (nbaTables > 2) nbaTables = 0;
   nbaTeams = p.getString("nbaTeams", "");
   if (nbaTeams.length() > 60) nbaTeams = "";
   pongBackdrop = p.getUChar("pongBg", 3);
@@ -192,6 +198,10 @@ bool Settings::save() {
   if (saved) p.putUChar("pongLv", pongLevel);
   if (saved) p.putUChar("pongSp", pongSpeed);
   if (saved) p.putString("nbaTeams", nbaTeams);
+  if (saved) p.putUChar("nbaTab", nbaTables);
+  if (saved) p.putUChar("nbaIdle", nbaIdle);
+  if (saved) p.putUChar("nbaLive", nbaLiveOnly ? 1 : 0);
+  if (saved) p.putUChar("nbaExtra", nbaExtra ? 1 : 0);
   if (saved) p.putUChar("pongBg", pongBackdrop);  // and this one: the record's size must not change
   p.end();
   if (saved) { memcpy(faceOptions, options, sizeof(options)); counter()++; }

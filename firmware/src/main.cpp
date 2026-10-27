@@ -601,7 +601,7 @@ static void settingsState() {
   json += ",\"wordAnimation\":" + String(s.timeStyle & 15) + ",\"wordDate\":" + String(s.timeStyle >> 4);
 #endif
 #ifdef UM_NBA
-  json += ",\"nbaTeams\":" + jsonText(s.nbaTeams);
+  json += ",\"nbaTeams\":" + jsonText(s.nbaTeams) + ",\"nbaIdle\":" + String(s.nbaIdle) + ",\"nbaTables\":" + String(s.nbaTables) + ",\"nbaLiveOnly\":" + String(s.nbaLiveOnly ? 1 : 0) + ",\"nbaExtra\":" + (s.nbaExtra ? "true" : "false");
 #endif
 #ifdef UM_PONG
   json += ",\"pongBackdrop\":" + String(s.pongBackdrop);
@@ -977,6 +977,10 @@ static void saveSettings() {
     if (teams.length() > 60) { settingsResponse(400, "Choose at most 12 favourite teams."); return; }
     for (size_t i = 0; i < teams.length(); ++i) if (!isupper((unsigned char)teams[i]) && teams[i] != ',') { settingsResponse(400, "Choose the teams from the list."); return; }
     s.nbaTeams = teams;
+    s.nbaIdle = constrain(server.arg("nbaIdle").toInt(), 0, 2);
+    s.nbaTables = constrain(server.arg("nbaTables").toInt(), 0, 2);
+    if (server.hasArg("nbaLiveOnly")) s.nbaLiveOnly = server.arg("nbaLiveOnly") != "0";
+    s.nbaExtra = server.hasArg("nbaExtra");
   }
 #endif
   if (!s.save()) {
@@ -1996,7 +2000,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
-  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
+  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
@@ -2334,6 +2338,8 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
 #ifdef UM_SPORTS_SWITCH
   server.on("/api/sports", HTTP_GET, sportsInfo);
   postRoute("/api/sports/prepare", sportsPrepare);
+#endif
+#ifdef UM_NBA
 #endif
   server.on("/api/storage", HTTP_GET, storageState);
   postRoute("/api/storage/clear", storageClear);

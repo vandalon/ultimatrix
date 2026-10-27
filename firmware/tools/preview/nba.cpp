@@ -1,6 +1,7 @@
 // Renders the NBA face's pages with the real drawing code and made-up games.
 // Usage: nba <output folder>; writes one PPM per scene and scenes.tsv (file, caption).
 #include <Arduino.h>
+#include <algorithm>
 #include <fstream>
 #include <string>
 #include "NbaRenderer.h"
@@ -125,6 +126,74 @@ static void demo(const nba::Snapshot &snap) {
   fprintf(stderr, "%d frames\n", frame);
 }
 
+
+// ---- a game night in time-lapse: two live games (the default pages: only the live games), baskets, the end of a game and back to the next-up page ----
+static void clockString(char *out, size_t size, int seconds) { snprintf(out, size, "%d:%02d", seconds / 60, seconds % 60); }
+
+static void night(nba::Snapshot &snap) {
+  struct Seg { Kind kind; int index; uint32_t ms; bool home; int points; };
+  const Seg segs[] = {
+    {KGame, 0, 4200, false, 0}, {KGame, 1, 4200, false, 0},
+    {KGame, 0, 2600, false, 0}, {KBasket, 0, 0, true, 3},   // Boston scores a three
+    {KGame, 0, 2400, false, 0}, {KGame, 1, 4200, false, 0},
+    {KGame, 0, 2200, false, 0}, {KBasket, 0, 0, false, 2},  // the Lakers answer
+    {KGame, 0, 2400, false, 0}, {KGame, 1, 4200, false, 0},
+    {KGame, 0, 1600, false, 0}, {KBasket, 0, 0, true, 2},
+    {KGame, 0, 3400, false, 0},                              // the game ends
+    {KNext, 0, 7000, false, 0}};
+  uint32_t t = 0;
+  int frame = 0, gameSec = 252;  // the Lakers at Boston, Q3 4:12 left
+  float gameClock = 252;
+  const Item *previous = nullptr;
+  Item shownItem{};
+  const uint32_t slideMs = 380, step = 50;
+  bool final = false;
+  for (const Seg &seg : segs) {
+    Item item{seg.kind, seg.index, seg.index, 2};
+    const uint32_t duration = seg.kind == KBasket ? nbaview::kBasketMs : seg.ms;
+    nba::Game basketGame = snap.games[0];
+    for (uint32_t local = 0; local < duration; local += step, t += step) {
+      if (seg.kind != KBasket && !final) {
+        gameClock = std::max(0.0f, gameClock - 0.42f);  // about 8 game seconds per second of film
+        gameSec = (int)gameClock;
+        char text[8];
+        clockString(text, sizeof(text), gameSec);
+        strlcpy(snap.games[0].clock, text, sizeof(snap.games[0].clock));
+        if (gameSec == 0) { final = true; snap.games[0].state = nba::Final; snap.games[0].period = 4; strlcpy(snap.games[0].clock, "0.0", sizeof(snap.games[0].clock)); snap.live = 1; }
+      }
+      display.fillScreen(0);
+      if (seg.kind == KBasket) {
+        nbaview::drawBasket(display, basketGame, seg.home, seg.points, local);
+      } else if (previous && previous->kind != KBasket && previous->kind != item.kind || (previous && previous->kind == KGame && previous->index != item.index)) {
+        if (local < slideMs && previous->kind != KBasket) {
+          const float u = local / (float)slideMs;
+          const int dx = (int)(64.0f * (1 - (1 - u) * (1 - u)));
+          if (backgroundOf(previous->kind) == backgroundOf(item.kind)) { nbaview::drawBackground(display, backgroundOf(item.kind), t); nbaview::backgroundDrawnByFace(true); }
+          facekit::view.dx = -dx;
+          renderItem(snap, *previous, t, 0);
+          facekit::view.dx = 64 - dx;
+          renderItem(snap, item, t, local);
+          facekit::view.dx = 0;
+          nbaview::backgroundDrawnByFace(false);
+        } else renderItem(snap, item, t, local);
+      } else if (item.kind == KNext) {
+        nbaview::drawUpcoming(display, snap, "", 0, &clockTime, t, local, 8000);
+      } else {
+        renderItem(snap, item, t, local);
+      }
+      writeFrame(frame++);
+    }
+    if (seg.kind == KBasket) {
+      if (seg.home) snap.games[0].homeScore += seg.points; else snap.games[0].awayScore += seg.points;
+      for (int i = 0; i < 4; i++) {}  // the quarter scores are not shown in this run
+    }
+    static Item last;
+    last = item;
+    previous = seg.kind == KBasket ? nullptr : &last;
+  }
+  fprintf(stderr, "%d frames\n", frame);
+}
+
 int main(int argc, char **argv) {
   if (argc < 2) { fprintf(stderr, "usage: nba <folder>\n"); return 2; }
   outDir = argv[1];
@@ -155,7 +224,24 @@ int main(int argc, char **argv) {
   }
   snap.east.count = snap.west.count = 15;
 
-  if (argc > 2) { demo(snap); return 0; }
+  if (argc > 3 && std::string(argv[2]) == "ball") {  // the main clock page at the given moments (ms): nba-preview <dir> ball 3400 3900 ... (PREVIEW_TIME="2026-10-27 14:35" sets the clock)
+    if (const char *when = getenv("PREVIEW_TIME")) {
+      struct tm tmv = {};
+      if (sscanf(when, "%d-%d-%d %d:%d", &tmv.tm_year, &tmv.tm_mon, &tmv.tm_mday, &tmv.tm_hour, &tmv.tm_min) == 5) {
+        tmv.tm_year -= 1900;
+        tmv.tm_mon -= 1;
+        ezt::fakeNow = timegm(&tmv);
+        clockTime.hour = tmv.tm_hour;
+        clockTime.minute = tmv.tm_min;
+      }
+    }
+    for (int i = 3; i < argc; i++) {
+      nbaview::drawClock(display, &clockTime, (uint32_t)atol(argv[i]), "LAL-BOS 7:30P");
+      capture(argv[i]);
+    }
+    return 0;
+  }
+  if (argc > 2) { if (std::string(argv[2]) == "night") night(snap); else demo(snap); return 0; }
   display.fillScreen(0);
   nbaview::drawGame(display, snap.games[0], &clockTime, 0, false, false, false, 0, 2);
   capture("Live game");
@@ -173,10 +259,13 @@ int main(int argc, char **argv) {
   int n = nbaview::orderGames(snap, "GSW", order);
   nbaview::drawToday(display, snap, order, n, "GSW", 0, &clockTime, 0);
   capture("Today's games (GSW favourite)");
-  nbaview::drawUpcoming(display, snap, "NYK", 0, &clockTime, 0);
-  capture("Upcoming, page 1");
-  nbaview::drawUpcoming(display, snap, "NYK", 1, &clockTime, 0);
-  capture("Upcoming, page 2");
+  const uint32_t slideMoments[] = {0, 3000, 7900, 8100, 8300, 8500, 8800, 17000, 24000, 40000, 47900, 48200};  // the list moving on to the next group, then round to the first again
+  for (uint32_t e : slideMoments) {
+    nbaview::drawUpcoming(display, snap, "NYK", 0, &clockTime, 0, e, 8000);
+    char caption[40];
+    snprintf(caption, sizeof(caption), "Next up, list at %u ms", (unsigned)e);
+    capture(caption);
+  }
   nbaview::drawStandings(display, snap.east, true, "BOS", 0, &clockTime, 0);
   capture("East, page 1");
   nbaview::drawStandings(display, snap.west, false, "LAL", 0, &clockTime, 0);
