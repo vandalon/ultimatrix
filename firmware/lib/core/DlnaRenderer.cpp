@@ -6,6 +6,7 @@
 #include "NoticeImage.h"
 #include "NetworkBudget.h"
 #include "Console.h"
+#include "Settings.h"
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
@@ -144,7 +145,7 @@ void control(bool connectionManager) {
 }
 void description() {
   String s = "<?xml version=\"1.0\"?><root xmlns=\"urn:schemas-upnp-org:device-1-0\"><specVersion><major>1</major><minor>0</minor></specVersion><device>";
-  s += tag("deviceType", kRenderer) + tag("friendlyName", "Ultimatrix screen") + tag("manufacturer", "Ultimatrix") + tag("modelName", "Ultimatrix LED Matrix Clock") + tag("UDN", st->uuid);
+  s += tag("deviceType", kRenderer) + tag("friendlyName", Settings::getInstance()->clockName) + tag("manufacturer", "Ultimatrix") + tag("modelName", "Ultimatrix LED Matrix Clock") + tag("UDN", st->uuid);
   s += "<serviceList>";
   const char *names[] = {"AVTransport", "ConnectionManager", "RenderingControl"};
   const char *paths[] = {"av", "cm", "rc"};
