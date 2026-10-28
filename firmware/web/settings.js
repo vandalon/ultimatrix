@@ -58,7 +58,7 @@ function timezoneMode() {
 }
 // Sports: which sports may take the panel, in priority order (hidden field sportsOrder, "f1,football")
 // The default order is by popularity (NFL, NBA, MLB); the order the user drags is saved in sportsOrder
-const SPORTS = [['f1', 'F1'], ['motogp', 'MotoGP'], ['football', 'Football'], ['nfl', 'NFL'], ['nba', 'NBA'], ['mlb', 'MLB']];
+const SPORTS = [['football', 'Football'], ['f1', 'F1'], ['motogp', 'MotoGP'], ['nfl', 'NFL'], ['nba', 'NBA'], ['mlb', 'MLB']];
 // Freedom mode: for our American friends, football is called soccer in the face picker and the sports list (this browser only)
 function freedomMode() { try { return localStorage.getItem('freedom') === '1'; } catch (_) { return false; } }
 function applyFreedom() {
