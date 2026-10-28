@@ -95,6 +95,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 12 clock fa
 - check-static-ram.py: post-build check that fails a face above the 60 KB static RAM budget (hooked in firmware/CMakeLists.txt)
 
 - img2base64.py: JPEG/PNG -> 64x64 rgb565_base64 JSON payload for MQTT pixels/set (Pillow)
+- football-catalog/generate.py: adds leagues (+ ESPN club lists) to lib/core/FootballCatalog.h and regroups the picker by continent; re-runnable
 - gzip_asset.py: gzip -9 (fixed timestamp) of one web asset for embedding
 - gen_icons.py: renders BootScreen's U logo into web app icons
 - gen_tzdb.py, zones.csv: generate the build-time timezone table from zone rules
