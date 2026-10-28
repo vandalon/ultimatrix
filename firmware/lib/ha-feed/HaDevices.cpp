@@ -18,19 +18,23 @@ bool haveSnapshot = false;
 std::atomic<uint32_t> changes{0};
 
 // "a;b;c" into names[], counting every one; returns the total
-uint8_t split(const char *at, const char *end, char (*names)[kName], uint8_t &shown) {
+uint8_t split(const char *at, const char *end, char *pool, size_t poolSize, uint8_t &shown) {
   uint8_t total = 0;
+  size_t used = 0;
+  bool full = false;
   shown = 0;
   while (at < end) {
     const char *stop = (const char *)memchr(at, ';', end - at);
     if (!stop) stop = end;
     if (stop > at) {
-      if (shown < kMax) {
-        size_t n = std::min<size_t>(stop - at, kName - 1);
-        memcpy(names[shown], at, n);
-        names[shown][n] = 0;
+      const size_t n = std::min<size_t>(stop - at, kName - 1);
+      if (!full && used + (used ? 1 : 0) + n + 1 <= poolSize) {
+        if (used) pool[used++] = ';';
+        memcpy(pool + used, at, n);
+        used += n;
+        pool[used] = 0;
         shown++;
-      }
+      } else full = true;
       if (total < 255) total++;
     }
     at = stop + 1;
@@ -38,6 +42,20 @@ uint8_t split(const char *at, const char *end, char (*names)[kName], uint8_t &sh
   return total;
 }
 }  // namespace
+
+bool nameAt(const char *pool, int k, char *out, size_t size) {
+  for (; k > 0 && *pool; k--) {
+    const char *stop = strchr(pool, ';');
+    if (!stop) return false;
+    pool = stop + 1;
+  }
+  if (!*pool || !size) return false;
+  const char *stop = strchr(pool, ';');
+  const size_t n = std::min<size_t>(stop ? stop - pool : strlen(pool), size - 1);
+  memcpy(out, pool, n);
+  out[n] = 0;
+  return true;
+}
 
 size_t buildTemplate(char *out, size_t capacity) {
   // A device counts once however many entities it has; its name is the one the user gave it, else Home Assistant's
@@ -60,8 +78,8 @@ void parseResult(const char *text, Snapshot &out) {
   memset(&out, 0, sizeof(out));
   const char *split_ = strchr(text, '~');
   if (!split_) return;
-  out.lowTotal = split(text, split_, out.low, out.lowShown);
-  out.offlineTotal = split(split_ + 1, text + strlen(text), out.offline, out.offlineShown);
+  out.lowTotal = split(text, split_, out.low, sizeof(out.low), out.lowShown);
+  out.offlineTotal = split(split_ + 1, text + strlen(text), out.offline, sizeof(out.offline), out.offlineShown);
 }
 
 void publish(const Snapshot &snapshot) {

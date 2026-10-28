@@ -564,10 +564,10 @@ bool HaClient::session(uint32_t version) {
     } else if (devicesId && (uint32_t)idOf(text) == devicesId) {
       const char *result = strstr(text, "\"result\":\"");
       if (result && typeIs(text, "event")) {
-        std::unique_ptr<char[]> line(new (std::nothrow) char[600]);
+        std::unique_ptr<char[]> line(new (std::nothrow) char[ha::devices::kLowPool + ha::devices::kOfflinePool + 100]);  // both lists, as long as the snapshot keeps them
         std::unique_ptr<ha::devices::Snapshot> found(new (std::nothrow) ha::devices::Snapshot);
         if (line && found) {
-          ha::media::unescape(result + 10, line.get(), 600);
+          ha::media::unescape(result + 10, line.get(), ha::devices::kLowPool + ha::devices::kOfflinePool + 100);
           ha::devices::parseResult(line.get(), *found);
           ha::devices::publish(*found);
         }

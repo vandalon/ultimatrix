@@ -38,19 +38,21 @@ struct Frame {
   // Now playing: what is playing, and the album art (null while it loads or when there is none)
   char title[48], artist[48], station[48];  // the station shares the artist's line, one after the other, while showStation is 1
   uint8_t showStation;  // 1: the second line shows the station instead of the artist
+  uint8_t stationOnly;  // 1: nothing but the station name to show: one line at the bottom on a half-height band
   uint8_t stationTop;   // 1: the station name takes the date's place at the top right (a title and an artist are both known)
   uint16_t artVersion, scrollTick;  // scrollTick counts 70 ms steps while a line is wider than the panel, else stays 0
   uint8_t progress;  // 0 when unknown, else 1 + pixels of the 64 played
   const uint16_t *art;
   uint8_t backdrop;  // 1: the art is the dimmed background of this page (not the Now playing page itself)
   // Devices: up to seven rows of low batteries then offline devices (kind SI_LOW_BATTERY / SI_OFFLINE), the last may be "+N MORE"
-  char device[7][25];
-  uint8_t deviceKind[7];
+  char device[9][25];  // eight rows, a ninth while the list glides a row up
+  uint8_t deviceKind[9], deviceDy;  // deviceDy: how many pixels (0..6) the rows have moved up
   // An alert's two lines, or the status page's
   char line1[12], line2[12];
 };
 
 uint16_t tone(uint8_t tone);
+bool scrolls(const Frame &frame);  // a line of the frame is wider than its room: scrollTick has to run
 void draw(MatrixPanel_I2S_DMA &display, const Frame &frame);
 // Pages slide in from the right: progress 0..1000 (already eased); canSlide says whether two frames are two pages of the carousel
 bool canSlide(const Frame &from, const Frame &to);

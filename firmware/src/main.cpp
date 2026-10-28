@@ -1560,7 +1560,7 @@ static void haState() {
   String json;
   json.reserve(2600);
   json = "{\"host\":" + jsonText(c.host) + ",\"port\":" + String(c.port) + ",\"tls\":" + String(c.tls ? "true" : "false");
-  json += ",\"tokenSet\":" + String(c.token[0] ? "true" : "false") + ",\"pages\":" + String(c.pages) + ",\"pageSecs\":" + String(c.pageSecs);
+  json += ",\"tokenSet\":" + String(c.token[0] ? "true" : "false") + ",\"pages\":" + String(c.pages) + ",\"order\":" + jsonText(ha::pageOrder()) + ",\"pageSecs\":" + String(c.pageSecs);
   json += ",\"gridImportPositive\":" + String(c.gridImportPositive ? "true" : "false") + ",\"batteryDischargePositive\":" + String(c.batteryDischargePositive ? "true" : "false");
   json += ",\"state\":" + String((int)HaClient::instance().state()) + ",\"status\":" + jsonText(status) + ",\"art\":" + jsonText(artNote) + ",\"tiles\":[";
   for (int i = 0; i < ha::kHomeTiles; i++) json += (i ? "," : "") + haSlotJson(ha::tileSlot(c, i), ha::tileSlot(c, i).entity);
@@ -1699,6 +1699,13 @@ static void haSave() {
   if (server.hasArg("pages")) {
     if (!number("pages", 1, 127, value) || !(value & 15)) { settingsResponse(400, "Choose at least one page."); return; }
     c->pages = value;
+  }
+  if (server.hasArg("order")) {
+    const String order = server.arg("order");
+    bool good = order.length() == 4;
+    for (const char *letter = "EHMD"; *letter; letter++) good = good && order.indexOf(*letter) >= 0;
+    if (!good) { settingsResponse(400, "The page order is not valid."); return; }
+    strlcpy(ha::pageOrder(), order.c_str(), sizeof(ha::pageOrder()));
   }
   if (server.hasArg("pageSecs")) {
     if (!number("pageSecs", 3, 120, value)) { settingsResponse(400, "Page time must be between 3 and 120 seconds."); return; }
@@ -2038,7 +2045,7 @@ static const char *const kKnownKeys[] = {
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
-  "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather",  // HaConfig.cpp
+  "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder",  // HaConfig.cpp
   "btPad",                                                                                                                 // Gamepad.cpp
   "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5",
 };
@@ -2073,7 +2080,7 @@ static void tidyNvs(bool force = false) {
 #endif
 #if !defined(UM_HOME)
   if (crowded) {  // the Home Assistant face's own records (settings, token, tiles, alert and media options)
-    static const char *const homeKeys[] = {"haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather",
+    static const char *const homeKeys[] = {"haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder",
   "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5"};
     nvsEraseKeys("ultimatrix", homeKeys, sizeof(homeKeys) / sizeof(homeKeys[0]));
   }

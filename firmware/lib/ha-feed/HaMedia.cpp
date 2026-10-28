@@ -395,7 +395,13 @@ bool lookup(const char *query, uint16_t *out) {
   char cover[kPicture];  // on the task's stack: the 4 KB reply buffer goes back before the picture is downloaded and decoded
   strlcpy(cover, coverUrl, sizeof(cover));
   memory.reset();
-  return downloadPublic(cover, out);
+  if (downloadPublic(cover, out)) return true;
+  // Progressive JPEGs (some Deezer covers) are beyond the decoder: wsrv.nl sends back a baseline 64x64 one
+  char encoded[300], proxied[420];
+  encode(cover, encoded, sizeof(encoded));
+  snprintf(proxied, sizeof(proxied), "http://wsrv.nl/?url=%s&w=64&h=64&fit=cover&output=jpg&q=95", encoded);
+  consoleLog("[HA] album art: trying again through the resizer\n");
+  return downloadPublic(proxied, out);
 }
 
 // A station's logo: radio-browser.info knows stations by name and the logo (mostly a PNG) by address; wsrv.nl turns it into the
@@ -432,12 +438,37 @@ bool stationLogo(const char *station, uint16_t *out) {
   if (!findLogo(station, reply, kReply, logoUrl, 160)) return false;
   char encoded[500];
   encode(logoUrl, encoded, sizeof(encoded));
-  snprintf(proxied, 700, "http://wsrv.nl/?url=%s&w=64&h=64&fit=contain&bg=black&output=jpg&q=85", encoded);
+  snprintf(proxied, 700, "http://wsrv.nl/?url=%s&w=64&h=64&fit=contain&bg=black&output=jpg&q=95", encoded);
   consoleLog("[HA] album art: station logo %.60s\n", logoUrl);
   char logo[560];  // the proxy address: up to 150 characters of logo address, percent-encoded, plus the resize options
   strlcpy(logo, proxied, sizeof(logo));
   memory.reset();
   return downloadPublic(logo, out);
+}
+
+// The panel washes pictures out, and a JPEG leaves greys where a logo should be black and white. Levels first: the darkest 5% of
+// the picture (at most up to 48) becomes black and the lightest 5% (at least from 160) white, then the last 28 steps next to black and next to white are cut off, which removes the JPEG speckle in flat areas
+void addContrast(uint16_t *pixels) {
+  constexpr size_t kPixels = (size_t)kArt * kArt;
+  uint16_t histogram[256] = {};
+  for (size_t i = 0; i < kPixels; i++) {
+    const uint16_t c = pixels[i];
+    const uint32_t r = (c >> 8 & 0xF8) | (c >> 13), g = (c >> 3 & 0xFC) | (c >> 9 & 3), b = (c << 3 & 0xF8) | (c >> 2 & 7);
+    histogram[(r * 77 + g * 150 + b * 29) >> 8]++;
+  }
+  int low = 0, high = 255;
+  for (size_t seen = 0; low < 48 && (seen += histogram[low]) < kPixels / 20; low++) {}
+  for (size_t seen = 0; high > 160 && (seen += histogram[high]) < kPixels / 20; high--) {}
+  uint8_t lut[256];
+  for (int v = 0; v < 256; v++) {
+    const int level = std::min(255, std::max(0, (v - low) * 255 / (high - low)));
+    lut[v] = (uint8_t)std::min(255, std::max(0, (level - 28) * 255 / 207));  // what is left of black or white after the JPEG (dots) goes flat
+  }
+  for (size_t i = 0; i < kPixels; i++) {
+    const uint16_t c = pixels[i];
+    const uint8_t r = lut[(c >> 8 & 0xF8) | (c >> 13)], g = lut[(c >> 3 & 0xFC) | (c >> 9 & 3)], b = lut[(c << 3 & 0xF8) | (c >> 2 & 7)];
+    pixels[i] = (uint16_t)((r & 0xF8) << 8 | (g & 0xFC) << 3 | b >> 3);
+  }
 }
 
 void fetchTask(void *) {
@@ -471,6 +502,7 @@ void fetchTask(void *) {
       ok = stationLogo(station, pixels);
     }
   }
+  if (ok) addContrast(pixels);
   {
     std::lock_guard<std::mutex> guard(lock);
     if (ok) { strlcpy(haveFor, picture, sizeof(haveFor)); coverId++; }
@@ -668,6 +700,9 @@ void poll() {
     if (!current.stream[0] || (icyKnown && !strcmp(icyFor, current.stream))) return;  // nothing to ask, or already asked
     if (!strcmp(icyFailedFor, current.stream) && millis() - icyFailedAt < 60000) return;
   }
+  static uint32_t nextTry = 0;  // asked every frame: the heap walk below at most once a second
+  if ((int32_t)(millis() - nextTry) < 0) return;
+  nextTry = millis() + 1000;
   if (feedsHalted() || WiFi.status() != WL_CONNECTED || heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 8000) return;
   if (icyFetching.exchange(true)) return;
   if (xTaskCreatePinnedToCore(icyTask, "haIcy", 6144, nullptr, 1, nullptr, 0) != pdPASS) icyFetching = false;  // core 0 with the other feeds
@@ -715,6 +750,9 @@ ArtState art(const Player &player, bool online, bool logo, const uint16_t **pixe
     if (logo) strlcpy(wantedStation, player.station, sizeof(wantedStation));
     else wantedStation[0] = 0;
   }
+  // The page asks every frame: the heap checks below (they walk the heap) run once a second at most
+  static uint32_t nextGate = 0;
+  if ((int32_t)(millis() - nextGate) < 0) return ART_LOADING;
   if (fetching.exchange(true)) {  // one fetch at a time; the page asks again
     static uint32_t told = 0;
     if (millis() - told > 5000) { told = millis(); consoleLog("[HA] album art: waiting, a cover fetch is still running\n"); }
@@ -723,6 +761,7 @@ ArtState art(const Player &player, bool online, bool logo, const uint16_t **pixe
   // Data memory only: getMaxAllocHeap() counts instruction RAM that no buffer can use
   if (feedsHalted() || WiFi.status() != WL_CONNECTED || heap_caps_get_free_size(MALLOC_CAP_8BIT) < 30000 || heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 14000) {
     fetching = false;
+    nextGate = millis() + 1000;
     setNote("Waiting for memory (%u free)", (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     return ART_LOADING;
   }

@@ -7,6 +7,8 @@
 #include <atomic>
 #include <math.h>
 #include <string.h>
+#include <esp_heap_caps.h>
+#include "Console.h"
 #include "FaceKit.h"
 #include "HaClient.h"
 #include "NetworkBudget.h"
@@ -249,13 +251,15 @@ int Clockface::pagesAvailable(uint8_t *pages) const {
   refreshEnergy();
   const ha::Config &config = ha::config();
   int count = 0;
-  // The Energy page comes first, so it is what the clock starts on (while no energy entity is set it is left out)
+  // The pages come in the order set under Pages (standard: Energy first, so it is what the clock starts on); a page without data is left out
   bool energy = false;
   for (int i = 0; i < ha::E_COUNT; i++) energy |= energyConfigured(config, i);
-  if ((config.pages & ha::PAGE_ENERGY) && energy) pages[count++] = SCREEN_ENERGY;
-  if (config.pages & ha::PAGE_HOME) pages[count++] = SCREEN_HOME;
-  if ((config.pages & ha::PAGE_MEDIA) && _media.count) pages[count++] = SCREEN_MEDIA;  // only while something is playing
-  if ((config.pages & ha::PAGE_DEVICES) && (_devices.lowTotal || _devices.offlineTotal)) pages[count++] = SCREEN_DEVICES;  // only while something is low or offline
+  for (const char *letter = ha::pageOrder(); *letter; letter++) {
+    if (*letter == 'E' && (config.pages & ha::PAGE_ENERGY) && energy) pages[count++] = SCREEN_ENERGY;
+    else if (*letter == 'H' && (config.pages & ha::PAGE_HOME)) pages[count++] = SCREEN_HOME;
+    else if (*letter == 'M' && (config.pages & ha::PAGE_MEDIA) && _media.count) pages[count++] = SCREEN_MEDIA;  // only while something is playing
+    else if (*letter == 'D' && (config.pages & ha::PAGE_DEVICES) && (_devices.lowTotal || _devices.offlineTotal)) pages[count++] = SCREEN_DEVICES;  // only while something is low or offline
+  }
   if (!count) pages[count++] = SCREEN_HOME;
   return count;
 }
@@ -405,18 +409,23 @@ void Clockface::fillMedia(Frame &frame, uint32_t now) {
   const ha::media::Player &p = _media.player[0];  // the first of the chosen players that is playing
   strlcpy(frame.title, p.title, sizeof(frame.title));
   strlcpy(frame.artist, p.artist, sizeof(frame.artist));
+  if (p.station[0] && !p.artist[0] && (!p.title[0] || !strcmp(p.station, p.title))) {  // only the station is known
+    frame.title[0] = 0;
+    strlcpy(frame.station, p.station, sizeof(frame.station));
+    frame.stationOnly = 1;
+  }
   // The station of a radio stream: at the top right in the date's place when a title and an artist are both known, else on the
   // second line (alone when there is no artist, taking turns with the artist otherwise); never twice when it is the title
-  if (p.station[0] && strcmp(p.station, p.title)) {
+  if (!frame.stationOnly && p.station[0] && strcmp(p.station, p.title)) {
     strlcpy(frame.station, p.station, sizeof(frame.station));
     if (p.title[0] && p.artist[0]) frame.stationTop = 1;
     else frame.showStation = !p.artist[0] || (now / 4000) % 2;
   }
   // A line wider than the panel scrolls; every new track, room or line starts from the left
   char key[sizeof(_scrollKey)];
-  snprintf(key, sizeof(key), "%s%u", p.title, (unsigned)frame.showStation);
+  snprintf(key, sizeof(key), "%s%u", frame.stationOnly ? p.station : p.title, (unsigned)frame.showStation);
   if (strcmp(key, _scrollKey)) { strlcpy(_scrollKey, key, sizeof(_scrollKey)); _scrollSince = now; }
-  if (strlen(p.title) > 13 || strlen(frame.showStation ? frame.station : frame.artist) > 13) frame.scrollTick = 1 + (now - _scrollSince) / 70 % 60000;
+  if (home::scrolls(frame)) frame.scrollTick = 1 + (now - _scrollSince) / 70 % 60000;
   if (p.duration) {
     const uint32_t played = std::min<uint32_t>(p.duration, p.position + (now - p.at) / 1000);
     frame.progress = 1 + played * kArt / p.duration;
@@ -426,22 +435,60 @@ void Clockface::fillMedia(Frame &frame, uint32_t now) {
   if (ha::media::art(p, (ha::config().pages & ha::PAGE_ART_ONLINE) != 0, (ha::config().pages & ha::PAGE_STATION_LOGO) != 0, &cover, &id) == ha::media::ART_READY) { frame.art = cover; frame.artVersion = id; }
 }
 
+// The Device problems page lists every low or offline device, seven rows at a time: after a rest it scrolls a row at a time to the end of
+// the list, and only then does the page's time (Seconds per page) start to run
+namespace {
+constexpr uint32_t kSlideIn = 450;  // the swipe into the page
+constexpr uint32_t kDevicesRest = kSlideIn + 2000, kDevicesPixelMs = 150;  // ms after the page was chosen before the list moves, and per pixel (a row in about a second)
+constexpr uint32_t kNamesRest = kSlideIn - 400;  // long names start from their beginning; they rest 1.4 s first, so they move a second after the swipe-in
+}
+
+int Clockface::deviceRows() const {
+  return _devices.lowShown + _devices.offlineShown + (_devices.lowTotal + _devices.offlineTotal > _devices.lowShown + _devices.offlineShown ? 1 : 0);
+}
+
+uint32_t Clockface::devicesScrollMs() const {
+  const int extra = deviceRows() - 8;
+  return extra > 0 ? kDevicesRest + extra * 7 * kDevicesPixelMs : 0;
+}
+
 void Clockface::fillDevices(Frame &frame, uint32_t now) const {
-  int n = 0;
-  auto add = [&](const char *name, uint8_t kind) { strlcpy(frame.device[n], name, sizeof(frame.device[n])); frame.deviceKind[n++] = kind; };
-  // Seven rows: when they do not all fit the last one counts what is left
-  const int total = _devices.lowShown + _devices.offlineShown;
-  const int room = total > 7 ? 6 : 7;
-  for (int i = 0; i < _devices.lowShown && n < room; i++) add(_devices.low[i], SI_LOW_BATTERY);
-  for (int i = 0; i < _devices.offlineShown && n < room; i++) add(_devices.offline[i], SI_OFFLINE);
-  const int left = _devices.lowTotal + _devices.offlineTotal - n;
-  if (left > 0) { char more[25]; snprintf(more, sizeof(more), "+%u MORE", (unsigned)std::min(left, 99)); add(more, SI_NONE); }
-  for (int i = 0; i < n; i++)  // a name wider than the panel scrolls
-    if (strlen(frame.device[i]) > 12) { frame.scrollTick = 1 + (now - _devicesSince) / 70 % 60000; break; }
+  const int rows = deviceRows(), extra = std::max(0, rows - 8);
+  int first = 0, dy = 0;
+  if (extra && now - _pageSince >= kDevicesRest) {
+    const uint32_t pixel = (now - _pageSince - kDevicesRest) / kDevicesPixelMs;  // steadily, a pixel at a time
+    if (pixel >= (uint32_t)extra * 7) first = extra;
+    else { first = pixel / 7; dy = pixel % 7; }
+  }
+  frame.deviceDy = dy;
+  for (int n = 0; n < (dy ? 9 : 8) && first + n < rows; n++) {
+    const int k = first + n;
+    uint8_t kind;
+    if (k < _devices.lowShown) { ha::devices::nameAt(_devices.low, k, frame.device[n], sizeof(frame.device[n])); kind = SI_LOW_BATTERY; }
+    else if (k < _devices.lowShown + _devices.offlineShown) { ha::devices::nameAt(_devices.offline, k - _devices.lowShown, frame.device[n], sizeof(frame.device[n])); kind = SI_OFFLINE; }
+    else {  // what did not fit in the lists the clock keeps
+      snprintf(frame.device[n], sizeof(frame.device[n]), "+%u MORE", (unsigned)std::min(_devices.lowTotal + _devices.offlineTotal - _devices.lowShown - _devices.offlineShown, 99));
+      kind = SI_NONE;
+    }
+    frame.deviceKind[n] = kind;
+  }
+  for (int i = 0; i < 9; i++)  // a name wider than the panel scrolls, from its beginning, once the page has rested
+    if (strlen(frame.device[i]) > 12) { frame.scrollTick = 1 + (now - _pageSince < kNamesRest ? 0 : (now - _pageSince - kNamesRest) / 70) % 60000; break; }
 }
 
 void Clockface::update() {
   const uint32_t now = millis();
+  // Stutter diagnostics, at most one line every 2 s: a long gap since the last frame (something else held the loop) or a long frame
+  static uint32_t lastFrame = 0;
+  struct Timing {
+    uint32_t start, gap;
+    ~Timing() {
+      const uint32_t took = millis() - start;
+      static uint32_t told = 0;
+      if ((gap > 150 || took > 40) && millis() - told > 2000) { told = millis(); consoleLog("[Home] frame took %u ms, %u ms since the last one (heap free %u, largest block %u)\n", (unsigned)took, (unsigned)gap, (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)); }
+    }
+  } timing{now, lastFrame ? now - lastFrame : 0};
+  lastFrame = now;
   if (ha::media::version() != _mediaSeen) { _mediaSeen = ha::media::version(); ha::media::snapshot(_media); }
   if (!_media.count && !_sliding && !_drawn.art) ha::media::release();
   if (ha::devices::version() != _devicesSeen) { _devicesSince = now; _devicesSeen = ha::devices::version(); ha::devices::snapshot(_devices); }
@@ -449,10 +496,9 @@ void Clockface::update() {
   uint8_t pages[4];
   const int count = pagesAvailable(pages);
   if (_pageIndex >= count) _pageIndex = 0;
-  if (count > 1 && now - _pageSince >= (uint32_t)ha::config().pageSecs * 1000) {
-    _pageIndex = (_pageIndex + 1) % count;
-    _pageSince = now;
-  } else if (count == 1) {
+  const uint32_t pageMs = (uint32_t)ha::config().pageSecs * 1000 + (pages[_pageIndex] == SCREEN_DEVICES ? devicesScrollMs() : 0);  // the list scrolls first
+  if (now - _pageSince >= pageMs) {  // with a single page the time starts over, so a long list scrolls again and again
+    if (count > 1) _pageIndex = (_pageIndex + 1) % count;
     _pageSince = now;
   }
 

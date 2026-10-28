@@ -52,6 +52,8 @@ struct Config {
 Config &config();
 // Separate NVS key: adding weather must not invalidate the saved connection and slots.
 char (&weatherEntity())[kEntity];
+// The order the pages rotate in: the letters E(nergy) H(ome) M(edia) D(evices), each once; separate NVS key haOrder
+char (&pageOrder())[8];
 Slot &extraTile(int index);  // tiles kTiles..kHomeTiles-1
 const Slot &tileSlot(const Config &c, int index);
 // The entity lists of the state icons (doors, windows, motion... can be many): heap strings of their own length, up to kIconEntity - 1,

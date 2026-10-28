@@ -64,6 +64,8 @@ class Clockface: public IClockface {
     void fillStatus(home::Frame &frame) const;
     void fillMedia(home::Frame &frame, uint32_t now);
     void fillDevices(home::Frame &frame, uint32_t now) const;
+    int deviceRows() const;
+    uint32_t devicesScrollMs() const;
 
   public:
     Clockface(MatrixPanel_I2S_DMA* display);

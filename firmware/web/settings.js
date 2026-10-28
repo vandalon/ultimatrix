@@ -650,6 +650,45 @@ const haEl = (tag, attrs = {}, ...kids) => { const node = Object.assign(document
 function haInput(value, placeholder, extra = {}) { return haEl('input', Object.assign({type: 'text', value: value || '', placeholder, autocomplete: 'off', spellcheck: false}, extra)); }
 function haSelect(names, value) { const select = haEl('select'); names.forEach((name, index) => select.add(new Option(name, index))); select.value = value; return select; }
 function haGroup(title, hint) { return haEl('div', {className: 'ha-group'}, haEl('h3', {textContent: title}), haEl('p', {className: 'hint', textContent: hint})); }
+// Rows that can be dragged into another order by their grip, like the sports list; onDrop gets called after every move
+function haSortable(list, onDrop) {
+  for (const row of list.children) {
+    const grip = row.querySelector('.grip');
+    let grabDy = 0, shift = 0;
+    const follow = e => { const top = row.getBoundingClientRect().top - shift; shift = e.clientY - grabDy - top; row.style.transform = 'translateY(' + shift + 'px) scale(1.03)'; };
+    const move = e => {
+      for (const other of list.children) {
+        if (other === row) continue;
+        const r = other.getBoundingClientRect();
+        if (e.clientY > r.top && e.clientY < r.bottom) {
+          const before = new Map([...list.children].filter(c => c !== row).map(c => [c, c.getBoundingClientRect().top]));
+          list.insertBefore(row, e.clientY < r.top + r.height / 2 ? other : other.nextSibling);
+          before.forEach((top, c) => {
+            const dy = top - c.getBoundingClientRect().top;
+            if (!dy) return;
+            c.style.transition = 'none'; c.style.transform = 'translateY(' + dy + 'px)';
+            c.getBoundingClientRect();
+            c.style.transition = 'transform .15s ease'; c.style.transform = '';
+          });
+          break;
+        }
+      }
+      follow(e);
+    };
+    const drop = () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', drop); window.removeEventListener('pointercancel', drop);
+      row.style.cssText = '';
+      onDrop();
+    };
+    grip.onpointerdown = e => {
+      e.preventDefault();
+      try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+      grabDy = e.clientY - row.getBoundingClientRect().top; shift = 0;
+      row.style.cssText = 'position:relative;z-index:5;transition:box-shadow .15s;box-shadow:0 10px 24px rgba(14,26,32,.28);background:#fff;border-radius:12px;transform:scale(1.03)';
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', drop); window.addEventListener('pointercancel', drop);
+    };
+  }
+}
 function haCheck(label, checked) { const box = haEl('input', {type: 'checkbox', checked}); return [box, haEl('label', {className: 'ha-auto'}, box, label)]; }
 // Autocomplete from Home Assistant: the clock asks it for matching entities of the right kind while you type
 let haList = null, haSuggestTimer = 0, haSuggestSeq = 0;
@@ -828,7 +867,18 @@ async function initHomeAssistant() {
   const [mediaBox, mediaLabel] = haCheck('Now playing page', state.pages & 4), [devicesBox, devicesLabel] = haCheck('Device problems page', state.pages & 8), [backdropBox, backdropLabel] = haCheck('Show the album art, dimmed, behind every page', state.pages & 16), [onlineBox, onlineLabel] = haCheck('Find missing album art online', state.pages & 32), [logoBox, logoLabel] = haCheck('Show the station logo of radio streams', state.pages & 64);
   const secs = haEl('input', {type: 'number', min: 3, max: 120, value: state.pageSecs});
   const pages = haGroup('Pages', 'The clock starts on the Energy page and rotates between the pages you tick. A page without data is skipped: the Energy page needs its entities below, Now playing needs something playing, and Device problems lists low batteries (20% or less) and offline devices, so it only shows while there are any. Find missing album art online: when the player has no picture of its own (or one outside Home Assistant), the clock searches Deezer, then iTunes, by artist and title, and downloads the cover. This sends the artist and song name to those services. Show the station logo: a radio stream without a cover shows the logo of its station instead of the placeholder, and also when the search finds nothing. The logo is found by station name in the radio-browser.info directory and resized by wsrv.nl, which sends them the station name and your country. The album art option needs a media player under Now playing; while it plays, its cover sits at a quarter brightness behind every other page.');
-  pages.append(haEl('div', {className: 'ha-two ha-three'}, energyLabel, homeLabel, mediaLabel, devicesLabel), haEl('div', {className: 'field'}, backdropLabel), haEl('div', {className: 'field'}, onlineLabel), haEl('div', {className: 'field'}, logoLabel), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Seconds per page'}), secs));
+  const pageLabels = {E: energyLabel, H: homeLabel, M: mediaLabel, D: devicesLabel};
+  const pageList = haEl('div', {className: 'choice-list'});
+  for (const id of [...(state.order || 'EHMD')]) {
+    const grip = haEl('span', {className: 'grip', textContent: '⋮⋮', title: 'Drag to change the order'});
+    grip.style.cssText = 'cursor:grab;touch-action:none;user-select:none;padding:6px 10px;font-weight:700;opacity:.7';
+    const row = haEl('div', {className: 'bday'}, pageLabels[id], grip);
+    row.dataset.id = id;
+    pageList.append(row);
+  }
+  const pageOrder = () => [...pageList.children].map(r => r.dataset.id).join('');
+  haSortable(pageList, () => pageList.dispatchEvent(new Event('change', {bubbles: true})));
+  pages.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Page order, drag to change'}), pageList), haEl('div', {className: 'field'}, backdropLabel), haEl('div', {className: 'field'}, onlineLabel), haEl('div', {className: 'field'}, logoLabel), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Seconds per page'}), secs));
   body.append(pages);
   const playing = haGroup('Now playing', 'Pick up to four rooms (media players). The page shows the title, the artist and the album art of the first of them that is playing (the order below), and is skipped when none is. Album art needs a JPEG picture from Home Assistant; other pictures show a note.');
   const rooms = haTags((state.media || []).filter(Boolean).join(','), 'Type to find a media player…', () => 'media', 400);
@@ -972,7 +1022,7 @@ async function initHomeAssistant() {
   showStatus();
   let lastSent = '', haSaving = false, haSaveTimer;
   const build = () => {
-    const body = new URLSearchParams({host: host.value, port: port.value || '8123', tls: tlsBox.checked ? '1' : '0', pages: String((homeBox.checked ? 1 : 0) | (energyBox.checked ? 2 : 0) | (mediaBox.checked ? 4 : 0) | (devicesBox.checked ? 8 : 0) | (backdropBox.checked ? 16 : 0) | (onlineBox.checked ? 32 : 0) | (logoBox.checked ? 64 : 0)), pageSecs: secs.value,
+    const body = new URLSearchParams({host: host.value, port: port.value || '8123', tls: tlsBox.checked ? '1' : '0', order: pageOrder(), pages: String((homeBox.checked ? 1 : 0) | (energyBox.checked ? 2 : 0) | (mediaBox.checked ? 4 : 0) | (devicesBox.checked ? 8 : 0) | (backdropBox.checked ? 16 : 0) | (onlineBox.checked ? 32 : 0) | (logoBox.checked ? 64 : 0)), pageSecs: secs.value,
       gridImportPositive: gridBox.checked ? '1' : '0', batteryDischargePositive: batteryBox.checked ? '1' : '0', doorbell: doorbell.value, washerEntity: washer.value, washerFlags: String(washerPopup.value()),
       alarmFlags: String(alarmPopup.value()), doorbellFlags: String(bellPopup.value())});
     if (token.value.trim()) body.set('token', token.value.trim());

@@ -317,37 +317,76 @@ void countText(MatrixPanel_I2S_DMA &d, const char *s, int x, int y, uint16_t col
   }
 }
 
-// Capitals and digits as tall as the clock's (7 rows): the label letters stretched the way the clock's digits are, rows 2 and 4 doubled
-int tallWidth(const char *s) {
+// A line wider than its window scrolls slowly (one pixel per 140 ms) from its start to its end and back, resting at both ends
+int pingPong(uint16_t tick, int overflow) {
+  constexpr int kRest = 10;
+  const int cycle = 2 * (kRest + overflow), at = (tick / 2) % cycle;
+  if (at < kRest) return 0;
+  if (at < kRest + overflow) return at - kRest;
+  if (at < 2 * kRest + overflow) return overflow;
+  return cycle - at;
+}
+
+constexpr int kStationRoom = 35;  // top right: right of the time
+
+// The station name at the top right: bold capitals and digits 7 rows tall with 2 px strokes (the arcade faces' look), as high as the clock
+struct BoldRows { char c; const char *row[7]; };
+const BoldRows kBold[] = {
+  {'A', {".XXX.", "XXXXX", "XX.XX", "XXXXX", "XXXXX", "XX.XX", "XX.XX"}}, {'B', {"XXXX.", "XXXXX", "XX.XX", "XXXX.", "XX.XX", "XXXXX", "XXXX."}},
+  {'C', {".XXX.", "XXXXX", "XX...", "XX...", "XX...", "XXXXX", ".XXX."}}, {'D', {"XXXX.", "XXXXX", "XX.XX", "XX.XX", "XX.XX", "XXXXX", "XXXX."}},
+  {'E', {"XXXXX", "XXXXX", "XX...", "XXXX.", "XX...", "XXXXX", "XXXXX"}}, {'F', {"XXXXX", "XXXXX", "XX...", "XXXX.", "XX...", "XX...", "XX..."}},
+  {'G', {".XXX.", "XXXXX", "XX...", "XX.XX", "XX.XX", "XXXXX", ".XXX."}}, {'H', {"XX.XX", "XX.XX", "XX.XX", "XXXXX", "XXXXX", "XX.XX", "XX.XX"}},
+  {'I', {"XX", "XX", "XX", "XX", "XX", "XX", "XX"}}, {'J', {"...XX", "...XX", "...XX", "...XX", "XX.XX", "XXXXX", ".XXX."}},
+  {'K', {"XX..XX", "XX.XX.", "XXXX..", "XXX...", "XXXX..", "XX.XX.", "XX..XX"}}, {'L', {"XX...", "XX...", "XX...", "XX...", "XX...", "XXXXX", "XXXXX"}},
+  {'M', {"XX.XX", "XXXXX", "XXXXX", "XX.XX", "XX.XX", "XX.XX", "XX.XX"}}, {'N', {"XX..XX", "XXX.XX", "XXXXXX", "XX.XXX", "XX..XX", "XX..XX", "XX..XX"}},
+  {'O', {".XXX.", "XXXXX", "XX.XX", "XX.XX", "XX.XX", "XXXXX", ".XXX."}}, {'P', {"XXXX.", "XXXXX", "XX.XX", "XXXXX", "XXXX.", "XX...", "XX..."}},
+  {'Q', {".XXX.", "XXXXX", "XX.XX", "XX.XX", "XX.XX", "XXXXX", ".XXXX"}}, {'R', {"XXXX.", "XXXXX", "XX.XX", "XXXX.", "XXXX.", "XX.XX", "XX.XX"}},
+  {'S', {".XXXX", "XXXXX", "XX...", ".XXX.", "...XX", "XXXXX", "XXXX."}}, {'T', {"XXXXXX", "XXXXXX", "..XX..", "..XX..", "..XX..", "..XX..", "..XX.."}},
+  {'U', {"XX.XX", "XX.XX", "XX.XX", "XX.XX", "XX.XX", "XXXXX", ".XXX."}}, {'V', {"XX.XX", "XX.XX", "XX.XX", "XX.XX", "XX.XX", ".XXX.", "..X.."}},
+  {'W', {"XX.XX", "XX.XX", "XX.XX", "XX.XX", "XXXXX", "XXXXX", "XX.XX"}}, {'X', {"XX.XX", "XX.XX", ".XXX.", "..X..", ".XXX.", "XX.XX", "XX.XX"}},
+  {'Y', {"XX..XX", "XX..XX", ".XXXX.", "..XX..", "..XX..", "..XX..", "..XX.."}}, {'Z', {"XXXXX", "XXXXX", "...XX", "..XX.", ".XX..", "XXXXX", "XXXXX"}},
+  {'0', {".XXX.", "XXXXX", "XX.XX", "XX.XX", "XX.XX", "XXXXX", ".XXX."}}, {'1', {"..XX.", ".XXX.", "XXXX.", "..XX.", "..XX.", "..XX.", "XXXXX"}},
+  {'2', {".XXX.", "XXXXX", "...XX", "..XX.", ".XX..", "XXXXX", "XXXXX"}}, {'3', {"XXXX.", "XXXXX", "...XX", ".XXX.", "...XX", "XXXXX", "XXXX."}},
+  {'4', {"XX.XX", "XX.XX", "XX.XX", "XXXXX", "XXXXX", "...XX", "...XX"}}, {'5', {"XXXXX", "XXXXX", "XXXX.", "...XX", "...XX", "XXXXX", "XXXX."}},
+  {'6', {".XXX.", "XXXXX", "XX...", "XXXX.", "XX.XX", "XXXXX", ".XXX."}}, {'7', {"XXXXX", "XXXXX", "...XX", "..XX.", ".XX..", ".XX..", ".XX.."}},
+  {'8', {".XXX.", "XXXXX", "XX.XX", ".XXX.", "XX.XX", "XXXXX", ".XXX."}}, {'9', {".XXX.", "XXXXX", "XX.XX", "XXXXX", "...XX", "XXXXX", ".XXX."}},
+  {'-', {"....", "....", "....", "XXXX", "XXXX", "....", "...."}}, {'.', {"..", "..", "..", "..", "..", "XX", "XX"}},
+  {'\'', {"XX", "XX", "..", "..", "..", "..", ".."}},
+};
+
+const BoldRows *boldRows(char c) {
+  for (const BoldRows &g : kBold) if (g.c == c) return &g;
+  return nullptr;
+}
+
+int boldTextWidth(const char *s) {  // a character without a shape is a gap of 3
   int width = 0;
-  for (; *s; ++s) width += (*s >= '0' && *s <= '9' ? 4 : letterWidth(*s)) + 1;
+  for (; *s; ++s) {
+    const BoldRows *g = boldRows(toupper(*s));
+    width += (g ? (int)strlen(g->row[0]) : 3) + 1;
+  }
   return width ? width - 1 : 0;
 }
 
-void tallText(MatrixPanel_I2S_DMA &d, const char *s, int x, int y, uint16_t color) {
-  static const uint8_t kRowOf[7] = {0, 1, 1, 2, 3, 3, 4};
+// Only the columns from clipLeft to clipRight are drawn, so a name wider than its window can scroll inside it
+void boldText(MatrixPanel_I2S_DMA &d, const char *s, int x, int y, uint16_t color, int clipLeft = 0, int clipRight = 64) {
   for (; *s; ++s) {
-    const char c = toupper(*s);
-    if (c >= '0' && c <= '9') {
-      for (int j = 0; j < 7; j++)
-        for (int i = 0; i < 4; i++)
-          if (numericfont::smallPixel(c - '0', i, j)) put(d, x + i, y + j, color);
-      x += 5;
-    } else {
-      if (c >= 'A' && c <= 'Z')
-        for (int j = 0; j < 7; j++)
-          for (int i = 0; i < 5; i++)
-            if (kLetters[c - 'A'][kRowOf[j]] >> (4 - i) & 1) put(d, x + i, y + j, color);
-      x += letterWidth(c) + 1;
-    }
+    const BoldRows *g = boldRows(toupper(*s));
+    if (!g) { x += 4; continue; }
+    for (int j = 0; j < 7; j++)
+      for (int i = 0; g->row[j][i]; i++)
+        if (g->row[j][i] == 'X' && x + i >= clipLeft && x + i < clipRight) put(d, x + i, y + j, color);
+    x += (int)strlen(g->row[0]) + 1;
   }
 }
 
 // ---- Screens ----
+int topShift = 0;  // 1 on the Device problems page: the clock row, the divider and the page bar sit one pixel higher to make room for an eighth row
 bool slideStation = false;  // a slide involves a page with the station name at the top: the date or station of each page slides with it
 bool sliding = false;  // a slide between two pages is being drawn: the album art stays put underneath instead of sliding with its page
 // mono >= 0 draws everything in that one colour (black on a flashing panel)
 void header(MatrixPanel_I2S_DMA &d, const Frame &f, int mono = -1, int dy = 1) {
+  dy -= topShift;
   const View slide = view;  // the clock and date stay put while a page slides
   view = View();
   int timeX = 13 - textWidth(f.time) / 2;
@@ -358,20 +397,13 @@ void header(MatrixPanel_I2S_DMA &d, const Frame &f, int mono = -1, int dy = 1) {
   }
   if (sliding && slideStation) view = slide;  // the date or station goes with its page, so the two never overlap mid-slide
   if (f.stationTop && f.station[0]) {  // the radio station in the date's place, cut to what fits right of the time
-    char name[24];
-    size_t n = 0;
-    for (const char *c = f.station; *c && n + 1 < sizeof(name); ++c) {
-      name[n] = (*c >= 'a' && *c <= 'z') ? *c - 32 : *c;
-      name[n + 1] = 0;
-      if (countWidth(name) > 35) { name[n] = 0; break; }
-      n++;
-    }
     char upper[sizeof(f.station)];
     size_t u = 0;
     for (const char *c = f.station; *c && u + 1 < sizeof(upper); ++c) upper[u++] = toupper(*c);
     upper[u] = 0;
-    if (tallWidth(upper) <= 35) tallText(d, upper, 62 - tallWidth(upper), dy, mono >= 0 ? mono : tone(T_PASTEL));  // as tall as the clock when it fits
-    else countText(d, name, 62 - countWidth(name), 1 + dy, mono >= 0 ? mono : tone(T_PASTEL));
+    const int width = boldTextWidth(upper), color = mono >= 0 ? mono : tone(T_PASTEL);
+    if (width <= kStationRoom) boldText(d, upper, 62 - width, dy, color);
+    else boldText(d, upper, 62 - kStationRoom - pingPong(f.scrollTick, width - kStationRoom), dy, color, 62 - kStationRoom, 63);
   } else countText(d, f.date, 62 - countWidth(f.date), 1 + dy, mono >= 0 ? mono : tone(T_MUTE));  // "OCT 15", quieter than the time
   view = slide;
 }
@@ -482,19 +514,34 @@ void statusScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
 
 const char *const kNote[] = {"...########", "...#......#", "...#......#", "...#......#", "...#......#", ".###....###", "####...####", ".##.....##."};
 
-// One line of the Now playing page: centred when it fits, else scrolling to the left with a gap before it comes round again
+// One line of the Now playing page: centred when it fits, else scrolling from its start to its end and back
+int lineWidth(const char *s) { return homeWidth(s); }
+
 void playingLine(MatrixPanel_I2S_DMA &d, const char *s, int y, uint16_t color, uint16_t tick) {
-  const int width = homeWidth(s);
-  if (width <= W - 2) { homeText(d, s, (W - width) / 2, y, color); return; }
-  const int period = width + 8, shift = tick < 20 ? 0 : (tick - 20) % period;
-  for (int copy = 0; copy < 2; copy++) {
-    int x = 1 - shift + copy * period;
-    for (const char *c = s; *c; ++c) {
-      const int w = letterWidth(*c);
-      if (x >= 0 && x + w <= W) homeGlyph(d, *c, x, y, color);
-      x += w + 1;
-    }
+  const int width = lineWidth(s);
+  if (width <= W - 2) {
+    int x = (W - width) / 2;
+    for (const char *c = s; *c; ++c) { homeGlyph(d, *c, x, y, color); x += letterWidth(*c) + 1; }
+    return;
   }
+  int x = 1 - pingPong(tick, width - (W - 2));
+  for (const char *c = s; *c; ++c) {
+    const int w = letterWidth(*c);
+    if (x >= 0 && x + w <= W) homeGlyph(d, *c, x, y, color);
+    x += w + 1;
+  }
+}
+
+// Whether a line of the frame is too wide for the panel and so needs scrollTick to run
+bool needsScroll(const Frame &f) {
+  if (f.page != SCREEN_MEDIA && !f.stationTop) return false;
+  if (f.stationOnly) return lineWidth(f.station) > W - 2;
+  if (lineWidth(f.title) > W - 2 || lineWidth(f.showStation ? f.station : f.artist) > W - 2) return true;
+  char upper[sizeof(f.station)];
+  size_t u = 0;
+  for (const char *c = f.station; *c && u + 1 < sizeof(upper); ++c) upper[u++] = toupper(*c);
+  upper[u] = 0;
+  return f.stationTop && boldTextWidth(upper) > kStationRoom;
 }
 
 void mediaScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
@@ -503,10 +550,11 @@ void mediaScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
   } else if (f.art) {
     // The cover fills the panel; the clock row and the three text lines sit on dimmed bands
     for (int y = 0; y < kArt; y++) {
-      const bool dim = y < 9 || y >= 49;
+      const int bandTop = f.stationOnly ? 57 : 51;  // 5-row text with 1 row above and below (two lines: rows 52-56 and 58-62)
+      const bool dim = y < 9 || y >= bandTop;
       for (int x = 0; x < kArt; x++) {
         uint16_t c = f.art[y * kArt + x];
-        if (dim) c = (y >= 49 && y < 51) ? (c >> 1) & 0x7BEF : (c >> 2) & 0x39E7;
+        if (dim) c = (c >> 2) & 0x39E7;
         put(d, x, y, c);
       }
     }
@@ -514,8 +562,9 @@ void mediaScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
     bitmap(d, kNote, (W - 11) / 2, 18, tone(T_DIM));
   }
   header(d, f);
-  playingLine(d, f.title, 51, tone(T_WHITE), f.scrollTick);
-  playingLine(d, f.showStation ? f.station : f.artist, 57, tone(T_MUTE), f.scrollTick);
+  if (f.stationOnly) playingLine(d, f.station, 58, tone(T_PASTEL), f.scrollTick);
+  else playingLine(d, f.title, 52, tone(T_WHITE), f.scrollTick);
+  if (!f.stationOnly) playingLine(d, f.showStation ? f.station : f.artist, 58, tone(T_MUTE), f.scrollTick);
   if (f.progress) {  // thin line along the bottom edge
     for (int x = 0; x < W; x++) put(d, x, 63, x < f.progress - 1 ? tone(T_BLUE) : tone(T_DIM));
   }
@@ -524,23 +573,24 @@ void mediaScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
 // Rows of "dot name": low batteries orange, offline devices in red; names wider than the panel are cut
 void devicesScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
   header(d, f);
-  box(d, 0, 9, 64, 1, kDivider);
-  for (int i = 0; i < 7 && f.device[i][0]; i++) {
-    const int y = 11 + i * 7;
+  box(d, 0, 8, 64, 1, kDivider);
+  view.y0 = 9;  // rows gliding up under the header are cut off at the divider
+  for (int i = 0; i < 9 && f.device[i][0]; i++) {
+    const int y = 10 + i * 7 - f.deviceDy;
     const bool more = f.deviceKind[i] == SI_NONE;
-    if (!more) box(d, 1, y + 1, 3, 3, tone(f.deviceKind[i] == SI_OFFLINE ? T_RED : T_ORANGE));
+    if (!more)
+      for (int j = 1; j < 4; j++)
+        for (int k = 1; k < 4; k++) put(d, k, y + j, tone(f.deviceKind[i] == SI_OFFLINE ? T_RED : T_ORANGE));
     const int left = more ? 1 : 6, room = W - left;
     const int width = homeWidth(f.device[i]);
-    const int period = width + 8, shift = width <= room || f.scrollTick < 20 ? 0 : (f.scrollTick - 20) % period;
-    for (int copy = 0; copy < (width <= room ? 1 : 2); copy++) {
-      int x = left - shift + copy * period;
-      for (const char *c = f.device[i]; *c; ++c) {
-        const int w = letterWidth(*c);
-        if (x >= left && x + w <= W) homeGlyph(d, *c, x, y, tone(more ? T_MUTE : T_WHITE));
-        x += w + 1;
-      }
+    int x = left - (width <= room ? 0 : pingPong(f.scrollTick, width - room));  // a long name goes to its end and back, like the music lines
+    for (const char *c = f.device[i]; *c; ++c) {
+      const int w = letterWidth(*c);
+      if (x >= left && x + w <= W) homeGlyph(d, *c, x, y, tone(more ? T_MUTE : T_WHITE));
+      x += w + 1;
     }
   }
+  view.y0 = 0;
 }
 
 // The colour a popup flashes in
@@ -605,11 +655,14 @@ void backdrop(MatrixPanel_I2S_DMA &d, const Frame &f) {
     for (int x = 0; x < kArt; x++) put(d, x, y, (f.art[y * kArt + x] >> 2) & 0x39E7);
 }
 
+bool scrolls(const Frame &f) { return needsScroll(f); }
+
 void draw(MatrixPanel_I2S_DMA &d, const Frame &f) {
   d.fillScreen(0);
+  topShift = f.page == SCREEN_DEVICES;
   if (f.page != SCREEN_MEDIA) backdrop(d, f);
   drawPage(d, f);
-  if (slides(f) && !artView(f)) pageBar(d, f.pageCount, f.pageIndex * 1000, 9);
+  if (slides(f) && !artView(f)) pageBar(d, f.pageCount, f.pageIndex * 1000, 9 - topShift);
 }
 
 bool canSlide(const Frame &from, const Frame &to) { return slides(from) && slides(to) && from.page != to.page; }
@@ -617,6 +670,7 @@ bool canSlide(const Frame &from, const Frame &to) { return slides(from) && slide
 void drawSlide(MatrixPanel_I2S_DMA &d, const Frame &from, const Frame &to, int progress) {
   const int shift = progress * 64 / 1000;
   d.fillScreen(0);
+  topShift = to.page == SCREEN_DEVICES;  // the clock row and the page bar stay put, at the height of the page that comes in
   backdrop(d, to.backdrop ? to : from);
   sliding = true;
   slideStation = from.stationTop || to.stationTop;
@@ -629,7 +683,7 @@ void drawSlide(MatrixPanel_I2S_DMA &d, const Frame &from, const Frame &to, int p
   view = View();
   if (artView(from) || artView(to)) return;  // no page bar while the cover is on the panel, or comes or goes
   const int count = to.pageCount, steps = (to.pageIndex + count - from.pageIndex % count) % count;
-  pageBar(d, count, (from.pageIndex * 1000 + steps * progress) % (count * 1000), 9);
+  pageBar(d, count, (from.pageIndex * 1000 + steps * progress) % (count * 1000), 9 - topShift);
 }
 
 }  // namespace home
