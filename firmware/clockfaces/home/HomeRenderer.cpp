@@ -381,12 +381,10 @@ void boldText(MatrixPanel_I2S_DMA &d, const char *s, int x, int y, uint16_t colo
 }
 
 // ---- Screens ----
-int topShift = 0;  // 1 on the Device problems page: the clock row, the divider and the page bar sit one pixel higher to make room for an eighth row
 bool slideStation = false;  // a slide involves a page with the station name at the top: the date or station of each page slides with it
 bool sliding = false;  // a slide between two pages is being drawn: the album art stays put underneath instead of sliding with its page
 // mono >= 0 draws everything in that one colour (black on a flashing panel)
 void header(MatrixPanel_I2S_DMA &d, const Frame &f, int mono = -1, int dy = 1) {
-  dy -= topShift;
   const View slide = view;  // the clock and date stay put while a page slides
   view = View();
   int timeX = 13 - textWidth(f.time) / 2;
@@ -573,8 +571,8 @@ void mediaScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
 // Rows of "dot name": low batteries orange, offline devices in red; names wider than the panel are cut
 void devicesScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
   header(d, f);
-  box(d, 0, 8, 64, 1, kDivider);
-  view.y0 = 9;  // rows gliding up under the header are cut off at the divider
+  box(d, 0, 9, 64, 1, kDivider);
+  view.y0 = 10;  // the first row sits right under the divider  // rows gliding up under the header are cut off at the divider
   for (int i = 0; i < 9 && f.device[i][0]; i++) {
     const int y = 10 + i * 7 - f.deviceDy;
     const bool more = f.deviceKind[i] == SI_NONE;
@@ -659,10 +657,9 @@ bool scrolls(const Frame &f) { return needsScroll(f); }
 
 void draw(MatrixPanel_I2S_DMA &d, const Frame &f) {
   d.fillScreen(0);
-  topShift = f.page == SCREEN_DEVICES;
   if (f.page != SCREEN_MEDIA) backdrop(d, f);
   drawPage(d, f);
-  if (slides(f) && !artView(f)) pageBar(d, f.pageCount, f.pageIndex * 1000, 9 - topShift);
+  if (slides(f) && !artView(f)) pageBar(d, f.pageCount, f.pageIndex * 1000, 9);
 }
 
 bool canSlide(const Frame &from, const Frame &to) { return slides(from) && slides(to) && from.page != to.page; }
@@ -670,7 +667,6 @@ bool canSlide(const Frame &from, const Frame &to) { return slides(from) && slide
 void drawSlide(MatrixPanel_I2S_DMA &d, const Frame &from, const Frame &to, int progress) {
   const int shift = progress * 64 / 1000;
   d.fillScreen(0);
-  topShift = to.page == SCREEN_DEVICES;  // the clock row and the page bar stay put, at the height of the page that comes in
   backdrop(d, to.backdrop ? to : from);
   sliding = true;
   slideStation = from.stationTop || to.stationTop;
@@ -683,7 +679,7 @@ void drawSlide(MatrixPanel_I2S_DMA &d, const Frame &from, const Frame &to, int p
   view = View();
   if (artView(from) || artView(to)) return;  // no page bar while the cover is on the panel, or comes or goes
   const int count = to.pageCount, steps = (to.pageIndex + count - from.pageIndex % count) % count;
-  pageBar(d, count, (from.pageIndex * 1000 + steps * progress) % (count * 1000), 9 - topShift);
+  pageBar(d, count, (from.pageIndex * 1000 + steps * progress) % (count * 1000), 9);
 }
 
 }  // namespace home
