@@ -44,7 +44,7 @@ void drawSeriesCard(MatrixPanel_I2S_DMA &d, const mlb::Series &series);
 // The league table, eight teams to a page
 void drawStandings(MatrixPanel_I2S_DMA &d, const mlb::Table &table, bool american, const char *favourites, int page, ClockTime *time, uint32_t ms);
 // Without games: hours over minutes, the date, scenes with a ball or a player, and the next game under the date (none: nullptr)
-void drawClock(MatrixPanel_I2S_DMA &d, ClockTime *time, uint32_t ms, const mlb::Fixture *next);
+void drawClock(MatrixPanel_I2S_DMA &d, ClockTime *time, uint32_t ms, const mlb::Fixture *next, uint8_t hoursColour = 10, uint8_t minutesColour = 5);
 // The next game in the free space under the date of the clock page
 void drawNextGame(MatrixPanel_I2S_DMA &d, ClockTime *time, const mlb::Fixture &fixture);
 // A run: the ball over the fence, +runs and the new score (ms since it began, 0 to kRunMs)

@@ -21,6 +21,5 @@ class Clockface: public IClockface {
     void setup(ClockTime *dateTime);
     void update();
     void invalidate();
-    void steer(int dir);   // 1 plays the demo (every screen once, made-up data), 0 stops it
     int ditherPolicy() const override { return 0; }  // flat shapes: the pattern only adds noise
 };

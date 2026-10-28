@@ -21,8 +21,8 @@ using namespace mlbview;
 
 namespace {
 
-enum Kind : uint8_t { GamePage, LinePage, TodayPage, UpcomingPage, AmericanPage, NationalPage, ClockPage, RunPage };  // RunPage only in the demo
-struct Item { Kind kind; uint8_t index, page, pages; uint16_t ms; uint8_t variant; };  // variant: which made-up data the demo draws the page from
+enum Kind : uint8_t { GamePage, LinePage, TodayPage, UpcomingPage, AmericanPage, NationalPage, ClockPage };
+struct Item { Kind kind; uint8_t index, page, pages; uint16_t ms; };
 constexpr int kMaxItems = 28;
 
 constexpr uint32_t kFlashMs = 2500, kSlideMs = 380, kQuietMs = 8000;
@@ -57,7 +57,7 @@ uint32_t slideStart = 0;
 bool haveShown = false;
 
 void add(Kind kind, int index, int page, int pages, uint16_t ms) {
-  if (cycleCount < kMaxItems) cycle[cycleCount++] = {kind, (uint8_t)index, (uint8_t)page, (uint8_t)pages, ms, 0};
+  if (cycleCount < kMaxItems) cycle[cycleCount++] = {kind, (uint8_t)index, (uint8_t)page, (uint8_t)pages, ms};
 }
 
 void build(const char *favourites, ClockTime *time, uint16_t pageMs, uint8_t tables, bool liveOnly, bool extra, uint8_t idle) {
@@ -106,17 +106,12 @@ const Item &current(uint32_t now) {
   return cycle[0];
 }
 
-bool sameItem(const Item &a, const Item &b) { return a.kind == b.kind && a.index == b.index && a.variant == b.variant && (a.kind == ClockPage || a.page == b.page); }  // the clock's scenes follow each other without a slide
-
-void fillDemo(mlb::Snapshot &s, uint8_t variant);
-extern bool demo;
-extern uint8_t demoFilled;
+bool sameItem(const Item &a, const Item &b) { return a.kind == b.kind && a.index == b.index && (a.kind == ClockPage || a.page == b.page); }  // the clock's scenes follow each other without a slide
 
 void render(MatrixPanel_I2S_DMA &d, const Item &item, ClockTime *time, uint32_t now, const char *favourites) {
-  if (demo && item.variant != demoFilled) { fillDemo(*snap, item.variant); demoFilled = item.variant; }
   switch (item.kind) {
     case GamePage: {
-      if (item.index >= snap->count) { drawClock(d, time, now, nullptr); break; }
+      if (item.index >= snap->count) { drawClock(d, time, now, nullptr, Settings::getInstance()->mlbHours, Settings::getInstance()->mlbMinutes); break; }
       const mlb::Game &g = snap->games[item.index];
       drawGame(d, g, time, now, now < flashUntil[item.index][0], now < flashUntil[item.index][1], hasFavourite(favourites, g), item.page, item.pages);
       break;
@@ -138,8 +133,7 @@ void render(MatrixPanel_I2S_DMA &d, const Item &item, ClockTime *time, uint32_t 
     }
     case AmericanPage: drawStandings(d, snap->american, true, favourites, item.page, time, now); break;
     case NationalPage: drawStandings(d, snap->national, false, favourites, item.page, time, now); break;
-    case RunPage: drawRun(d, snap->games[0], true, 2, itemElapsed < kRunMs ? itemElapsed : kRunMs); break;
-    default: drawClock(d, time, demo ? item.page * 14000u + itemElapsed : now, snap->nextCount ? &snap->next[0] : nullptr);
+    default: drawClock(d, time, now, snap->nextCount ? &snap->next[0] : nullptr, Settings::getInstance()->mlbHours, Settings::getInstance()->mlbMinutes);
   }
 }
 
@@ -233,122 +227,6 @@ void remember() {
 }
 
 
-// ---- the demo: every screen in turn from made-up data (POST /api/mlb/demo?on=1), once through ----
-bool demo = false, demoBuilt = false;
-uint32_t demoStart = 0;
-mlb::Snapshot *realSnap = nullptr;  // the live data while the demo draws from its own snapshot
-uint8_t demoFilled = 0xFF;
-constexpr uint8_t kDemoVariants = 6;
-constexpr uint32_t kSceneMs = 14000;  // the big clock plays its seven scenes of this long
-
-mlb::Game demoGame(const char *away, const char *home, int as, int hs, mlb::State state, int inning, bool bottom, const char *ar, const char *hr, int64_t start) {
-  mlb::Game g;
-  strlcpy(g.away, away, sizeof(g.away)); strlcpy(g.home, home, sizeof(g.home));
-  g.awayScore = as; g.homeScore = hs; g.state = state; g.inning = inning; g.bottom = bottom;
-  strlcpy(g.awayRecord, ar, sizeof(g.awayRecord)); strlcpy(g.homeRecord, hr, sizeof(g.homeRecord));
-  g.start = start;
-  return g;
-}
-
-void demoRuns(mlb::Game &g, std::initializer_list<int> away, std::initializer_list<int> home) {
-  int i = 0;
-  for (int r : away) g.awayRuns[i++] = r;
-  g.awayInnings = i;
-  i = 0;
-  for (int r : home) g.homeRuns[i++] = r;
-  g.homeInnings = i;
-}
-
-// Variant 0: live games, tables and a busy few days; 1 one game a day; 2 a few games a day; 3 several playoff series; 4 the World Series; 5 two teams and no series
-void fillDemo(mlb::Snapshot &s, uint8_t variant) {
-  const int64_t t0 = ::time(nullptr) + 7200, day = 86400;
-  s = mlb::Snapshot();
-  mlb::Game live = demoGame("MIL", "TB", 4, 2, mlb::Live, 7, false, "103-59", "98-64", t0 - 7200);
-  demoRuns(live, {0, 1, 0, 2, 0, 1}, {0, 0, 1, 0, 1, 0});
-  live.outs = 1; live.balls = 2; live.strikes = 1; live.bases = 5; live.awayHits = 8; live.homeHits = 5; live.homeErrors = 1;
-  mlb::Game second = demoGame("LAD", "NYY", 3, 3, mlb::Live, 9, true, "100-62", "94-68", t0 - 7200);
-  demoRuns(second, {0, 0, 2, 0, 0, 1, 0, 0, 0}, {1, 0, 0, 0, 0, 2, 0, 0});
-  second.outs = 2; second.balls = 3; second.strikes = 2; second.awayHits = 6; second.homeHits = 7; second.homeErrors = 2;
-  mlb::Game final = demoGame("BOS", "HOU", 6, 3, mlb::Final, 9, false, "87-75", "81-81", t0 - 14400);
-  demoRuns(final, {0, 2, 0, 0, 1, 0, 3, 0, 0}, {1, 0, 0, 2, 0, 0, 0, 0});
-  final.awayHits = 11; final.homeHits = 7; final.homeErrors = 1;
-  s.games[0] = live; s.games[1] = second; s.games[2] = demoGame("SD", "SF", 0, 0, mlb::Pre, 0, false, "91-71", "65-97", t0 + 3600); s.games[3] = final;
-  s.count = 4; s.live = 2;
-  static const char *const al[] = {"TB", "CLE", "HOU", "NYY", "BOS", "CHW", "TEX", "BAL", "TOR", "MIN", "DET", "SEA", "KC", "ATH", "LAA"};
-  static const char *const nl[] = {"MIL", "LAD", "ATL", "SD", "CHC", "PHI", "ARI", "PIT", "MIA", "STL", "WSH", "CIN", "NYM", "SF", "COL"};
-  static const uint8_t alWins[] = {98, 85, 81, 93, 87, 84, 80, 79, 79, 77, 76, 76, 69, 64, 62}, nlWins[] = {103, 100, 94, 91, 89, 88, 86, 82, 80, 77, 77, 75, 74, 65, 58};
-  for (int i = 0; i < 15; i++) {
-    strlcpy(s.american.rows[i].abbr, al[i], 5); s.american.rows[i].wins = alWins[i]; s.american.rows[i].losses = 162 - alWins[i]; s.american.rows[i].seed = i + 1; strlcpy(s.american.rows[i].streak, i % 3 ? "W2" : "L1", 4);
-    strlcpy(s.national.rows[i].abbr, nl[i], 5); s.national.rows[i].wins = nlWins[i]; s.national.rows[i].losses = 162 - nlWins[i]; s.national.rows[i].seed = i + 1; strlcpy(s.national.rows[i].streak, i % 2 ? "W3" : "L2", 4);
-  }
-  s.american.count = s.national.count = 15;
-  auto fix = [&](int i, const char *away, const char *home, int64_t start) {
-    strlcpy(s.next[i].away, away, 5); strlcpy(s.next[i].home, home, 5); s.next[i].start = (uint32_t)start;
-  };
-  static const char *const away[] = {"MIL", "BOS", "SD", "CHC", "TOR", "SEA", "CHW", "ARI", "ATH", "PIT", "MIN", "WSH"}, *const home[] = {"TB", "NYY", "LAD", "STL", "BAL", "TEX", "CLE", "COL", "KC", "CIN", "DET", "MIA"};
-  if (variant == 0) {
-    for (int i = 0; i < 12; i++) fix(i, away[i], home[i], t0 + (i < 5 ? 0 : i < 9 ? day : 2 * day) + (i % 5) * 3000);
-    s.nextCount = 12;
-  } else if (variant == 1) {
-    for (int i = 0; i < 4; i++) fix(i, away[i], home[i], t0 + i * day);
-    s.nextCount = 4;
-  } else if (variant == 2) {
-    for (int i = 0; i < 9; i++) fix(i, away[i], home[i], t0 + (i < 3 ? 0 : i < 5 ? day : 2 * day) + i * 600);
-    s.nextCount = 9;
-  } else if (variant == 3) {
-    mlb::Series a, b;
-    strcpy(a.round, "NLDS"); strcpy(a.first, "LAD"); strcpy(a.second, "SD"); a.firstColor = 0x39FF; a.secondColor = 0xFFE0; a.firstWins = 1; a.secondWins = 1; a.bestOf = 5; a.game = 3;
-    strcpy(b.round, "ALDS"); strcpy(b.first, "NYY"); strcpy(b.second, "BOS"); b.firstColor = 0x9CF3; b.secondColor = 0xF800; b.firstWins = 2; b.secondWins = 0; b.bestOf = 5; b.game = 3;
-    s.series[0] = a; s.series[1] = b; s.seriesCount = 2;
-    fix(0, "SD", "LAD", t0); fix(1, "BOS", "NYY", t0 + 3000); fix(2, "LAD", "SD", t0 + day); fix(3, "NYY", "BOS", t0 + day + 3000); fix(4, "SD", "LAD", t0 + 2 * day);
-    s.nextCount = 5;
-  } else {
-    for (int i = 0; i < (variant == 4 ? 4 : 3); i++) fix(i, i % 2 ? "LAD" : "NYY", i % 2 ? "NYY" : "LAD", t0 + i * day);
-    s.nextCount = variant == 4 ? 4 : 3;
-    if (variant == 4) {
-      mlb::Series w;
-      strcpy(w.round, "WORLD"); strcpy(w.first, "LAD"); strcpy(w.second, "NYY"); w.firstColor = 0x39FF; w.secondColor = 0x9CF3; w.firstWins = 2; w.secondWins = 1; w.bestOf = 7; w.game = 4;
-      s.series[0] = w; s.seriesCount = 1;
-    }
-  }
-}
-
-void addDemo(Kind kind, int variant, int index, int page, int pages, uint32_t ms) {
-  if (cycleCount < kMaxItems) cycle[cycleCount++] = {kind, (uint8_t)index, (uint8_t)page, (uint8_t)pages, (uint16_t)ms, (uint8_t)variant};
-}
-
-void buildDemo(ClockTime *time) {
-  cycleCount = 0;
-  constexpr uint32_t kPage = 6000;
-  addDemo(GamePage, 0, 0, 0, 2, kPage);
-  addDemo(GamePage, 0, 1, 1, 2, kPage);
-  addDemo(RunPage, 0, 0, 0, 1, kRunMs + 800);
-  addDemo(LinePage, 0, 0, 0, 1, kPage);
-  for (int v = 0; v < kDemoVariants; v++) {
-    fillDemo(*snap, v);
-    addDemo(UpcomingPage, v, 0, 0, 1, upcomingMs(*snap, time, kPage));
-  }
-  demoFilled = kDemoVariants - 1;
-  for (int page = 0, pages = standingsPages(snap->american); page < pages; page++) addDemo(AmericanPage, 0, 0, page, pages, kPage);
-  for (int page = 0, pages = standingsPages(snap->national); page < pages; page++) addDemo(NationalPage, 0, 0, page, pages, kPage);
-  for (int scene = 0; scene < 7; scene++) addDemo(ClockPage, 0, 0, scene, 7, kSceneMs);
-  cycleMs = 0;
-  for (int i = 0; i < cycleCount; i++) cycleMs += cycle[i].ms;
-  demoBuilt = true;
-}
-
-void stopDemo() {
-  if (!demo) return;
-  demo = demoBuilt = false;
-  delete snap;
-  snap = realSnap;
-  realSnap = nullptr;
-  cycleCount = 0;
-  seenVersion = 0;
-  haveFrame = false;
-  haveShown = false;
-}
-
 }  // namespace
 
 Clockface::Clockface(MatrixPanel_I2S_DMA *display) {
@@ -357,24 +235,6 @@ Clockface::Clockface(MatrixPanel_I2S_DMA *display) {
 }
 
 void Clockface::invalidate() { haveFrame = false; }
-
-// 1 starts the demo (every screen once, from made-up data), 0 stops it
-void Clockface::steer(int dir) {
-  if (dir == 0) { stopDemo(); return; }
-  if (demo || !snap) return;
-  mlb::Snapshot *own = new (std::nothrow) mlb::Snapshot;
-  if (!own) return;
-  realSnap = snap;
-  snap = own;
-  demo = true;
-  demoBuilt = false;
-  demoStart = millis();
-  demoFilled = 0xFF;
-  run.active = false;
-  cycleCount = 0;
-  haveFrame = false;
-  haveShown = false;
-}
 
 void Clockface::setup(ClockTime *dateTime) {
   _dateTime = dateTime;
@@ -391,9 +251,8 @@ void Clockface::setup(ClockTime *dateTime) {
 void Clockface::update() {
   const uint32_t now = millis();
   const bool moving = haveShown && !sameItem(shown, sliding) && now - slideStart < kSlideMs;
-  const uint32_t at = demo ? now - demoStart : now;  // the demo runs from its own start
-  const bool listPage = cycleCount && current(at).kind == UpcomingPage;  // the lists slide: smoother
-  const bool clockPage = !cycleCount || current(at).kind == ClockPage;  // the ball moves: as smooth as the lists
+  const bool listPage = cycleCount && current(now).kind == UpcomingPage;  // the lists slide: smoother
+  const bool clockPage = !cycleCount || current(now).kind == ClockPage;  // the ball moves: as smooth as the lists
   const uint32_t interval = run.active || moving || listPage || clockPage ? 40 : 90;
   if (haveFrame && now - drawnAt < interval) return;
   ticker->resume();  // after an update check the feed task is gone
@@ -401,10 +260,8 @@ void Clockface::update() {
   const Settings &settings = *Settings::getInstance();
   const char *favourites = settings.mlbTeams.c_str();
   const uint16_t seconds = settings.matchSecs < 3 ? 3 : settings.matchSecs > 60 ? 60 : settings.matchSecs;
-  const bool fresh = !demo && ticker->version() != seenVersion;
-  if (demo && !demoBuilt) buildDemo(_dateTime);
-  if (demo && at >= cycleMs) { stopDemo(); return; }  // once through, then the real data again
-  if (!demo && (fresh || strcmp(cycleFavourites, favourites) || seconds != cycleSecs || settings.resultMins != cycleKeep || settings.mlbTables != cycleTables || settings.mlbIdle != cycleIdle || settings.mlbLiveOnly != cycleLiveOnly || settings.mlbExtra != cycleExtra)) {
+  const bool fresh = ticker->version() != seenVersion;
+  if (fresh || strcmp(cycleFavourites, favourites) || seconds != cycleSecs || settings.resultMins != cycleKeep || settings.mlbTables != cycleTables || settings.mlbIdle != cycleIdle || settings.mlbLiveOnly != cycleLiveOnly || settings.mlbExtra != cycleExtra) {
     ticker->snapshot(*snap);
     seenVersion = snap->version;
     applyResultWindow(_dateTime, settings.resultMins);
@@ -422,7 +279,7 @@ void Clockface::update() {
     cycleExtra = settings.mlbExtra;
     build(favourites, _dateTime, seconds * 1000, settings.mlbTables, settings.mlbLiveOnly, settings.mlbExtra, settings.mlbIdle);
   }
-  if (!demo && !cycleCount) build(favourites, _dateTime, seconds * 1000, settings.mlbTables, settings.mlbLiveOnly, settings.mlbExtra, settings.mlbIdle);
+  if (!cycleCount) build(favourites, _dateTime, seconds * 1000, settings.mlbTables, settings.mlbLiveOnly, settings.mlbExtra, settings.mlbIdle);
 
   haveFrame = true;
   drawnAt = now;
@@ -435,7 +292,7 @@ void Clockface::update() {
     }
     run.active = false;
   }
-  const Item &item = current(at);
+  const Item &item = current(now);
   if (!haveShown) { shown = item; sliding = item; haveShown = true; }
   if (!sameItem(item, shown)) {  // the next page slides in over the one that was on
     sliding = shown;

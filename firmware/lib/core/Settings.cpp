@@ -90,8 +90,22 @@ void Settings::load() {
   if (mlbIdle > 2) mlbIdle = 0;
   mlbTables = p.getUChar("mlbTab", 0);
   if (mlbTables > 2) mlbTables = 0;
+  mlbHours = p.getUChar("mlbHrs", 10); mlbMinutes = p.getUChar("mlbMin", 5);
+  if (mlbHours < 1 || mlbHours > 10) mlbHours = 10;
+  if (mlbMinutes < 1 || mlbMinutes > 10) mlbMinutes = 5;
   mlbTeams = p.getString("mlbTeams", "");
   if (mlbTeams.length() > 60) mlbTeams = "";
+  nflExtra = p.getUChar("nflExtra", 0) != 0;
+  nflLiveOnly = p.getUChar("nflLive", 1) != 0;
+  nflIdle = p.getUChar("nflIdle", 0);
+  if (nflIdle > 2) nflIdle = 0;
+  nflTables = p.getUChar("nflTab", 0);
+  if (nflTables > 2) nflTables = 0;
+  nflHours = p.getUChar("nflHrs", 10); nflMinutes = p.getUChar("nflMin", 3);
+  if (nflHours < 1 || nflHours > 10) nflHours = 10;
+  if (nflMinutes < 1 || nflMinutes > 10) nflMinutes = 3;
+  nflTeams = p.getString("nflTeams", "");
+  if (nflTeams.length() > 60) nflTeams = "";
   pongBackdrop = p.getUChar("pongBg", 3);
   if (pongBackdrop > 5) pongBackdrop = 3;
   arcHours = p.getUChar("arcHrs", 0); arcMinutes = p.getUChar("arcMin", 0); arcScore = p.getUChar("arcPts", 0);
@@ -210,11 +224,18 @@ bool Settings::save() {
   if (saved) p.putUChar("nbaIdle", nbaIdle);
   if (saved) p.putUChar("nbaLive", nbaLiveOnly ? 1 : 0);
   if (saved) p.putUChar("nbaExtra", nbaExtra ? 1 : 0);
+  if (saved) { p.putUChar("mlbHrs", mlbHours); p.putUChar("mlbMin", mlbMinutes); }
   if (saved) p.putString("mlbTeams", mlbTeams);
   if (saved) p.putUChar("mlbTab", mlbTables);
   if (saved) p.putUChar("mlbIdle", mlbIdle);
   if (saved) p.putUChar("mlbLive", mlbLiveOnly ? 1 : 0);
   if (saved) p.putUChar("mlbExtra", mlbExtra ? 1 : 0);
+  if (saved) { p.putUChar("nflHrs", nflHours); p.putUChar("nflMin", nflMinutes); }
+  if (saved) p.putString("nflTeams", nflTeams);
+  if (saved) p.putUChar("nflTab", nflTables);
+  if (saved) p.putUChar("nflIdle", nflIdle);
+  if (saved) p.putUChar("nflLive", nflLiveOnly ? 1 : 0);
+  if (saved) p.putUChar("nflExtra", nflExtra ? 1 : 0);
   if (saved) p.putUChar("pongBg", pongBackdrop);  // and this one: the record's size must not change
   p.end();
   if (saved) { memcpy(faceOptions, options, sizeof(options)); counter()++; }

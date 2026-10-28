@@ -506,6 +506,7 @@ UM_FACE(invaders);
 UM_FACE(pong);
 UM_FACE(nba);
 UM_FACE(mlb);
+UM_FACE(nfl);
 UM_FACE(home);
 static void sendIcon(const uint8_t *start, const uint8_t *end) {
   server.sendHeader("Cache-Control", "public, max-age=86400");
@@ -605,7 +606,10 @@ static void settingsState() {
   json += ",\"nbaTeams\":" + jsonText(s.nbaTeams) + ",\"nbaIdle\":" + String(s.nbaIdle) + ",\"nbaTables\":" + String(s.nbaTables) + ",\"nbaLiveOnly\":" + String(s.nbaLiveOnly ? 1 : 0) + ",\"nbaExtra\":" + (s.nbaExtra ? "true" : "false");
 #endif
 #ifdef UM_MLB
-  json += ",\"mlbTeams\":" + jsonText(s.mlbTeams) + ",\"mlbIdle\":" + String(s.mlbIdle) + ",\"mlbTables\":" + String(s.mlbTables) + ",\"mlbLiveOnly\":" + String(s.mlbLiveOnly ? 1 : 0) + ",\"mlbExtra\":" + (s.mlbExtra ? "true" : "false");
+  json += ",\"mlbTeams\":" + jsonText(s.mlbTeams) + ",\"mlbIdle\":" + String(s.mlbIdle) + ",\"mlbTables\":" + String(s.mlbTables) + ",\"mlbLiveOnly\":" + String(s.mlbLiveOnly ? 1 : 0) + ",\"mlbExtra\":" + (s.mlbExtra ? "true" : "false") + ",\"mlbHours\":" + String(s.mlbHours) + ",\"mlbMinutes\":" + String(s.mlbMinutes);
+#endif
+#ifdef UM_NFL
+  json += ",\"nflTeams\":" + jsonText(s.nflTeams) + ",\"nflIdle\":" + String(s.nflIdle) + ",\"nflTables\":" + String(s.nflTables) + ",\"nflLiveOnly\":" + String(s.nflLiveOnly ? 1 : 0) + ",\"nflExtra\":" + (s.nflExtra ? "true" : "false") + ",\"nflHours\":" + String(s.nflHours) + ",\"nflMinutes\":" + String(s.nflMinutes);
 #endif
 #ifdef UM_PONG
   json += ",\"pongBackdrop\":" + String(s.pongBackdrop);
@@ -796,7 +800,7 @@ static bool applyZonePlace(Settings &s) {
 
 static void saveSettings() {
   long bright, rotation;
-#if !defined(UM_SIMPLE_FACE) || defined(UM_NBA) || defined(UM_MLB)
+#if !defined(UM_SIMPLE_FACE) || defined(UM_NBA) || defined(UM_MLB) || defined(UM_NFL)
   long seconds, results;
 #endif
 #ifndef UM_SIMPLE_FACE
@@ -809,7 +813,7 @@ static void saveSettings() {
   if (leagueCount > 10) { settingsResponse(400, "Choose up to 10 competitions."); return; }
   if (!number("brightness", 1, 255, bright)) { settingsResponse(400, "Choose a brightness using the slider."); return; }
   if (!number("rotation", 0, 3, rotation)) { settingsResponse(400, "Choose a display orientation."); return; }
-#if !defined(UM_SIMPLE_FACE) || defined(UM_NBA) || defined(UM_MLB)
+#if !defined(UM_SIMPLE_FACE) || defined(UM_NBA) || defined(UM_MLB) || defined(UM_NFL)
   if (!number("matchSecs", 3, 60, seconds)) { settingsResponse(400, "Page duration must be between 3 and 60 seconds."); return; }
   if (!number("resultMins", 0, 1440, results)) { settingsResponse(400, "Keep results for between 0 and 1440 minutes."); return; }
 #endif
@@ -870,7 +874,7 @@ static void saveSettings() {
   else s.timezone = zone;
   s.manualTimezone = !autoZone;
   applyZonePlace(s);
-#if !defined(UM_SIMPLE_FACE) || defined(UM_NBA) || defined(UM_MLB)
+#if !defined(UM_SIMPLE_FACE) || defined(UM_NBA) || defined(UM_MLB) || defined(UM_NFL)
   s.matchSecs = seconds; s.resultMins = results;
 #endif
 #ifndef UM_SIMPLE_FACE
@@ -996,6 +1000,21 @@ static void saveSettings() {
     s.mlbTables = constrain(server.arg("mlbTables").toInt(), 0, 2);
     if (server.hasArg("mlbLiveOnly")) s.mlbLiveOnly = server.arg("mlbLiveOnly") != "0";
     s.mlbExtra = server.hasArg("mlbExtra");
+    s.mlbHours = constrain(server.arg("mlbHours").toInt(), 1, 10);
+    s.mlbMinutes = constrain(server.arg("mlbMinutes").toInt(), 1, 10);
+  }
+#elif defined(UM_NFL)
+  {
+    String teams = selectedValues("nflTeams");
+    if (teams.length() > 60) { settingsResponse(400, "Choose at most 12 favourite teams."); return; }
+    for (size_t i = 0; i < teams.length(); ++i) if (!isupper((unsigned char)teams[i]) && teams[i] != ',') { settingsResponse(400, "Choose the teams from the list."); return; }
+    s.nflTeams = teams;
+    s.nflIdle = constrain(server.arg("nflIdle").toInt(), 0, 2);
+    s.nflTables = constrain(server.arg("nflTables").toInt(), 0, 2);
+    if (server.hasArg("nflLiveOnly")) s.nflLiveOnly = server.arg("nflLiveOnly") != "0";
+    s.nflExtra = server.hasArg("nflExtra");
+    s.nflHours = constrain(server.arg("nflHours").toInt(), 1, 10);
+    s.nflMinutes = constrain(server.arg("nflMinutes").toInt(), 1, 10);
   }
 #endif
   if (!s.save()) {
@@ -1266,7 +1285,7 @@ static void sportsSwitch(uint32_t now) {
     sportsplan::parseOrder(s.sportsOrder.c_str(), plan);
     for (uint8_t i = 0; i < plan.orderCount; ++i) cfg.sports[plan.order[i]] = true;
     cfg.racing = s.sportsRacing; cfg.favouritesOnly = s.sportsFav; cfg.othersFav = s.sportsOthers;
-    strlcpy(cfg.leagues, s.footballLeagues.c_str(), sizeof(cfg.leagues)); strlcpy(cfg.teams, s.footballTeams.c_str(), sizeof(cfg.teams)); strlcpy(cfg.nbaTeams, s.nbaTeams.c_str(), sizeof(cfg.nbaTeams)); strlcpy(cfg.mlbTeams, s.mlbTeams.c_str(), sizeof(cfg.mlbTeams));
+    strlcpy(cfg.leagues, s.footballLeagues.c_str(), sizeof(cfg.leagues)); strlcpy(cfg.teams, s.footballTeams.c_str(), sizeof(cfg.teams)); strlcpy(cfg.nbaTeams, s.nbaTeams.c_str(), sizeof(cfg.nbaTeams)); strlcpy(cfg.mlbTeams, s.mlbTeams.c_str(), sizeof(cfg.mlbTeams)); strlcpy(cfg.nflTeams, s.nflTeams.c_str(), sizeof(cfg.nflTeams));
     watch.configure(cfg);
     active = !s.sportsOrder.isEmpty();
     if (settingsSeen && active && !s.sportsHome.isEmpty() && (s.sportsOrder != lastOrder || s.sportsHome != lastHome)) { settleHome = true; settleSince = now; }
@@ -2015,7 +2034,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
-  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
+  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
@@ -2296,12 +2315,13 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/faces/pong.png", HTTP_GET, []() { sendIcon(pongStart, pongEnd); });
   server.on("/faces/nba.png", HTTP_GET, []() { sendIcon(nbaStart, nbaEnd); });
   server.on("/faces/mlb.png", HTTP_GET, []() { sendIcon(mlbStart, mlbEnd); });
+  server.on("/faces/nfl.png", HTTP_GET, []() { sendIcon(nflStart, nflEnd); });
   server.on("/faces/home.png", HTTP_GET, []() { sendIcon(homeStart, homeEnd); });
   server.on("/api/screen", HTTP_GET, screenPreview);
   server.on("/api/settings", HTTP_GET, settingsState);
   postRoute("/api/settings", saveSettings);
-#ifdef UM_MLB
-  postRoute("/api/mlb/demo", []() {   // every screen once from made-up data: on=1 starts it, on=0 stops it
+#ifdef UM_NFL
+  postRoute("/api/nfl/demo", []() {   // every screen once from made-up data: on=1 starts it, on=0 stops it
     if (face) face->steer(server.arg("on").toInt() ? 1 : 0);
     server.send(204);
   });

@@ -6,6 +6,7 @@
 #include <BoldFont.h>
 #include <FaceKit.h>
 #include <MiniFont.h>
+#include <PacmanColors.h>
 #include <algorithm>
 #include <math.h>
 #include <string.h>
@@ -242,7 +243,6 @@ void stands(MatrixPanel_I2S_DMA &d, int boost = 0) {  // boost: extra brightness
   box(d, 0, bandY, W, 1, rgb(60, 50, 6));  // the yellow line along the top of the fence
   for (int x = 0; x < W; x++) box(d, x, bandY + 1, 1, 2, dim(ads[x / 15 % 4], x % 15 == 14 ? 8 : 40));
   box(d, 0, bandY + 3, W, 1, rgb(6, 22, 9));
-  box(d, 0, 59, W, 1, rgb(40, 24, 9));  // the warning track
   for (int x = 0; x < W; x++) box(d, x, 60, 1, 4, (x / 8) % 2 ? rgb(7, 36, 12) : rgb(5, 27, 9));  // mown stripes
 }
 
@@ -272,6 +272,105 @@ void scoreboard(MatrixPanel_I2S_DMA &d, uint16_t away, uint16_t home) {
   }
 }
 
+// The 3x5 font of the football face (its '7' and 'W' differ a little from the mini font): one row per byte, bit 2 = left pixel
+const uint8_t *glyphFootball(char c) {
+  static const struct { char c; uint8_t rows[5]; } FONT[] = {
+    {'0', {7,5,5,5,7}}, {'1', {2,6,2,2,7}}, {'2', {7,1,7,4,7}}, {'3', {7,1,7,1,7}}, {'4', {5,5,7,1,1}},
+    {'5', {7,4,7,1,7}}, {'6', {7,4,7,5,7}}, {'7', {7,1,1,1,1}}, {'8', {7,5,7,5,7}}, {'9', {7,5,7,1,7}},
+    {'A', {2,5,7,5,5}}, {'B', {6,5,6,5,6}}, {'C', {3,4,4,4,3}}, {'D', {6,5,5,5,6}}, {'E', {7,4,6,4,7}},
+    {'F', {7,4,6,4,4}}, {'G', {3,4,5,5,3}}, {'H', {5,5,7,5,5}}, {'I', {7,2,2,2,7}}, {'J', {1,1,1,5,2}},
+    {'K', {5,5,6,5,5}}, {'L', {4,4,4,4,7}}, {'M', {5,7,7,5,5}}, {'N', {6,5,5,5,5}}, {'O', {7,5,5,5,7}},
+    {'P', {6,5,6,4,4}}, {'Q', {2,5,5,7,3}}, {'R', {6,5,6,5,5}}, {'S', {3,4,2,1,6}}, {'T', {7,2,2,2,2}},
+    {'U', {5,5,5,5,7}}, {'V', {5,5,5,5,2}}, {'W', {5,5,5,7,5}}, {'X', {5,5,2,5,5}}, {'Y', {5,5,2,2,2}},
+    {'Z', {7,1,2,4,7}}, {'-', {0,0,7,0,0}}, {'+', {0,2,7,2,0}}, {':', {0,2,0,2,0}}, {'/', {1,1,2,4,4}}, {'.', {0,0,0,0,2}},
+    {'&', {2,5,2,5,3}},
+  };
+  static const uint8_t blank[5] = {0, 0, 0, 0, 0};
+  for (const auto &g : FONT)
+    if (g.c == c) return g.rows;
+  return blank;
+}
+
+void text3(MatrixPanel_I2S_DMA &d, const char *s, int x, int y, uint16_t colour) {
+  for (; *s; s++, x += 4) {
+    const uint8_t *g = glyphFootball(*s);
+    for (int row = 0; row < 5; row++)
+      for (int col = 0; col < 3; col++)
+        if (g[row] >> (2 - col) & 1) put(d, x + col, y + row, colour);
+  }
+}
+void text3Right(MatrixPanel_I2S_DMA &d, const char *s, int xRight, int y, uint16_t colour) { text3(d, s, xRight - textWidth(s) + 1, y, colour); }
+
+// The crowd keeps one pixel clear of the text and digits of the clock page: the pixels they cover, marked before the stands are drawn
+uint64_t gInk[H] = {};
+bool gInkValid = false;
+void inkClear() { for (int y = 0; y < H; y++) gInk[y] = 0; gInkValid = true; }
+void inkPut(int x, int y) { if (x >= 0 && x < W && y >= 0 && y < H) gInk[y] |= 1ull << x; }
+bool inkNear(int x, int y) {
+  if (!gInkValid) return false;
+  for (int dy = -1; dy <= 1; dy++) {
+    const int yy = y + dy;
+    if (yy < 0 || yy >= H) continue;
+    const uint64_t bits = gInk[yy] >> (x > 0 ? x - 1 : 0);
+    if (x == 0 ? (bits & 3) : (bits & 7)) return true;
+  }
+  return false;
+}
+void inkText(const char *s, int x, int y) {
+  for (; *s; s++, x += 4) {
+    const uint8_t *g = glyphFootball(*s);
+    for (int row = 0; row < 5; row++)
+      for (int col = 0; col < 3; col++)
+        if (g[row] >> (2 - col) & 1) inkPut(x + col, y + row);
+  }
+}
+void inkDigit(int value, int x, int y) {
+  for (int row = 0; row < 21; row++)
+    for (int col = 0; col < 14; col++)
+      if (numericfont::pixel(value, col, row, 14, 21) || (value == 1 && col == 0 && row >= 21 - 4)) inkPut(x + col, y + row);
+}
+
+// The stadium of the football face, dot for dot (the clock page): the stands (thinner and dimmer the higher, an aisle every 15 columns), a band of four
+// crowd rows, the dark front of the sideline boards, the advertising boards (15 px blocks), a green line and the grass in 12 px stripes down to the bottom
+// edge, dimmed so the next game can be read on it. gaps: the date and the seconds stand clear of the crowd
+uint16_t crowdDot(int x, int y, int level, int chance = 72) {  // black where this pixel has no dot
+  static const uint16_t colours[5] = {rgb(120, 30, 30), rgb(30, 60, 130), rgb(130, 120, 40), rgb(110, 110, 118), rgb(30, 100, 60)};
+  uint32_t h = (x * 73856093u) ^ (y * 19349663u);
+  h = (h ^ (h >> 13)) * 1274126177u;
+  return (h >> 8) % 100 < (unsigned)chance ? dim(colours[(h >> 16) % 5], level * 255 / 32) : 0;
+}
+bool aisleAt(int x) { return x >= 14 && (x + 1) % 15 < 2; }
+
+void stadium(MatrixPanel_I2S_DMA &d, bool gaps, int bandY, int grassDim, bool ribbon = false) {
+  static const uint16_t ads[4] = {rgb(60, 72, 120), rgb(120, 56, 62), rgb(84, 88, 100), rgb(50, 110, 104)};
+  for (int y = 2; y < bandY; y += 2) {
+    const int k = 100 * (bandY - y) / (bandY - 2);  // 0 at the band .. 100 at the top
+    for (int x = (y / 2) % 2; x < W; x += 2) {
+      if (aisleAt(x) || inkNear(x, y)) continue;
+      const uint16_t c = crowdDot(x, y, 14 - 8 * k / 100, (80 - 30 * k / 100) / (ribbon ? 2 : 1));
+      if (c) put(d, x, y, c);
+    }
+  }
+  for (int y = bandY; y <= bandY + 6; y += 2)
+    for (int x = (y / 2) % 2; x < W; x += 2) {
+      if (aisleAt(x)) continue;
+      const uint16_t c = crowdDot(x, y, 12 + 3 * (y - bandY) / 2, ribbon ? 36 : 72);
+      if (c) put(d, x, y, c);
+    }
+  box(d, 0, bandY + 8, W, 1, rgb(22, 25, 33));
+  if (ribbon) {  // an LED ribbon board instead of the ad boards: black, the next game is written on it; then the green line and 8 rows of grass
+    box(d, 0, bandY + 9, W, 7, rgb(26, 20, 10));  // a warm dark board with a thin brass edge
+    box(d, 0, bandY + 9, W, 1, rgb(90, 70, 30));
+    box(d, 0, bandY + 15, W, 1, rgb(90, 70, 30));
+    box(d, 0, bandY + 16, W, 1, rgb(60, 130, 70));
+    for (int x = 0; x < W; x++) box(d, x, bandY + 17, 1, H - bandY - 17, dim((x / 12) % 2 == 0 ? rgb(14, 70, 28) : rgb(10, 54, 22), grassDim * 255 / 32));
+    return;
+  }
+  for (int x = 0; x < W; x++) box(d, x, bandY + 9, 1, 2, x % 15 == 14 ? dim(ads[x / 15 % 4], 16 * 255 / 32) : ads[x / 15 % 4]);
+  box(d, 0, bandY + 11, W, 1, rgb(60, 130, 70));
+  for (int x = 0; x < W; x++) box(d, x, bandY + 12, 1, H - bandY - 12, dim((x / 12) % 2 == 0 ? rgb(14, 70, 28) : rgb(10, 54, 22), grassDim * 255 / 32));
+}
+
 void paint(MatrixPanel_I2S_DMA &d, Background background, uint32_t ms) {
   switch (background) {
     case BgGame: stands(d); return;  // the same stands as the other pages, no band behind the time
@@ -280,7 +379,7 @@ void paint(MatrixPanel_I2S_DMA &d, Background background, uint32_t ms) {
     case BgNext: stands(d); return;  // no band behind the time here
     case BgAmerican: netting(d, rgb(44, 11, 11)); break;
     case BgNational: netting(d, rgb(10, 18, 44)); break;
-    case BgClock: stands(d); return;  // the ball park
+    case BgClock: stadium(d, true, 39, 14, true); return;  // the stadium of the football face
   }
   box(d, 0, 0, W, 12, rgb(8, 14, 30));  // the band behind the time
 }
@@ -977,7 +1076,7 @@ float bounceHeight(float s, float h, float period) {
 
 // The ball's shadow on the grass: dithered, narrower the higher the ball is, gone when it is high
 void ballShadow(MatrixPanel_I2S_DMA &d, float x, float y) {
-  const int h = (int)(58 - y), half = h < 3 ? 2 : h < 8 ? 1 : h < 14 ? 0 : -1, cx = (int)lroundf(x);
+  const int h = (int)(60 - y), half = h < 3 ? 2 : h < 8 ? 1 : h < 14 ? 0 : -1, cx = (int)lroundf(x);
   for (int sx = -half; sx <= half; sx++)
     if (((cx + sx) & 1) == 0) put(d, cx + sx, 62, rgb(2, 12, 4));
 }
@@ -1007,7 +1106,7 @@ void crowdFlash(MatrixPanel_I2S_DMA &d, uint32_t t) {
 
 
 void ballScene(MatrixPanel_I2S_DMA &d, Scene scene, uint32_t t, uint32_t seed) {
-  constexpr float kFloor = 58;
+  constexpr float kFloor = 60;
   if (scene == Stands) {  // hit high from the bottom left into the crowd on the right, which lights up and jumps
     for (int hit = 0; hit < 2; hit++) {
       const uint32_t at = 2200 + hit * 6200, flight = 1500;
@@ -1093,7 +1192,7 @@ void ballScene(MatrixPanel_I2S_DMA &d, Scene scene, uint32_t t, uint32_t seed) {
 // The scenes of the clock page; t is ms into the 14 s round. The ball scenes have no people, the people scenes no ball
 void extraScene(MatrixPanel_I2S_DMA &d, Scene scene, uint32_t t, uint32_t seed) {
   const uint16_t cap = rgb(50, 100, 215);
-  constexpr int kPlayerY = 43;  // the top of a standing player: the feet are at the grass line
+  constexpr int kPlayerY = 47;  // the top of a standing player: the feet are on the grass
   if (scene != Steal) {
     ballScene(d, scene, t, seed);
   } else if (scene == Steal) {
@@ -1113,80 +1212,63 @@ void extraScene(MatrixPanel_I2S_DMA &d, Scene scene, uint32_t t, uint32_t seed) 
   }
 }
 
-// The next game in the free space under the date, every line against the right edge (one pixel margin): both teams on one line, and under it the day
-// and first pitch time (on one line when they fit; today has no day). The last line is level with the bottom of the minute digits (and their shadow)
+// The next game on one line over the field, centred: both teams in their colours, the day and the first pitch time ("NYY-LAD FRI 20:05")
 void drawNextGame(MatrixPanel_I2S_DMA &d, ClockTime *time, const mlb::Fixture &f) {
-  constexpr int kRight = W - 1;  // the first column that stays empty
-  const bool today = dayOf(time, f) == (int)(time->localNow() / 86400);
-  const char *day = today ? "" : dayName(time, f);
-  char when[8];
+  // on the ribbon board, centred: both teams in their colours, cream day and time: "MIL-TB TUE 00:40" (the day is left out for a game today)
+  char when[8], text[24];
   firstPitch(time, (int64_t)f.start, when, sizeof(when));
-  int whenWidth = -1;  // the colon is two pixels wide: one pixel clear of the digits on both sides
-  for (const char *c = when; *c; c++) whenWidth += *c == ':' ? 2 : 4;
-  const int dayWidth = day[0] ? textWidth(day) : 0;
-  const bool oneLine = !day[0] || dayWidth + 3 + whenWidth <= W - 1 - 31;
-  const int timeY = 43, teamsY = oneLine ? timeY - 7 : timeY - 13;
-  const int awayWidth = textWidth(f.away), homeWidth = textWidth(f.home), teamsX = kRight - (awayWidth + 6 + homeWidth);
-  miniText(d, f.away, teamsX, teamsY, teamColour(f.away));
-  box(d, teamsX + awayWidth + 2, teamsY + 2, 2, 1, kDim);
-  miniText(d, f.home, teamsX + awayWidth + 6, teamsY, teamColour(f.home));
-  if (day[0] && !oneLine) miniText(d, day, kRight - dayWidth, timeY - 6, kMid);
-  int tx = kRight - (oneLine ? (day[0] ? dayWidth + 3 : 0) + whenWidth : whenWidth);
-  if (day[0] && oneLine) miniText(d, day, tx, timeY, kMid), tx += dayWidth + 3;
-  for (const char *c = when; *c; c++) {
-    if (*c == ':') {
-      put(d, tx, timeY + 1, kMid);
-      put(d, tx, timeY + 3, kMid);
-      tx += 2;
-    } else {
-      const char one[2] = {*c, 0};
-      miniText(d, one, tx, timeY, kMid);
-      tx += 4;
-    }
-  }
+  const bool today = dayOf(time, f) == (int)(time->localNow() / 86400);
+  if (today) snprintf(text, sizeof(text), "%s-%s %s", f.away, f.home, when);
+  else snprintf(text, sizeof(text), "%s-%s %s %s", f.away, f.home, dayName(time, f), when);
+  const int x = (W - textWidth(text)) / 2, cream = rgb(255, 240, 205);
+  text3(d, text, x, 49, cream);
+  text3(d, f.away, x, 49, teamColour(f.away));
+  text3(d, f.home, x + 4 * (strlen(f.away) + 1), 49, teamColour(f.home));
 }
 
-void drawClock(MatrixPanel_I2S_DMA &d, ClockTime *time, uint32_t ms, const mlb::Fixture *next) {
+void drawClock(MatrixPanel_I2S_DMA &d, ClockTime *time, uint32_t ms, const mlb::Fixture *next, uint8_t hoursColour, uint8_t minutesColour) {
+  {  // mark what the clock draws, so the crowd stays one pixel clear of it
+    static const char *const monthNames[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+    struct tm local;
+    time_t now = (time_t)time->localNow();
+    gmtime_r(&now, &local);
+    char date[12], seconds[4], hh[4], mm[4];
+    snprintf(date, sizeof(date), "%d %s", local.tm_mday, monthNames[local.tm_mon % 12]);
+    snprintf(seconds, sizeof(seconds), "%02d", time->getSecond());
+    snprintf(hh, sizeof(hh), "%02d", time->getHour());
+    snprintf(mm, sizeof(mm), "%02d", time->getMinute());
+    inkClear();
+    inkText(date, 2, 2);
+    inkText(seconds, W - 2 - textWidth(seconds) + 1, 2);
+    static const int inkX[4] = {1, 16, 34, 49};
+    const char inkDigits[4] = {hh[0], hh[1], mm[0], mm[1]};
+    for (int i = 0; i < 4; i++) inkDigit(inkDigits[i] - '0', inkX[i], 10);
+  }
   backdrop(d, BgClock, ms);
+  gInkValid = false;  // for the pages that draw their own background
   constexpr uint32_t kRoundMs = 14000;
+  const uint16_t hoursInk = hoursColour ? pacmancolors::sprite(hoursColour) : kText, minutesInk = minutesColour ? pacmancolors::sprite(minutesColour) : rgb(140, 190, 245);
+  {  // the date top left and the seconds top right, in the 3x5 font like the football face
+    static const char *const months[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+    struct tm local;
+    time_t now = (time_t)time->localNow();
+    gmtime_r(&now, &local);
+    char date[12], seconds[4];
+    snprintf(date, sizeof(date), "%d %s", local.tm_mday, months[local.tm_mon % 12]);
+    snprintf(seconds, sizeof(seconds), "%02d", time->getSecond());
+    text3(d, date, 2, 2, kPastel);
+    text3Right(d, seconds, W - 2, 2, minutesInk);
+  }
   if ((Scene)((ms / kRoundMs) % Scenes) == Stands) crowdFlash(d, ms % kRoundMs);
   char hours[4], minutes[4];
   snprintf(hours, sizeof(hours), "%02d", time->getHour());
   snprintf(minutes, sizeof(minutes), "%02d", time->getMinute());
-  auto number = [&](const char *text, int y) {
-    const int n = strlen(text), width = n * 12 - 1;
-    for (int pass = 0; pass < 2; pass++)  // an orange shadow under the white digits
-      for (int i = 0; i < n; i++) {
-        const int px = 3 + i * 13 + (pass ? 0 : 1) + (n == 1 ? 6 : 0), py = y + (pass ? 0 : 1);
-        const uint16_t colour = pass ? kText : rgb(24, 52, 118);
-        blockDigit(d, text[i] - '0', px, py, 11, 21, colour);
-        if (text[i] == '1')  // the 1's nose a column longer: three dots to the left of its edge, a pixel lower
-          for (int row = 4; row <= 6; row++) put(d, px, py + row, colour);
-      }
-    (void)width;
-  };
-  number(hours, 2);  // the top of the digits level with the top of the weekday
-  number(minutes, 26);
-  {  // the date in the free space over the hoop: the weekday over day and month
-    struct tm local;
-    time_t now = (time_t)time->localNow();
-    gmtime_r(&now, &local);
-    static const char *const days[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
-    static const char *const months[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
-    // thin 5x9 capitals and digits, both lines against the right edge (1 px margin)
-    const char *weekday = days[local.tm_wday % 7], *month = months[local.tm_mon % 12];
-    const uint16_t pastel = rgb(150, 220, 160);
-    textThin(d, weekday, W - 1 - widthThin(weekday), 2, rgb(140, 190, 245));  // pastel blue
-    char day[4];
-    snprintf(day, sizeof(day), "%d", local.tm_mday);
-    const int dayWidth = widthThin(day), dateWidth = dayWidth + 3 + widthThin(month), left = W - 1 - dateWidth;
-    textThin(d, day, left, 15, pastel);
-    textThin(d, month, left + dayWidth + 3, 15, pastel);
-  }
-  if (next) drawNextGame(d, time, *next);  // under the scene: the ball passes in front of it
+  const char digits[4] = {hours[0], hours[1], minutes[0], minutes[1]};
+  static const int xs[4] = {1, 16, 34, 49};
+  for (int i = 0; i < 4; i++) blockDigit(d, digits[i] - '0', xs[i], 10, 14, 21, i < 2 ? hoursInk : minutesInk);
+  if (next) drawNextGame(d, time, *next);  // over the field: the ball passes in front of it
   // Seven scenes in turn, 14 seconds each: six with only the ball, one with a runner stealing a base
-  constexpr uint32_t kRound = 14000;
-  extraScene(d, (Scene)((ms / kRound) % Scenes), ms % kRound, ms / kRound);
+  extraScene(d, (Scene)((ms / kRoundMs) % Scenes), ms % kRoundMs, ms / kRoundMs);
 }
 
 // ---- the run ----

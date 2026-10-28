@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
-set(ULTIMATRIX_MODE "football" CACHE STRING "Clock mode: football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong, nba, mlb, home, bridge or scanner")
-set_property(CACHE ULTIMATRIX_MODE PROPERTY STRINGS football f1 motogp tetris word mario luigi pacman invaders pong nba mlb home bridge scanner)
-if(NOT ULTIMATRIX_MODE MATCHES "^(football|f1|motogp|tetris|word|mario|luigi|pacman|invaders|pong|nba|mlb|home|bridge|scanner)$")
-    message(FATAL_ERROR "ULTIMATRIX_MODE must be football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong, nba, mlb, home, bridge or scanner")
+set(ULTIMATRIX_MODE "football" CACHE STRING "Clock mode: football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong, nba, mlb, nfl, home, bridge or scanner")
+set_property(CACHE ULTIMATRIX_MODE PROPERTY STRINGS football f1 motogp tetris word mario luigi pacman invaders pong nba mlb nfl home bridge scanner)
+if(NOT ULTIMATRIX_MODE MATCHES "^(football|f1|motogp|tetris|word|mario|luigi|pacman|invaders|pong|nba|mlb|nfl|home|bridge|scanner)$")
+    message(FATAL_ERROR "ULTIMATRIX_MODE must be football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong, nba, mlb, nfl, home, bridge or scanner")
 endif()
 set(SDKCONFIG "${CMAKE_BINARY_DIR}/sdkconfig")
 # Only the Pac-Man face carries the Bluetooth stack (a game controller); its extra settings come after the shared ones.

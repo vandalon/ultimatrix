@@ -230,7 +230,7 @@ void SportsWatch::loop() {
         continue;
       }
       if (now < due[s]) continue;
-      due[s] = now + (s == F1 ? refreshF1(cfg, now) : s == MOTOGP ? refreshMotoGp(cfg, now) : s == FOOTBALL ? refreshFootball(cfg, now) : s == NBA ? refreshNba(cfg, now) : refreshMlb(cfg, now));  // one sport per second at most
+      due[s] = now + (s == F1 ? refreshF1(cfg, now) : s == MOTOGP ? refreshMotoGp(cfg, now) : s == FOOTBALL ? refreshFootball(cfg, now) : s == NBA ? refreshNba(cfg, now) : s == MLB ? refreshMlb(cfg, now) : refreshNfl(cfg, now));  // one sport per second at most
       break;
     }
   }
@@ -388,13 +388,13 @@ time_t SportsWatch::refreshMotoGp(const Config &cfg, time_t now) {
 
 // ---- NBA and MLB: today's board (ESPN's scoreboard has the same shape); favourites are matched by team abbreviation ----
 struct DayScan {
-  struct Game { char date[24] = "", state[8] = "", name[14] = ""; char team[2][5] = {"", ""}; } m[15];
+  struct Game { char date[24] = "", state[8] = "", name[14] = ""; char team[2][5] = {"", ""}; } m[16];
   int count = 0;
   static void leaf(void *sink, const char (*path)[JsonScan::KEY], int n, const char *value, bool) {
     DayScan &scan = *(DayScan *)sink;
     if (n < 3 || strcmp(path[0], "events")) return;
     const int k = atoi(path[1]);
-    if (k < 0 || k >= 15) return;
+    if (k < 0 || k >= 16) return;
     scan.count = std::max(scan.count, k + 1);
     if (jsonPathIs(path, n, "events.*.date")) strlcpy(scan.m[k].date, value, sizeof(scan.m[k].date));
     else if (jsonPathIs(path, n, "events.*.status.type.state")) strlcpy(scan.m[k].state, value, sizeof(scan.m[k].state));
@@ -448,6 +448,10 @@ time_t SportsWatch::refreshNba(const Config &cfg, time_t now) {
 
 time_t SportsWatch::refreshMlb(const Config &cfg, time_t now) {
   return refreshBoard(MLB, "http://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard", cfg.mlbTeams, 200 * 60, cfg, now);
+}
+
+time_t SportsWatch::refreshNfl(const Config &cfg, time_t now) {  // the scoreboard is the whole week: games on Thursday, Sunday and Monday
+  return refreshBoard(NFL, "http://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard", cfg.nflTeams, 215 * 60, cfg, now);
 }
 
 time_t SportsWatch::refreshFootball(const Config &cfg, time_t now) {

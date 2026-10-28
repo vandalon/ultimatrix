@@ -57,8 +57,18 @@ function timezoneMode() {
   document.querySelector('#timezone-field').style.opacity = auto ? 0.45 : 1;
 }
 // Sports: which sports may take the panel, in priority order (hidden field sportsOrder, "f1,football")
-const SPORTS = [['f1', 'F1'], ['motogp', 'MotoGP'], ['football', 'Football'], ['nba', 'NBA'], ['mlb', 'MLB']];
+// The default order is by popularity (NFL, NBA, MLB); the order the user drags is saved in sportsOrder
+const SPORTS = [['f1', 'F1'], ['motogp', 'MotoGP'], ['football', 'Football'], ['nfl', 'NFL'], ['nba', 'NBA'], ['mlb', 'MLB']];
+// Freedom mode: for our American friends, football is called soccer in the face picker and the sports list (this browser only)
+function freedomMode() { try { return localStorage.getItem('freedom') === '1'; } catch (_) { return false; } }
+function applyFreedom() {
+  const soccer = freedomMode();
+  SPORTS.find(s => s[0] === 'football')[1] = soccer ? 'Soccer' : 'Football';
+  const label = document.querySelector('#faces [data-face="football"] b');
+  if (label) label.textContent = soccer ? 'Soccer' : 'Football';
+}
 const NBA_TEAMS = [['ATL', 'Atlanta Hawks'], ['BOS', 'Boston Celtics'], ['BKN', 'Brooklyn Nets'], ['CHA', 'Charlotte Hornets'], ['CHI', 'Chicago Bulls'], ['CLE', 'Cleveland Cavaliers'], ['DAL', 'Dallas Mavericks'], ['DEN', 'Denver Nuggets'], ['DET', 'Detroit Pistons'], ['GS', 'Golden State Warriors'], ['HOU', 'Houston Rockets'], ['IND', 'Indiana Pacers'], ['LAC', 'LA Clippers'], ['LAL', 'Los Angeles Lakers'], ['MEM', 'Memphis Grizzlies'], ['MIA', 'Miami Heat'], ['MIL', 'Milwaukee Bucks'], ['MIN', 'Minnesota Timberwolves'], ['NO', 'New Orleans Pelicans'], ['NY', 'New York Knicks'], ['OKC', 'Oklahoma City Thunder'], ['ORL', 'Orlando Magic'], ['PHI', 'Philadelphia 76ers'], ['PHX', 'Phoenix Suns'], ['POR', 'Portland Trail Blazers'], ['SAC', 'Sacramento Kings'], ['SA', 'San Antonio Spurs'], ['TOR', 'Toronto Raptors'], ['UTAH', 'Utah Jazz'], ['WSH', 'Washington Wizards']].map(([value, label]) => ({ value, label }));
+const NFL_TEAMS = [['ARI', 'Arizona Cardinals'], ['ATL', 'Atlanta Falcons'], ['BAL', 'Baltimore Ravens'], ['BUF', 'Buffalo Bills'], ['CAR', 'Carolina Panthers'], ['CHI', 'Chicago Bears'], ['CIN', 'Cincinnati Bengals'], ['CLE', 'Cleveland Browns'], ['DAL', 'Dallas Cowboys'], ['DEN', 'Denver Broncos'], ['DET', 'Detroit Lions'], ['GB', 'Green Bay Packers'], ['HOU', 'Houston Texans'], ['IND', 'Indianapolis Colts'], ['JAX', 'Jacksonville Jaguars'], ['KC', 'Kansas City Chiefs'], ['LAC', 'Los Angeles Chargers'], ['LAR', 'Los Angeles Rams'], ['LV', 'Las Vegas Raiders'], ['MIA', 'Miami Dolphins'], ['MIN', 'Minnesota Vikings'], ['NE', 'New England Patriots'], ['NO', 'New Orleans Saints'], ['NYG', 'New York Giants'], ['NYJ', 'New York Jets'], ['PHI', 'Philadelphia Eagles'], ['PIT', 'Pittsburgh Steelers'], ['SEA', 'Seattle Seahawks'], ['SF', 'San Francisco 49ers'], ['TB', 'Tampa Bay Buccaneers'], ['TEN', 'Tennessee Titans'], ['WSH', 'Washington Commanders']].map(([value, label]) => ({ value, label }));
 const MLB_TEAMS = [['ARI', 'Arizona Diamondbacks'], ['ATH', 'Athletics'], ['ATL', 'Atlanta Braves'], ['BAL', 'Baltimore Orioles'], ['BOS', 'Boston Red Sox'], ['CHC', 'Chicago Cubs'], ['CHW', 'Chicago White Sox'], ['CIN', 'Cincinnati Reds'], ['CLE', 'Cleveland Guardians'], ['COL', 'Colorado Rockies'], ['DET', 'Detroit Tigers'], ['HOU', 'Houston Astros'], ['KC', 'Kansas City Royals'], ['LAA', 'Los Angeles Angels'], ['LAD', 'Los Angeles Dodgers'], ['MIA', 'Miami Marlins'], ['MIL', 'Milwaukee Brewers'], ['MIN', 'Minnesota Twins'], ['NYM', 'New York Mets'], ['NYY', 'New York Yankees'], ['PHI', 'Philadelphia Phillies'], ['PIT', 'Pittsburgh Pirates'], ['SD', 'San Diego Padres'], ['SF', 'San Francisco Giants'], ['SEA', 'Seattle Mariners'], ['STL', 'St. Louis Cardinals'], ['TB', 'Tampa Bay Rays'], ['TEX', 'Texas Rangers'], ['TOR', 'Toronto Blue Jays'], ['WSH', 'Washington Nationals']].map(([value, label]) => ({ value, label }));
 // The plan under Sports: what the clock found in the schedules and what it will do about it (computed here from /api/sports)
 let sportsPlanTimer = 0;
@@ -108,21 +118,65 @@ document.querySelector('#sportsPrepGo')?.addEventListener('click', async () => {
 function sportsInit(settings) {
   const list = document.querySelector('#sports-list'), box = field('sportsOrder');
   const chosen = (settings.sportsOrder || '').split(',').filter(id => SPORTS.some(s => s[0] === id));
-  let order = [...chosen, ...SPORTS.map(s => s[0]).filter(id => !chosen.includes(id))], on = new Set(chosen);
-  const save = () => { box.value = order.filter(id => on.has(id)).join(','); render(); dirty(); setTimeout(sportsPlan, 2500); };
+  // the clock keeps only the sports that are on, in order; the places of the ones that are off are kept in this browser, so moving one still sticks
+  let kept = [];
+  try { kept = JSON.parse(localStorage.getItem('sportsAll') || '[]').filter(id => SPORTS.some(s => s[0] === id)); } catch (_) {}
+  const all = SPORTS.map(s => s[0]), on = new Set(chosen);
+  let order = kept.length ? [...kept, ...all.filter(id => !kept.includes(id))] : [...chosen, ...all.filter(id => !chosen.includes(id))];
+  const places = order.map((id, i) => on.has(id) ? i : -1).filter(i => i >= 0);
+  chosen.forEach((id, k) => { order[places[k]] = id; });  // the sports that are on take their places in the order the clock has them
+  const save = () => { try { localStorage.setItem('sportsAll', JSON.stringify(order)); } catch (_) {} box.value = order.filter(id => on.has(id)).join(','); render(); dirty(); setTimeout(sportsPlan, 2500); };
   function render() {
     list.replaceChildren(...order.map((id, i) => {
       const row = document.createElement('div'); row.className = 'bday';
       const check = document.createElement('input'); check.type = 'checkbox'; check.checked = on.has(id); check.ariaLabel = SPORTS.find(s => s[0] === id)[1];
       check.onchange = () => { check.checked ? on.add(id) : on.delete(id); save(); };
       const name = document.createElement('span'); name.textContent = (i + 1) + '. ' + SPORTS.find(s => s[0] === id)[1];
-      const up = document.createElement('button'); up.type = 'button'; up.className = 'secondary'; up.textContent = '↑'; up.disabled = i === 0;
-      up.onclick = () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; save(); };
-      const down = document.createElement('button'); down.type = 'button'; down.className = 'secondary'; down.textContent = '↓'; down.disabled = i === order.length - 1;
-      down.onclick = () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; save(); };
-      row.append(check, name, up, down); return row;
+      const grip = document.createElement('span'); grip.textContent = '⋮⋮'; grip.title = 'Drag to change the order'; grip.ariaLabel = 'Drag to reorder ' + SPORTS.find(s => s[0] === id)[1];
+      grip.style.cssText = 'cursor:grab;touch-action:none;user-select:none;padding:6px 10px;font-weight:700;opacity:.7';
+      row.dataset.id = id;
+      // the move and the drop are followed on the window, so the drag goes on wherever the pointer is, with or without pointer capture
+      // the grabbed row lifts (shadow, a little larger) and follows the pointer; the rows it passes slide out of the way
+      let grabDy = 0, shift = 0;
+      const follow = e => { const top = row.getBoundingClientRect().top - shift; shift = e.clientY - grabDy - top; row.style.transform = 'translateY(' + shift + 'px) scale(1.03)'; };
+      const move = e => {
+        for (const other of list.children) {
+          if (other === row) continue;
+          const r = other.getBoundingClientRect();
+          if (e.clientY > r.top && e.clientY < r.bottom) {
+            const before = new Map([...list.children].filter(c => c !== row).map(c => [c, c.getBoundingClientRect().top]));
+            list.insertBefore(row, e.clientY < r.top + r.height / 2 ? other : other.nextSibling);
+            before.forEach((top, c) => {
+              const dy = top - c.getBoundingClientRect().top;
+              if (!dy) return;
+              c.style.transition = 'none'; c.style.transform = 'translateY(' + dy + 'px)';
+              c.getBoundingClientRect();
+              c.style.transition = 'transform .15s ease'; c.style.transform = '';
+            });
+            break;
+          }
+        }
+        follow(e);
+      };
+      const drop = () => {
+        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', drop); window.removeEventListener('pointercancel', drop);
+        row.style.cssText = '';
+        order = [...list.children].map(r => r.dataset.id); save();
+      };
+      grip.onpointerdown = e => {
+        e.preventDefault();
+        try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+        grabDy = e.clientY - row.getBoundingClientRect().top; shift = 0;
+        row.style.cssText = 'position:relative;z-index:5;transition:box-shadow .15s;box-shadow:0 10px 24px rgba(14,26,32,.28);background:#fff;border-radius:12px;transform:scale(1.03)';
+        window.addEventListener('pointermove', move); window.addEventListener('pointerup', drop); window.addEventListener('pointercancel', drop);
+      };
+      row.append(check, name, grip); return row;
     }));
   }
+  const freedom = document.querySelector('#freedom');
+  freedom.checked = freedomMode();
+  freedom.onchange = () => { try { localStorage.setItem('freedom', freedom.checked ? '1' : '0'); } catch (_) {} applyFreedom(); render(); sportsPlan(); };
+  applyFreedom();
   box.value = chosen.join(',');
   sportsPlan();
   const home = field('sportsHome');
@@ -298,11 +352,12 @@ async function load() {
     field('dither').closest('label').style.display = arcade || data.mode === 'Mario' || data.mode === 'Luigi' ? 'none' : '';  // those faces decide for themselves
     const homeFace = data.mode === 'Home'; document.querySelector('#homeassistant').hidden = !homeFace; document.querySelector('#nav-ha').hidden = !homeFace;
     if (homeFace) { initHomeAssistant(); document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('#nav-ha').classList.add('active'); }
-    section('[data-sports]', sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade); section('[data-sportfields]', sporty || data.mode === 'NBA' || data.mode === 'MLB'); section('[data-clockanim]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', arcade);
-    section('[data-football]', data.mode === 'Football'); section('[data-f1]', racing); section('[data-nba]', data.mode === 'NBA'); section('[data-mlb]', data.mode === 'MLB');
+    section('[data-sports]', sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'NFL' || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade); section('[data-sportfields]', sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'NFL'); section('[data-clockanim]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', arcade);
+    section('[data-football]', data.mode === 'Football'); section('[data-f1]', racing); section('[data-nba]', data.mode === 'NBA'); section('[data-mlb]', data.mode === 'MLB'); section('[data-nfl]', data.mode === 'NFL');
     if (data.mode === 'NBA') choices('#nba-teams', 'nbaTeams', NBA_TEAMS, data.settings.nbaTeams);
-    if (data.mode === 'MLB') choices('#mlb-teams', 'mlbTeams', MLB_TEAMS, data.settings.mlbTeams);
-    if (sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
+    if (data.mode === 'MLB') { choices('#mlb-teams', 'mlbTeams', MLB_TEAMS, data.settings.mlbTeams); for (const name of ['mlbHours', 'mlbMinutes']) field(name).replaceChildren(...['Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'].map((label, i) => new Option(label, i + 1))); }
+    if (data.mode === 'NFL') { choices('#nfl-teams', 'nflTeams', NFL_TEAMS, data.settings.nflTeams); for (const name of ['nflHours', 'nflMinutes']) field(name).replaceChildren(...['Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'].map((label, i) => new Option(label, i + 1))); }
+    if (sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'NFL' || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
     invaders = data.mode === 'Invaders'; pongSlide = data.mode === 'Pong';
     document.querySelector('#play').hidden = !arcade;
     if (arcade && !pacman) {   // no colours and no Bluetooth controller (yet) on these faces, and their own instructions
@@ -1194,6 +1249,6 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
   }, 50);
 })();
 
-document.querySelector('#mlbDemo')?.addEventListener('click', async () => {
-  try { const r = await fetch('/api/mlb/demo', { method: 'POST', body: new URLSearchParams({ on: 1 }) }); if (!r.ok) throw new Error(await r.text()); message('Demo started: every screen once'); } catch (error) { message(error.message, true); }
+document.querySelector('#nflDemo')?.addEventListener('click', async () => {
+  try { const r = await fetch('/api/nfl/demo', { method: 'POST', body: new URLSearchParams({ on: 1 }) }); if (!r.ok) throw new Error(await r.text()); message('Demo started: every screen once'); } catch (error) { message(error.message, true); }
 });

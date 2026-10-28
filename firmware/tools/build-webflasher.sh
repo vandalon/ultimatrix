@@ -7,7 +7,7 @@ set -euo pipefail
 firmware_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 project_root=$(cd "$firmware_root/.." && pwd)
 out="$project_root/web-flasher/firmware"
-all=(home football f1 motogp tetris word mario luigi pacman invaders pong nba mlb)
+all=(home football f1 motogp tetris word mario luigi pacman invaders pong nba mlb nfl)
 modes=("$@"); [ ${#modes[@]} -gt 0 ] || modes=("${all[@]}")
 
 for python_env in "$project_root"/.tools/espressif/python_env/idf5.5_py*_env; do

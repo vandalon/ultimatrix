@@ -256,7 +256,7 @@ void FirmwareUpdate::progress(uint32_t bytes, uint32_t total) {
 }
 
 bool FirmwareUpdate::knownMode(const char *mode) {
-  static const char *const modes[] = {"home", "football", "f1", "motogp", "tetris", "word", "mario", "luigi", "pacman", "invaders", "pong", "nba", "mlb"};
+  static const char *const modes[] = {"home", "football", "f1", "motogp", "tetris", "word", "mario", "luigi", "pacman", "invaders", "pong", "nba", "mlb", "nfl"};
   for (const char *known : modes) if (mode && !strcmp(mode, known)) return true;
   return false;
 }
@@ -348,7 +348,7 @@ bool FirmwareUpdate::queue(const char *mode, bool force, bool stageOnly) {
   std::unique_lock<std::mutex> gate(networkBudget(), std::try_to_lock);
   if (!gate.owns_lock() || (liveDataActive() && !force)) {
     _status.lowMemory = false;
-    strlcpy(_status.message, "A live match or session is running. It is not paused to free memory for the update; try again when it has ended.", sizeof(_status.message));
+    strlcpy(_status.message, gate.owns_lock() ? "A live match or session is running. Try again when it has ended." : "The clock is busy downloading. Try again in a minute.", sizeof(_status.message));
     return false;
   }
   if (_lastAttempt && millis() - _lastAttempt < 30000) { strlcpy(_status.message, "Wait 30 seconds before checking again.", sizeof(_status.message)); return false; }

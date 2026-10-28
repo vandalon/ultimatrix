@@ -11,15 +11,15 @@
 // found in the sports feeds and by the settings the user chose.
 namespace sportsplan {
 
-enum Sport : uint8_t { F1, MOTOGP, FOOTBALL, NBA, MLB, SPORTS };
-static const char *const kModes[SPORTS] = {"f1", "motogp", "football", "nba", "mlb"};  // the firmware mode that shows each sport
+enum Sport : uint8_t { F1, MOTOGP, FOOTBALL, NBA, MLB, NFL, SPORTS };
+static const char *const kModes[SPORTS] = {"f1", "motogp", "football", "nba", "mlb", "nfl"};  // the firmware mode that shows each sport
 
 struct Event {
   time_t start = 0, end = 0;  // UTC; end is when the event is expected to be over
   bool live = false;          // the feed said it is on right now
   char label[14] = "";        // what it is: "Race", "NFO @ IPS"
 };
-static const int kMaxEvents = 12;
+static const int kMaxEvents = 16;
 struct Events {
   Event list[kMaxEvents];
   uint8_t count = 0;
