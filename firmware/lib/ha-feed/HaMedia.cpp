@@ -447,7 +447,7 @@ bool stationLogo(const char *station, uint16_t *out) {
 }
 
 // The panel washes pictures out, and a JPEG leaves greys where a logo should be black and white. Levels first: the darkest 5% of
-// the picture (at most up to 48) becomes black and the lightest 5% (at least from 160) white, then the last 28 steps next to black and next to white are cut off, which removes the JPEG speckle in flat areas
+// the picture (at most up to 48) becomes black and the lightest 5% (at least from 160) white, then the last 21 steps next to black and next to white are cut off (a stretch of 1.2), which removes the JPEG speckle in flat areas
 void addContrast(uint16_t *pixels) {
   constexpr size_t kPixels = (size_t)kArt * kArt;
   uint16_t histogram[256] = {};
@@ -462,7 +462,7 @@ void addContrast(uint16_t *pixels) {
   uint8_t lut[256];
   for (int v = 0; v < 256; v++) {
     const int level = std::min(255, std::max(0, (v - low) * 255 / (high - low)));
-    lut[v] = (uint8_t)std::min(255, std::max(0, (level - 28) * 255 / 207));  // what is left of black or white after the JPEG (dots) goes flat
+    lut[v] = (uint8_t)std::min(255, std::max(0, (level - 21) * 255 / 213));  // what is left of black or white after the JPEG (dots) goes flat
   }
   for (size_t i = 0; i < kPixels; i++) {
     const uint16_t c = pixels[i];
@@ -738,6 +738,12 @@ ArtState art(const Player &player, bool online, bool logo, const uint16_t **pixe
     return ART_NONE;
   }
   picture = key;
+  static int lastFlags = -1;  // a changed switch under Pages is a new chance: an earlier failure must not hold the picture back for minutes
+  if (lastFlags != (int)online + 2 * (int)logo) {
+    lastFlags = (int)online + 2 * (int)logo;
+    std::lock_guard<std::mutex> guard(lock);
+    failedFor[0] = 0;
+  }
   static char lastKey[kPicture] = "";  // only the art task's caller (the clock loop) touches it
   if (strcmp(lastKey, key)) { strlcpy(lastKey, key, sizeof(lastKey)); consoleLog("[HA] album art: wanted %.60s (online art %s)\n", key, online ? "on" : "off"); }
   {

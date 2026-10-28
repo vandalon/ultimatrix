@@ -380,6 +380,44 @@ void boldText(MatrixPanel_I2S_DMA &d, const char *s, int x, int y, uint16_t colo
   }
 }
 
+// The clock's digits with 2 px strokes: the shapes of the 4x7 digits, every pixel drawn also to its right and below, 5 x 8 (rows y to y + 7)
+void clockGlyph(MatrixPanel_I2S_DMA &d, char c, int x, int y, uint16_t color) {
+  if (c == ':') {
+    box(d, x, y + 1, 2, 2, color);
+    box(d, x, y + 5, 2, 2, color);
+    return;
+  }
+  if (c < '0' || c > '9') return;
+  for (int j = 0; j < 8; j++)
+    for (int i = 0; i < 5; i++)
+      if (numericfont::smallPixel(c - '0', i, j) || numericfont::smallPixel(c - '0', i - 1, j) || numericfont::smallPixel(c - '0', i, j - 1) || numericfont::smallPixel(c - '0', i - 1, j - 1)) put(d, x + i, y + j, color);
+}
+
+int clockWidth(const char *s) {
+  int width = 0;
+  for (; *s; ++s) width += (*s == ':' ? 2 : 5) + 1;
+  return width ? width - 1 : 0;
+}
+
+// The month in letters built like the digits: 3x5 shapes stretched to 4x7, then drawn with 2 px strokes (5 x 8). Only the letters of the month names
+const uint8_t kMonthLetters[26][5] = {
+  {2,5,7,5,5}, {6,5,6,5,6}, {3,4,4,4,3}, {6,5,5,5,6}, {7,4,6,4,7}, {7,4,6,4,4}, {3,4,5,5,3}, {0,0,0,0,0}, {0,0,0,0,0}, {1,1,1,5,2}, {0,0,0,0,0}, {4,4,4,4,7}, {5,7,7,5,5},
+  {6,5,5,5,5}, {7,5,5,5,7}, {6,5,6,4,4}, {0,0,0,0,0}, {6,5,6,5,5}, {3,4,2,1,6}, {7,2,2,2,2}, {5,5,5,5,7}, {5,5,5,5,2}, {0,0,0,0,0}, {0,0,0,0,0}, {5,5,2,2,2}, {0,0,0,0,0}};
+
+bool monthPixel(char c, int x, int y) {
+  static const uint8_t kRowOf[7] = {0, 1, 1, 2, 3, 3, 4}, kColOf[4] = {0, 1, 1, 2};
+  if (x < 0 || x >= 4 || y < 0 || y >= 7) return false;
+  return kMonthLetters[c - 'A'][kRowOf[y]] >> (2 - kColOf[x]) & 1;
+}
+
+void monthGlyph(MatrixPanel_I2S_DMA &d, char c, int x, int y, uint16_t color) {
+  for (int j = 0; j < 8; j++)
+    for (int i = 0; i < 5; i++)
+      if (monthPixel(c, i, j) || monthPixel(c, i - 1, j) || monthPixel(c, i, j - 1) || monthPixel(c, i - 1, j - 1)) put(d, x + i, y + j, color);
+}
+
+int monthWidth(const char *s) { return *s ? 6 * (int)strlen(s) - 1 : 0; }
+
 // ---- Screens ----
 bool slideStation = false;  // a slide involves a page with the station name at the top: the date or station of each page slides with it
 bool sliding = false;  // a slide between two pages is being drawn: the album art stays put underneath instead of sliding with its page
@@ -387,13 +425,13 @@ bool sliding = false;  // a slide between two pages is being drawn: the album ar
 void header(MatrixPanel_I2S_DMA &d, const Frame &f, int mono = -1, int dy = 1) {
   const View slide = view;  // the clock and date stay put while a page slides
   view = View();
-  int timeX = 13 - textWidth(f.time) / 2;
+  int timeX = 13 - clockWidth(f.time) / 2;
   for (const char *c = f.time; *c; ++c) {
     const uint16_t color = *c == ':' ? rgb(24 * f.colonLevel / 255, 188 * f.colonLevel / 255, 242 * f.colonLevel / 255) : tone(T_BLUE);
-    glyph(d, *c, timeX, dy, mono >= 0 ? mono : color);
-    timeX += glyphWidth(*c) + 1;
+    clockGlyph(d, *c, timeX, dy - 1, mono >= 0 ? mono : color);
+    timeX += (*c == ':' ? 2 : 5) + 1;
   }
-  if (sliding && slideStation) view = slide;  // the date or station goes with its page, so the two never overlap mid-slide
+  if (sliding && slideStation) { view = slide; view.x0 = 26; }  // the date or station goes with its page and passes behind the clock
   if (f.stationTop && f.station[0]) {  // the radio station in the date's place, cut to what fits right of the time
     char upper[sizeof(f.station)];
     size_t u = 0;
@@ -402,7 +440,19 @@ void header(MatrixPanel_I2S_DMA &d, const Frame &f, int mono = -1, int dy = 1) {
     const int width = boldTextWidth(upper), color = mono >= 0 ? mono : tone(T_PASTEL);
     if (width <= kStationRoom) boldText(d, upper, 62 - width, dy, color);
     else boldText(d, upper, 62 - kStationRoom - pingPong(f.scrollTick, width - kStationRoom), dy, color, 62 - kStationRoom, 63);
-  } else countText(d, f.date, 62 - countWidth(f.date), 1 + dy, mono >= 0 ? mono : tone(T_MUTE));  // "OCT 15", quieter than the time
+  } else {  // "OCT 15", quieter than the time: the month in letters built like the digits, the day in the clock's digits, 2 px apart
+    const char *space = strchr(f.date, ' ');
+    const uint16_t color = mono >= 0 ? mono : tone(T_MUTE);
+    if (space) {
+      char month[8];
+      strlcpy(month, f.date, std::min<size_t>(sizeof(month), space - f.date + 1));
+      const int dayX = 63 - clockWidth(space + 1);
+      int x = dayX - 2 - monthWidth(month);
+      for (const char *c = month; *c; ++c, x += 6) monthGlyph(d, toupper(*c), x, dy - 1, color);
+      x = dayX;
+      for (const char *c = space + 1; *c; ++c, x += 6) clockGlyph(d, *c, x, dy - 1, color);
+    }
+  }
   view = slide;
 }
 
@@ -669,7 +719,7 @@ void drawSlide(MatrixPanel_I2S_DMA &d, const Frame &from, const Frame &to, int p
   d.fillScreen(0);
   backdrop(d, to.backdrop ? to : from);
   sliding = true;
-  slideStation = from.stationTop || to.stationTop;
+  slideStation = from.stationTop || to.stationTop || artView(from) || artView(to);
   view.dx = -shift;
   drawPage(d, from);
   view.dx = 64 - shift;
