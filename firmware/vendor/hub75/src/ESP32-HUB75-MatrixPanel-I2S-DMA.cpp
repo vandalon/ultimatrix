@@ -284,6 +284,19 @@ void IRAM_ATTR ringEof(void *, uint32_t descIndex)
   static uint8_t g_gainTable[256];
   static const uint8_t *g_gainLut = nullptr;
 
+  /* A dim colour can round to black in all three channels while the gain table is active. Black would lose it altogether and the old rule
+   * (every nonzero input shows at least level 1, per channel) turned it grey, because the small channels of a green or blue came up to 1 as
+   * well. Instead only the channels that carry at least half of the strongest one's light get level 1: a dim green stays green, a dim grey
+   * stays grey. */
+  static inline void keepHue(uint8_t red, uint8_t green, uint8_t blue, uint8_t &red_val, uint8_t &green_val, uint8_t &blue_val)
+  {
+    const unsigned r = lumConvTab_12bit[red], g = lumConvTab_12bit[green], b = lumConvTab_12bit[blue];
+    const unsigned top = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    red_val = r * 2 >= top && r ? 1 : 0;
+    green_val = g * 2 >= top && g ? 1 : 0;
+    blue_val = b * 2 >= top && b ? 1 : 0;
+  }
+
   /* Bit planes up to the transition bit are each shown for one slot, the higher ones for twice as long as the one below (the descriptor
    * chain). A value's light is the sum over its set bits, which is not monotonic in the value once the transition bit is above 0 (e.g.
    * with 1: 3 shows 2 slots, 4 shows 1). The brightness tables are lifted so a higher input never shows less light than a lower one
@@ -362,7 +375,8 @@ void IRAM_ATTR ringEof(void *, uint32_t descIndex)
       const uint8_t *lut_ = g_gainLut ? g_gainLut : baseLut(m_cfg.getPixelColorDepthBits());          \
       auto red_val   = lut_[red];                                                                     \
       auto green_val = lut_[green];                                                                   \
-      auto blue_val  = lut_[blue];                                                                    
+      auto blue_val  = lut_[blue];                                                                    \
+      if (g_gainLut && !(red_val | green_val | blue_val) && (red | green | blue)) keepHue(red, green, blue, red_val, green_val, blue_val); \
 
 
   #else
@@ -1140,7 +1154,7 @@ uint8_t MatrixPanel_I2S_DMA::applyGain(uint8_t brt)
   const unsigned max_val = (1u << depth) - 1;
   for (int v = 0; v < 256; v++) {
     unsigned out = (lumConvTab_12bit[v] * gain + (1u << (shift - 1))) >> shift;
-    if (v && !out) out = 1;  // dim content must not round to nothing at 1/16
+    // a value may round to 0 here: a pixel that rounds to black in all channels is lifted by keepHue where it is drawn
     g_gainTable[v] = out > max_val ? max_val : out;
   }
   bcmMonotonic(g_gainTable, depth, lsbMsbTransitionBit);
