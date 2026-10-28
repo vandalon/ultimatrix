@@ -24,6 +24,7 @@ void begin(const char *ntpServer, const char *posix);
 const char *posixForZone(const char *name);
 // The zone's main city, for sunrise and sunset when the timezone is chosen by hand; false for zones without one
 bool placeForZone(const char *name, float &latitude, float &longitude);
+bool countryForZone(const char *name, char (&country)[3]);  // ISO 3166 code ("NL") of an IANA zone name; false when the zone has none
 // Asks a geo-IP service for the timezone of the network's public address; true and the name in zone when it is one in the table
 bool detectZone(String &zone, float *latitude = nullptr, float *longitude = nullptr);
 size_t zoneCount();

@@ -1364,7 +1364,7 @@ static void sportsPrepare() {
   if (FirmwareUpdate::pendingVerification()) { settingsResponse(409, "The running version has not been confirmed yet; try again in a few minutes."); return; }
   if (firmwareUpdate.spareHolds(mode.c_str())) { settingsResponse(200, "That face is already prepared."); return; }
   if (liveDataActive()) { settingsResponse(409, "A live match or session is running; preparing waits until it has ended."); return; }
-  if (firmwareUpdate.stage(mode.c_str())) { settingsResponse(202, "Preparing. The feeds pause for about a minute."); return; }
+  if (firmwareUpdate.stage(mode.c_str())) { settingsResponse(202, "Preparing in the background. The feeds keep running."); return; }
   FirmwareUpdate::Status status; firmwareUpdate.status(status);
   settingsResponse(409, status.busy ? "An update or preparation is already running." : "Not enough free memory to prepare a face right now.");
 }
@@ -1697,7 +1697,7 @@ static void haSave() {
   if (token.isEmpty() && (strcmp(c->host, ha::config().host) != 0 || c->port != ha::config().port)) c->token[0] = 0;  // a new address never receives the saved token
   if (server.hasArg("clearToken")) c->token[0] = 0;
   if (server.hasArg("pages")) {
-    if (!number("pages", 1, 31, value) || !(value & 15)) { settingsResponse(400, "Choose at least one page."); return; }
+    if (!number("pages", 1, 127, value) || !(value & 15)) { settingsResponse(400, "Choose at least one page."); return; }
     c->pages = value;
   }
   if (server.hasArg("pageSecs")) {

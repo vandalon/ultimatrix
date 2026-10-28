@@ -16,7 +16,7 @@ enum Page : uint8_t { SCREEN_HOME, SCREEN_ENERGY, SCREEN_STATUS, SCREEN_MEDIA, S
 constexpr int kArt = 64;  // the album art on the Now playing page fills the panel, RGB565
 enum Alert : uint8_t { ALERT_NONE, ALERT_BELL, ALERT_WASHER, ALERT_OPEN, ALERT_GARAGE, ALERT_ALARM };
 // Colours by role, in the Home Assistant palette
-enum Tone : uint8_t { T_BLUE, T_AMBER, T_ORANGE, T_GREEN, T_RED, T_DIM, T_MUTE, T_SUN, T_BATTERY, T_WHITE, T_FADED };
+enum Tone : uint8_t { T_BLUE, T_AMBER, T_ORANGE, T_GREEN, T_RED, T_DIM, T_MUTE, T_SUN, T_BATTERY, T_WHITE, T_FADED, T_PASTEL };
 enum TileIcon : uint8_t { TI_NONE, TI_THERMOMETER, TI_DROP, TI_PERSON, TI_BOLT, TI_RING, TI_CO2, TI_RAIN, TI_CAR, TI_CAR_CHARGING, TI_CAR_PLUGGED, TI_PRICE, TI_OUTDOOR_DROP, TI_WEATHER };
 // 7x7 state icons (the same indices as ha::IconType, then the energy rows' own)
 enum SmallIcon : uint8_t { SI_DOOR, SI_WINDOW, SI_GARAGE, SI_WASHER, SI_DRYER, SI_BULB, SI_LOCK, SI_PLUG, SI_NONE, SI_HOUSE, SI_SUN, SI_POLE, SI_BATTERY, SI_PRESENCE, SI_LOW_BATTERY, SI_OFFLINE, SI_LEAK, SI_BLINDS, SI_MEDIA, SI_HEATING };
@@ -36,7 +36,9 @@ struct Frame {
   char left[3][8], right[3][8];
   uint8_t useBars[kBars], solarBars[kBars];  // 0..12 pixels high, the newest last
   // Now playing: what is playing, and the album art (null while it loads or when there is none)
-  char title[48], artist[48];
+  char title[48], artist[48], station[48];  // the station shares the artist's line, one after the other, while showStation is 1
+  uint8_t showStation;  // 1: the second line shows the station instead of the artist
+  uint8_t stationTop;   // 1: the station name takes the date's place at the top right (a title and an artist are both known)
   uint16_t artVersion, scrollTick;  // scrollTick counts 70 ms steps while a line is wider than the panel, else stays 0
   uint8_t progress;  // 0 when unknown, else 1 + pixels of the 64 played
   const uint16_t *art;

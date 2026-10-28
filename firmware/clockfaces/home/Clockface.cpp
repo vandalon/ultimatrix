@@ -391,6 +391,7 @@ void Clockface::fillStatus(Frame &frame) const {
 
 // Every frame, also while the night clock is on the panel: the alerts and the hourly history carry on
 void Clockface::poll() {
+  ha::media::poll();  // the station name of a radio stream, when Home Assistant has none
   if (!feedsHalted()) HaClient::instance().begin();  // restarts the connection task after a held picture or an update
   refreshEnergy();
   const uint32_t now = millis();
@@ -404,18 +405,25 @@ void Clockface::fillMedia(Frame &frame, uint32_t now) {
   const ha::media::Player &p = _media.player[0];  // the first of the chosen players that is playing
   strlcpy(frame.title, p.title, sizeof(frame.title));
   strlcpy(frame.artist, p.artist, sizeof(frame.artist));
-  // A line wider than the panel scrolls; every new track or room starts from the left
+  // The station of a radio stream: at the top right in the date's place when a title and an artist are both known, else on the
+  // second line (alone when there is no artist, taking turns with the artist otherwise); never twice when it is the title
+  if (p.station[0] && strcmp(p.station, p.title)) {
+    strlcpy(frame.station, p.station, sizeof(frame.station));
+    if (p.title[0] && p.artist[0]) frame.stationTop = 1;
+    else frame.showStation = !p.artist[0] || (now / 4000) % 2;
+  }
+  // A line wider than the panel scrolls; every new track, room or line starts from the left
   char key[sizeof(_scrollKey)];
-  snprintf(key, sizeof(key), "%s", p.title);
+  snprintf(key, sizeof(key), "%s%u", p.title, (unsigned)frame.showStation);
   if (strcmp(key, _scrollKey)) { strlcpy(_scrollKey, key, sizeof(_scrollKey)); _scrollSince = now; }
-  if (strlen(p.title) > 13 || strlen(p.artist) > 13) frame.scrollTick = 1 + (now - _scrollSince) / 70 % 60000;
+  if (strlen(p.title) > 13 || strlen(frame.showStation ? frame.station : frame.artist) > 13) frame.scrollTick = 1 + (now - _scrollSince) / 70 % 60000;
   if (p.duration) {
     const uint32_t played = std::min<uint32_t>(p.duration, p.position + (now - p.at) / 1000);
     frame.progress = 1 + played * kArt / p.duration;
   }
   const uint16_t *cover = nullptr;
   uint16_t id = 0;
-  if (ha::media::art(p.picture, &cover, &id) == ha::media::ART_READY) { frame.art = cover; frame.artVersion = id; }
+  if (ha::media::art(p, (ha::config().pages & ha::PAGE_ART_ONLINE) != 0, (ha::config().pages & ha::PAGE_STATION_LOGO) != 0, &cover, &id) == ha::media::ART_READY) { frame.art = cover; frame.artVersion = id; }
 }
 
 void Clockface::fillDevices(Frame &frame, uint32_t now) const {
@@ -473,7 +481,7 @@ void Clockface::update() {
     if ((ha::config().pages & ha::PAGE_ART_BACKDROP) && frame.page != SCREEN_MEDIA && _media.count) {
       const uint16_t *cover = nullptr;
       uint16_t id = 0;
-      if (ha::media::art(_media.player[0].picture, &cover, &id) == ha::media::ART_READY) { frame.art = cover; frame.artVersion = id; frame.backdrop = 1; }
+      if (ha::media::art(_media.player[0], (ha::config().pages & ha::PAGE_ART_ONLINE) != 0, (ha::config().pages & ha::PAGE_STATION_LOGO) != 0, &cover, &id) == ha::media::ART_READY) { frame.art = cover; frame.artVersion = id; frame.backdrop = 1; }
     }
     if (_alert != ALERT_NONE) {
       frame.alert = _alert;

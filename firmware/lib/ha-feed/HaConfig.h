@@ -18,7 +18,7 @@ enum TileType : uint8_t { TILE_TEMP, TILE_HUMIDITY, TILE_PEOPLE, TILE_POWER, TIL
 enum IconType : uint8_t { ICON_DOOR, ICON_WINDOW, ICON_GARAGE, ICON_WASHER, ICON_DRYER, ICON_LIGHTS, ICON_LOCK, ICON_CHARGER, ICON_NONE, ICON_PRESENCE, ICON_LOW_BATTERY, ICON_OFFLINE, ICON_LEAK, ICON_BLINDS, ICON_MEDIA, ICON_HEATING, ICON_TYPES };
 // The energy page's entities, in the order of the template result
 enum EnergyEntity : uint8_t { E_USAGE, E_SOLAR, E_BATTERY, E_SOC, E_GRID, E_USAGE_KWH, E_SOLAR_KWH, E_BATTERY_KWH, E_GRID_KWH, E_COUNT };
-enum Page : uint8_t { PAGE_HOME = 1, PAGE_ENERGY = 2, PAGE_MEDIA = 4, PAGE_DEVICES = 8, PAGE_ART_BACKDROP = 16 };  // the last is no page: the cover of what plays is the dimmed background of every page
+enum Page : uint8_t { PAGE_HOME = 1, PAGE_ENERGY = 2, PAGE_MEDIA = 4, PAGE_DEVICES = 8, PAGE_ART_BACKDROP = 16, PAGE_ART_ONLINE = 32, PAGE_STATION_LOGO = 64 };  // the last two are no pages: the cover of what plays is the dimmed background of every page; with the second, covers Home Assistant has none for are fetched or looked up online; with the third, a radio station's logo stands in for a cover that is missing
 constexpr int kRooms = 4;  // media players the Now playing page can show
 // Per popup (alarm, doorbell, every icon that can raise one): break through the night clock, light the panel fully, flash the whole panel
 enum AlertFlag : uint8_t { AF_NIGHT = 1, AF_BRIGHT = 2, AF_FLASH = 4 };

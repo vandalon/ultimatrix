@@ -29,6 +29,7 @@ static bool gConfigured = true;
 static ha::Config gConfig;
 namespace ha {
 Config &config() { return gConfig; }
+bool hasIconEntity(int) { return true; }
 char (&weatherEntity())[kEntity] { static char entity[kEntity] = {}; return entity; }
 Slot &extraTile(int index) { static Slot slots[kHomeTiles - kTiles] = {{TILE_WEATHER, 1, 0, 0, 0, "", ""}, {TILE_NONE, 0, 0, 0, 0, "", ""}, {TILE_NONE, 0, 0, 0, 0, "", ""}}; return slots[index - kTiles]; }
 const Slot &tileSlot(const Config &c, int index) { return index < kTiles ? c.tiles[index] : extraTile(index); }
@@ -46,7 +47,8 @@ namespace ha { namespace media {
 uint32_t version() { return gMediaVersion; }
 bool snapshot(Snapshot &out) { out = gMedia; return true; }
 void release() {}
-ArtState art(const char *, const uint16_t **pixels, uint16_t *id) { if (!gArtReady) return ART_LOADING; *pixels = gArt; *id = 1; return ART_READY; }
+void poll() {}
+ArtState art(const Player &, bool, bool, const uint16_t **pixels, uint16_t *id) { if (!gArtReady) return ART_LOADING; *pixels = gArt; *id = 1; return ART_READY; }
 } }
 HaClient &HaClient::instance() { static HaClient client; return client; }
 void HaClient::begin() {}
@@ -311,6 +313,7 @@ int main(int argc, char **argv) {
   strlcpy(gMedia.player[0].room, "Living room", ha::media::kRoom);
   strlcpy(gMedia.player[0].title, "Blue in Green", ha::media::kText);
   strlcpy(gMedia.player[0].artist, "Miles Davis", ha::media::kText);
+  strlcpy(gMedia.player[0].station, "Jazz FM", ha::media::kText);
   strlcpy(gMedia.player[0].picture, "/api/media_player_proxy/media_player.living_room?token=x", ha::media::kPicture);
   strlcpy(gMedia.player[1].room, "Kitchen", ha::media::kRoom);
   strlcpy(gMedia.player[1].title, "Everything In Its Right Place", ha::media::kText);

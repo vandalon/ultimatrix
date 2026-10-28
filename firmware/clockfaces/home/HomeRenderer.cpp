@@ -24,6 +24,7 @@ uint16_t tone(uint8_t t) {
     case T_SUN: return rgb(255, 213, 79);
     case T_BATTERY: return rgb(77, 182, 172);
     case T_FADED: return rgb(138, 106, 16);
+    case T_PASTEL: return rgb(144, 202, 249);  // pastel blue: the radio station
     default: return rgb(232, 238, 242);
   }
 }
@@ -295,7 +296,55 @@ void blockOnPoint(MatrixPanel_I2S_DMA &d, const char *text, int dotX, int y, uin
   block(d, dot + 1, dotX + 3, y, color);
 }
 
+// Small numbers (status counts, the date): the clock's digits at their 3x5 size, other characters from the label font
+int countWidth(const char *s) {
+  int width = 0;
+  for (; *s; ++s) width += (*s >= '0' && *s <= '9' ? 3 : letterWidth(*s)) + 1;
+  return width ? width - 1 : 0;
+}
+
+void countText(MatrixPanel_I2S_DMA &d, const char *s, int x, int y, uint16_t color) {
+  for (; *s; ++s) {
+    if (*s >= '0' && *s <= '9') {
+      for (int j = 0; j < 5; j++)
+        for (int i = 0; i < 3; i++)
+          if (numericfont::tinyPixel(*s - '0', i, j)) put(d, x + i, y + j, color);
+      x += 4;
+    } else {
+      homeGlyph(d, *s, x, y, color);
+      x += letterWidth(*s) + 1;
+    }
+  }
+}
+
+// Capitals and digits as tall as the clock's (7 rows): the label letters stretched the way the clock's digits are, rows 2 and 4 doubled
+int tallWidth(const char *s) {
+  int width = 0;
+  for (; *s; ++s) width += (*s >= '0' && *s <= '9' ? 4 : letterWidth(*s)) + 1;
+  return width ? width - 1 : 0;
+}
+
+void tallText(MatrixPanel_I2S_DMA &d, const char *s, int x, int y, uint16_t color) {
+  static const uint8_t kRowOf[7] = {0, 1, 1, 2, 3, 3, 4};
+  for (; *s; ++s) {
+    const char c = toupper(*s);
+    if (c >= '0' && c <= '9') {
+      for (int j = 0; j < 7; j++)
+        for (int i = 0; i < 4; i++)
+          if (numericfont::smallPixel(c - '0', i, j)) put(d, x + i, y + j, color);
+      x += 5;
+    } else {
+      if (c >= 'A' && c <= 'Z')
+        for (int j = 0; j < 7; j++)
+          for (int i = 0; i < 5; i++)
+            if (kLetters[c - 'A'][kRowOf[j]] >> (4 - i) & 1) put(d, x + i, y + j, color);
+      x += letterWidth(c) + 1;
+    }
+  }
+}
+
 // ---- Screens ----
+bool slideStation = false;  // a slide involves a page with the station name at the top: the date or station of each page slides with it
 bool sliding = false;  // a slide between two pages is being drawn: the album art stays put underneath instead of sliding with its page
 // mono >= 0 draws everything in that one colour (black on a flashing panel)
 void header(MatrixPanel_I2S_DMA &d, const Frame &f, int mono = -1, int dy = 1) {
@@ -307,7 +356,23 @@ void header(MatrixPanel_I2S_DMA &d, const Frame &f, int mono = -1, int dy = 1) {
     glyph(d, *c, timeX, dy, mono >= 0 ? mono : color);
     timeX += glyphWidth(*c) + 1;
   }
-  homeText(d, f.date, 62 - homeWidth(f.date), 1 + dy, mono >= 0 ? mono : tone(T_MUTE));  // "OCT 15", quieter than the time
+  if (sliding && slideStation) view = slide;  // the date or station goes with its page, so the two never overlap mid-slide
+  if (f.stationTop && f.station[0]) {  // the radio station in the date's place, cut to what fits right of the time
+    char name[24];
+    size_t n = 0;
+    for (const char *c = f.station; *c && n + 1 < sizeof(name); ++c) {
+      name[n] = (*c >= 'a' && *c <= 'z') ? *c - 32 : *c;
+      name[n + 1] = 0;
+      if (countWidth(name) > 35) { name[n] = 0; break; }
+      n++;
+    }
+    char upper[sizeof(f.station)];
+    size_t u = 0;
+    for (const char *c = f.station; *c && u + 1 < sizeof(upper); ++c) upper[u++] = toupper(*c);
+    upper[u] = 0;
+    if (tallWidth(upper) <= 35) tallText(d, upper, 62 - tallWidth(upper), dy, mono >= 0 ? mono : tone(T_PASTEL));  // as tall as the clock when it fits
+    else countText(d, name, 62 - countWidth(name), 1 + dy, mono >= 0 ? mono : tone(T_PASTEL));
+  } else countText(d, f.date, 62 - countWidth(f.date), 1 + dy, mono >= 0 ? mono : tone(T_MUTE));  // "OCT 15", quieter than the time
   view = slide;
 }
 
@@ -382,7 +447,7 @@ void homeScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
     if (!(f.iconOk >> i & 1)) strlcpy(count, "-", sizeof(count));
     else if (f.iconCount[i] > 99) strlcpy(count, "99", sizeof(count));
     else snprintf(count, sizeof(count), "%u", (unsigned)f.iconCount[i]);
-    homeText(d, count, x + w / 2 - homeWidth(count) / 2, 59, tone(f.iconTone[i]));
+    countText(d, count, x + w / 2 - countWidth(count) / 2, 59, tone(f.iconTone[i]));
   }
 }
 
@@ -450,7 +515,7 @@ void mediaScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
   }
   header(d, f);
   playingLine(d, f.title, 51, tone(T_WHITE), f.scrollTick);
-  playingLine(d, f.artist, 57, tone(T_MUTE), f.scrollTick);
+  playingLine(d, f.showStation ? f.station : f.artist, 57, tone(T_MUTE), f.scrollTick);
   if (f.progress) {  // thin line along the bottom edge
     for (int x = 0; x < W; x++) put(d, x, 63, x < f.progress - 1 ? tone(T_BLUE) : tone(T_DIM));
   }
@@ -519,6 +584,9 @@ void pageBar(MatrixPanel_I2S_DMA &d, int count, int position, int y) {
   for (int i = 0; i < width; i++) put(d, (left + i) % 64, y, on);
 }
 
+// The Now playing page with its cover filling the panel: the page bar would only sit on the picture
+bool artView(const Frame &f) { return f.page == SCREEN_MEDIA && f.art && !f.backdrop; }
+
 bool slides(const Frame &f) { return f.alert == ALERT_NONE && f.page != SCREEN_STATUS && f.pageCount > 1; }
 
 void drawPage(MatrixPanel_I2S_DMA &d, const Frame &f) {
@@ -541,7 +609,7 @@ void draw(MatrixPanel_I2S_DMA &d, const Frame &f) {
   d.fillScreen(0);
   if (f.page != SCREEN_MEDIA) backdrop(d, f);
   drawPage(d, f);
-  if (slides(f)) pageBar(d, f.pageCount, f.pageIndex * 1000, 9);
+  if (slides(f) && !artView(f)) pageBar(d, f.pageCount, f.pageIndex * 1000, 9);
 }
 
 bool canSlide(const Frame &from, const Frame &to) { return slides(from) && slides(to) && from.page != to.page; }
@@ -551,12 +619,15 @@ void drawSlide(MatrixPanel_I2S_DMA &d, const Frame &from, const Frame &to, int p
   d.fillScreen(0);
   backdrop(d, to.backdrop ? to : from);
   sliding = true;
+  slideStation = from.stationTop || to.stationTop;
   view.dx = -shift;
   drawPage(d, from);
   view.dx = 64 - shift;
   drawPage(d, to);
   sliding = false;
+  slideStation = false;
   view = View();
+  if (artView(from) || artView(to)) return;  // no page bar while the cover is on the panel, or comes or goes
   const int count = to.pageCount, steps = (to.pageIndex + count - from.pageIndex % count) % count;
   pageBar(d, count, (from.pageIndex * 1000 + steps * progress) % (count * 1000), 9);
 }

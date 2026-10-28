@@ -27,5 +27,5 @@ Settings, Advanced, "Update server": a base URL such as `http://192.168.7.77/ult
 
 ## Memory
 
-A face's static RAM (`.data` + `.bss`) is reserved in every boot, including the update-only boot that never loads the face, and it comes straight out of the heap the download needs. Every build therefore runs `firmware/tools/check-static-ram.py` and fails above 60 KB (`ULTIMATRIX_STATIC_RAM_KB`). Large objects (feed tickers, snapshots, caches) are allocated on the heap when the face starts, as the Football and F1/MotoGP faces do. The update-only boot also skips telnet and mDNS.
+A face's static RAM (`.data` + `.bss`) is reserved in every boot, including the update-only boot that never loads the face, and it comes straight out of the heap the download needs. Every build therefore runs `firmware/tools/check-static-ram.py` and fails above 60 KB (`ULTIMATRIX_STATIC_RAM_KB`; 62 KB for the Home face, 70 KB for Pac-Man with Bluetooth). Large objects (feed tickers, snapshots, caches) are allocated on the heap when the face starts, as the Football and F1/MotoGP faces do. The update-only boot also skips telnet and mDNS.
 

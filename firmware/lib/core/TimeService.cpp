@@ -48,6 +48,20 @@ bool placeForZone(const char *name, float &latitude, float &longitude) {
   return false;
 }
 
+bool countryForZone(const char *name, char (&country)[3]) {
+  unsigned lo = 0, hi = UM_TZ_DB_SIZE;
+  while (lo < hi) {
+    unsigned mid = (lo + hi) / 2;
+    int c = strcmp(name, UM_TZ_DB[mid].name);
+    if (c == 0) {
+      memcpy(country, UM_TZ_DB[mid].country, sizeof(country));
+      return country[0] != 0;
+    }
+    if (c < 0) hi = mid; else lo = mid + 1;
+  }
+  return false;
+}
+
 bool detectZone(String &zone, float *latitude, float *longitude) {
   HTTPClient http;
   http.setConnectTimeout(3000); http.setTimeout(3000);
