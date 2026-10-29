@@ -23,6 +23,8 @@ struct NextMatch {
   std::string date;    // "2026-10-09T08:30Z", "" when not there
 };
 bool parseNextMatch(JsonScan::Next next, void *source, NextMatch &out);
+// scoreboard/header?team=<id>: the team's match of today, "" when there is none
+bool parseTodayMatch(JsonScan::Next next, void *source, NextMatch &out);
 
 // <league>/standings: the teams' abbreviations, group by group in table order
 typedef std::vector<std::vector<std::string>> Groups;
@@ -54,11 +56,13 @@ struct Competitor {
   std::string homeAway, score, id;  // "home" or "away"; the score is text ("2")
   std::string abbreviation, color, alternateColor;
   bool hasAbbreviation = false, hasColor = false, hasAlternateColor = false;
+  int shootoutScore = -1;  // the penalty shootout, -1 when there was none
 };
 struct Detail {  // a goal, a card or another play of the match
   double clock = 0;  // seconds
   std::string teamId, jersey, displayName;  // of the first player involved
   bool scoringPlay = false, yellowCard = false, redCard = false;
+  bool shootout = false;  // a kick of the penalty shootout (scoringPlay: it went in)
   bool hasJersey = false, hasDisplayName = false;
 };
 struct ScoreEvent {

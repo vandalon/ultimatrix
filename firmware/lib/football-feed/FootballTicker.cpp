@@ -946,6 +946,15 @@ void FootballTicker::checkFavourites(time_t today) {
     fav.nextLeague = league;
     fav.nextKickoff = kickoff;
     bool playsToday = _dateTime->utcToLocal(kickoff) / SECS_PER_DAY == today / SECS_PER_DAY;
+    if (!playsToday) {  // a match that has started is no longer the team's next one
+      String liveLeague;
+      time_t liveKickoff;
+      if (fetchTodayMatch(fav.id.c_str(), liveLeague, liveKickoff) && !liveLeague.isEmpty() &&
+          _dateTime->utcToLocal(liveKickoff) / SECS_PER_DAY == today / SECS_PER_DAY) {
+        playsToday = true;
+        league = liveLeague;
+      }
+    }
     if (playsToday && !league.isEmpty()) {
       fav.league = league;
       fav.day = today / SECS_PER_DAY;
@@ -955,6 +964,17 @@ void FootballTicker::checkFavourites(time_t today) {
   }
   // A failure (a wrong team id, ESPN down) is asked again in BOARD_RETRY_MS, not every round
   _nationalCheckedAt = ok ? millis() : millis() - NATIONAL_CHECK_MS + BOARD_RETRY_MS;
+}
+
+bool FootballTicker::fetchTodayMatch(const char *teamId, String &league, time_t &kickoff) {
+  char url[112];
+  snprintf(url, sizeof(url), "http://site.web.api.espn.com/apis/v2/scoreboard/header?sport=soccer&team=%s", teamId);
+
+  espn::NextMatch today;
+  if (!getScan(url, [&](JsonScan::Next read, void *source) { return espn::parseTodayMatch(read, source, today); })) return false;
+  league = today.league.c_str();
+  kickoff = parseEspnDate(today.date.c_str());
+  return true;
 }
 
 bool FootballTicker::fetchNextMatch(const char *teamId, String &league, time_t &kickoff) {
@@ -1309,16 +1329,18 @@ bool FootballTicker::fetchScoreboard(const char *league, time_t localDay, const 
       (home ? m.homeKit : m.awayKit) = clubKit(home ? m.home : m.away, league, c.hasColor ? c.color.c_str() : nullptr,
                                                c.hasAlternateColor ? c.alternateColor.c_str() : nullptr);
       (home ? m.homeScore : m.awayScore) = atoi(c.score.c_str());
+      (home ? m.homePens : m.awayPens) = c.shootoutScore;
       if (home) homeId = c.id.c_str();
     }
 
     // Goals and cards: the clock is in seconds, "6'" is anywhere in the 6th minute
     for (const espn::Detail &d : e.details) {
-      char kind = d.redCard ? 'r' : d.yellowCard ? 'y' : d.scoringPlay ? 'g' : 0;
+      // 'p' a shootout kick that went in, 'x' one that did not
+      char kind = d.shootout ? (d.scoringPlay ? 'p' : 'x') : d.redCard ? 'r' : d.yellowCard ? 'y' : d.scoringPlay ? 'g' : 0;
       if (!kind) continue;
       int minute = std::min(120, (int)(float)d.clock / 60 + 1);
       Event event = {(uint8_t)minute, kind, homeId == d.teamId.c_str(), 0, ""};
-      if (kind != 'g') {
+      if (kind == 'y' || kind == 'r') {
         event.number = d.hasJersey ? atoi(d.jersey.c_str()) : 0;
         surname(d.hasDisplayName ? d.displayName.c_str() : "", event.name);
       }
@@ -1435,13 +1457,13 @@ void FootballTicker::detectCards(const MatchList &matches) {
     if (m.state != 'i') continue;
     String key = m.key();
     uint8_t count = 0;
-    for (const Event &e : m.events) count += e.kind != 'g';
+    for (const Event &e : m.events) count += e.kind == 'y' || e.kind == 'r';
     auto previous = _cardCount.find(key);
     counts[key] = previous == _cardCount.end() ? count : std::max(count, previous->second);  // a download without events isn't fewer
     if (previous == _cardCount.end()) continue;
     uint8_t seen = 0;
     for (const Event &e : m.events) {
-      if (e.kind == 'g' || seen++ < previous->second) continue;
+      if ((e.kind != 'y' && e.kind != 'r') || seen++ < previous->second) continue;
       Incident in = {e.kind, m.home, m.away, m.homeKit, m.awayKit, e.home, e.minute, "", e.number, 0, millis()};
       strcpy(in.name, e.name);
       found.push_back(in);
@@ -1673,9 +1695,12 @@ void FootballTicker::buildSnapshot(const std::vector<const Match *> &live, const
     row.away = snapshotSide(m.away, m.awayKit, awayPos);
     row.homeScore = snapshotScore(m.homeScore);
     row.awayScore = snapshotScore(m.awayScore);
-    // The playing time: "67'", "45'+2'" or "HT"
-    row.progress = m.detail.startsWith("HT") ? 0.5f : std::min(1.0f, m.detail.toInt() / 90.0f);
-    snapshotText(row.clock, m.detail);
+    // The playing time: "67'", "45'+2'" or "HT"; a penalty shootout (ESPN's wording is not known) shows as "PEN" with a full bar
+    String lower = m.detail;
+    lower.toLowerCase();
+    bool shootout = lower.indexOf("pen") >= 0 || lower.indexOf("shoot") >= 0;
+    row.progress = shootout ? 1.0f : m.detail.startsWith("HT") ? 0.5f : std::min(1.0f, m.detail.toInt() / 90.0f);
+    snapshotText(row.clock, shootout ? String("PEN") : m.detail);
     snapshotText(row.competition, m.competition);
     row.color = m.color;
     row.favourite = isFavourite(m.home) || isFavourite(m.away);
@@ -1692,6 +1717,8 @@ void FootballTicker::buildSnapshot(const std::vector<const Match *> &live, const
     row.away = snapshotSide(m.away, m.awayKit, awayPos);
     row.homeScore = snapshotScore(m.homeScore);
     row.awayScore = snapshotScore(m.awayScore);
+    row.homePens = m.homePens < 0 ? -1 : snapshotScore(m.homePens);
+    row.awayPens = m.awayPens < 0 ? -1 : snapshotScore(m.awayPens);
     snapshotText(row.competition, m.competition);
     row.color = m.color;
     row.favourite = isFavourite(m.home) || isFavourite(m.away);

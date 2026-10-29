@@ -101,38 +101,65 @@ static uint32_t hash(int a, int b, int c = 0) {
 static const int BOARDS_Y = 25;
 static void drawStadium(Adafruit_GFX *d, const View &v, uint16_t team, bool cheer, int frame) {
   const uint16_t shirts[] = {team, 0xF800, WHITE, 0x041F, YELLOW, team, 0x07E0};
-  int boardsTop = screenY(v, BOARDS_Y);
-  for (int y = 0; y < d->height(); y++) {
+  uint16_t shirtDim[7];
+  for (int i = 0; i < 7; i++) shirtDim[i] = dim(shirts[i], 0.25f);
+  const uint16_t skin = dim(SKIN, 0.25f);
+  const int boardsTop = screenY(v, BOARDS_Y);
+  const int height = d->height();
+  // The rows of the stands (above BOARDS_Y), of the boards and where the grass starts
+  int standsEnd = height, grassStart = height;
+  for (int y = 0; y < height; y++) {
     float wy = 31 - (31 + v.shift - y) / v.zoom;
-    if (wy >= GRASS_Y) break;
-    for (int x = 0; x < 64; x++) {
-      uint16_t c = 0;
-      if (wy >= BOARDS_Y) {
-        // Boards in a few colours, a lighter "logo" pattern in the middle rows
-        float wx = v.centerX + (x - 32) / v.zoom;
-        int panel = (int)floorf(wx / 14);
-        const uint16_t boards[] = {dim(team, 0.45f), 0x0210, dim(WHITE, 0.3f), dim(0xF800, 0.4f)};
-        int row = (int)wy - BOARDS_Y;
-        c = row == 0 || row == 3 ? 0x1082 : boards[(panel % 4 + 4) % 4];
-        if ((row == 1 || row == 2) && hash((int)floorf(wx), row) % 3 == 0) c = dim(WHITE, 0.5f);
-      } else {
-        // Spectators: 2 wide, 3 high (head, shirt, step), some empty seats.
-        // Laid out in screen pixels rather than scaled with the zoom: zoomed
-        // out, scaling would skip rows and columns and leave empty lines.
-        int cx = x + (int)floorf(v.centerX * 0.6f * v.zoom);
-        int col = (int)floorf(cx / 2.0f);
-        int jump = cheer && ((col + frame / 2) & 1) ? 1 : 0;
-        int sy = y - boardsTop + jump;  // rows above the boards are negative
-        int seatRow = (int)floorf(sy / 3.0f), part = ((sy % 3) + 3) % 3;
-        bool person = (cx & 1) == 0 && hash(col, seatRow) % 5 != 0;
-        if (part == 2) c = 0x0841;  // the step of the stand
-        else if (person) {
-          uint32_t h = hash(col, seatRow);
-          if (part == 0) c = cheer && hash(col, seatRow, frame) % 60 == 0 ? WHITE : dim(SKIN, 0.25f);
-          else c = dim(shirts[h % 7], 0.25f);
+    if (standsEnd == height && wy >= BOARDS_Y) standsEnd = y;
+    if (wy >= GRASS_Y) {
+      grassStart = y;
+      break;
+    }
+  }
+  // Spectators: 2 wide, 3 high (head, shirt, step), some empty seats.
+  // Laid out in screen pixels rather than scaled with the zoom: zoomed
+  // out, scaling would skip rows and columns and leave empty lines.
+  // Column by column, the seat and the part of it stepping down with the rows.
+  const int offset = (int)floorf(v.centerX * 0.6f * v.zoom);
+  for (int x = 0; x < 64; x++) {
+    int cx = x + offset, col = cx >> 1;
+    bool seatColumn = (cx & 1) == 0;
+    int jump = cheer && ((col + frame / 2) & 1) ? 1 : 0;
+    int sy = -boardsTop + jump;  // rows above the boards are negative
+    int part = ((sy % 3) + 3) % 3, seatRow = (sy - part) / 3;
+    bool person = false;
+    uint16_t head = 0, shirt = 0;
+    bool seated = false;  // person and head/shirt belong to seatRow
+    for (int y = 0; y < standsEnd; y++) {
+      if (!seated) {
+        seated = true;
+        uint32_t h = hash(col, seatRow);
+        person = seatColumn && h % 5 != 0;
+        if (person) {
+          head = cheer && hash(col, seatRow, frame) % 60 == 0 ? WHITE : skin;
+          shirt = shirtDim[h % 7];
         }
       }
+      uint16_t c = part == 2 ? 0x0841 : !person ? 0 : part == 0 ? head : shirt;  // 0x0841: the step of the stand
       if (c) d->drawPixel(x, y, c);
+      if (++part == 3) {
+        part = 0;
+        seatRow++;
+        seated = false;
+      }
+    }
+  }
+  // Boards in a few colours, a lighter "logo" pattern in the middle rows
+  const uint16_t boards[] = {dim(team, 0.45f), 0x0210, dim(WHITE, 0.3f), dim(0xF800, 0.4f)};
+  for (int y = standsEnd; y < grassStart; y++) {
+    float wy = 31 - (31 + v.shift - y) / v.zoom;
+    int row = (int)wy - BOARDS_Y;
+    for (int x = 0; x < 64; x++) {
+      float wx = v.centerX + (x - 32) / v.zoom;
+      int panel = (int)floorf(wx / 14);
+      uint16_t c = row == 0 || row == 3 ? 0x1082 : boards[(panel % 4 + 4) % 4];
+      if ((row == 1 || row == 2) && hash((int)floorf(wx), row) % 3 == 0) c = dim(WHITE, 0.5f);
+      d->drawPixel(x, y, c);
     }
   }
 }
@@ -316,12 +343,13 @@ static int panelH;  // 32 or 64 rows
 
 static void present(Adafruit_GFX *d, int shakeX, int shakeY) {
   d->fillScreen(0);
+  const uint16_t *pixels = scene->getBuffer();  // 64 per row; most of the scene is black
+  const int x0 = fmaxf(0, -shakeX), x1 = fminf(64, 64 - shakeX);
   for (int y = 0; y < panelH; y++) {
     if (y + shakeY < 0 || y + shakeY >= panelH) continue;
-    for (int x = 0; x < 64; x++) {
-      uint16_t c = scene->getPixel(x, y);
-      if (c && x + shakeX >= 0 && x + shakeX < 64) d->drawPixel(x + shakeX, y + shakeY, c);
-    }
+    const uint16_t *row = pixels + y * 64;
+    for (int x = x0; x < x1; x++)
+      if (row[x]) d->drawPixel(x + shakeX, y + shakeY, row[x]);
   }
 }
 
@@ -338,11 +366,23 @@ static float hitY, hitRadius;  // where the ball ends up and how big it gets: ab
 // The net covers the whole screen. After a hit a ripple spreads from (cx, cy), age frames old.
 // Every LED looks up which spot of the undisturbed net is shifted onto it, so there are no holes.
 static void drawNet(Adafruit_GFX *d, float cx, float cy, float age, float strength, uint16_t color) {
+  // How far the ripple moves the net, per pixel of distance, by distance in quarter pixels: one sin and exp per entry, not per LED
+  static float wave[400];
+  const int waves = strength > 0 ? (int)fminf(399, (age * 2.0f + 3) * 4) + 1 : 0;
+  for (int i = 0; i < waves; i++) {
+    float dist = i / 4.0f + 0.01f;
+    wave[i] = strength * sinf(dist * 0.5f - age * 0.9f) * expf(-dist / 16) / dist;
+  }
   for (int y = 0; y < panelH; y++) {
     for (int x = 0; x < 64; x++) {
-      float dx = x - cx, dy = y - cy, dist = sqrtf(dx * dx + dy * dy) + 0.01f, wave = 0;
-      if (strength > 0 && dist < age * 2.0f + 3) wave = strength * sinf(dist * 0.5f - age * 0.9f) * expf(-dist / 16);
-      int sx = (int)floorf(x - dx / dist * wave), sy = (int)floorf(y - dy / dist * wave);
+      float dx = x - cx, dy = y - cy, reach = age * 2.0f + 3;
+      int sx = x, sy = y;  // outside the ripple the net is as it was
+      if (strength > 0 && dx * dx + dy * dy < reach * reach) {
+        float dist = sqrtf(dx * dx + dy * dy) + 0.01f;
+        float shift = wave[(int)fminf(399, dist * 4)];
+        sx = (int)floorf(x - dx * shift);
+        sy = (int)floorf(y - dy * shift);
+      }
       if (modulo(sx + sy, 5) == 0 || modulo(sx - sy, 5) == 0) d->drawPixel(x, y, color);
     }
   }
@@ -464,18 +504,28 @@ static void updateSparks(Adafruit_GFX *d) {
 // own colour. The canvas holds GOAL! at size 2 drawn twice (a pixel apart) for thick strokes.
 static const int TEXT_W = 62, TEXT_H = 15;
 static void drawScaledText(Adafruit_GFX *d, GFXcanvas1 &text, int centerY, float scale, const uint16_t *letterColors) {
-  for (int pass = 0; pass < 9; pass++) {
-    // Passes 0-7 are the outline (the eight neighbours), pass 8 the letters
-    int k = pass < 4 ? pass : pass + 1;  // skip the middle of the 3x3 neighbourhood
-    int ox = pass < 8 ? k % 3 - 1 : 0, oy = pass < 8 ? k / 3 - 1 : 0;
-    for (int y = 0; y < panelH; y++) {
-      int sy = (int)floorf((y - oy - centerY) / scale + 7);
-      if (sy < 0 || sy >= TEXT_H) continue;
-      for (int x = 0; x < 64; x++) {
-        int sx = (int)floorf((x - ox - 32) / scale + 30.5f);
-        if (sx < 0 || sx >= TEXT_W || !text.getPixel(sx, sy)) continue;
-        d->drawPixel(x, y, pass < 8 ? 0 : letterColors[sx / 12 > 4 ? 4 : sx / 12]);
-      }
+  // Which panel pixels the letters cover, one bit per column, a row above and below for the outline
+  int8_t sxOf[64];
+  for (int x = 0; x < 64; x++) {
+    int sx = (int)floorf((x - 32) / scale + 30.5f);
+    sxOf[x] = sx < 0 || sx >= TEXT_W ? -1 : sx;
+  }
+  uint64_t covered[66] = {0};
+  for (int y = 0; y < panelH; y++) {
+    int sy = (int)floorf((y - centerY) / scale + 7);
+    if (sy < 0 || sy >= TEXT_H) continue;
+    for (int x = 0; x < 64; x++)
+      if (sxOf[x] >= 0 && text.getPixel(sxOf[x], sy)) covered[y + 1] |= 1ULL << x;
+  }
+  // Black around the letters (all eight neighbours), then the letters
+  for (int y = 0; y < panelH; y++) {
+    uint64_t near = covered[y] | covered[y + 1] | covered[y + 2];
+    near |= near << 1 | near >> 1;
+    uint64_t outline = near & ~covered[y + 1];
+    if (!near) continue;
+    for (int x = 0; x < 64; x++) {
+      if (covered[y + 1] >> x & 1) d->drawPixel(x, y, letterColors[sxOf[x] / 12 > 4 ? 4 : sxOf[x] / 12]);
+      else if (outline >> x & 1) d->drawPixel(x, y, 0);
     }
   }
 }

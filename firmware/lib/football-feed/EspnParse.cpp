@@ -23,6 +23,16 @@ struct NextMatchScan {
   }
 };
 
+// The header lists the team's matches of today, a live one too (teams/<id> has dropped it by then)
+struct TodayMatchScan {
+  NextMatch *out;
+  static void leaf(void *sink, const char (*p)[JsonScan::KEY], int n, const char *v, bool) {
+    TodayMatchScan &s = *(TodayMatchScan *)sink;
+    if (jsonPathIs(p, n, "sports.0.leagues.0.events.0.date")) s.out->date = v;
+    else if (jsonPathIs(p, n, "sports.0.leagues.0.slug")) s.out->league = v;
+  }
+};
+
 struct StandingsScan {
   Groups *out;
   GroupPoints *points = nullptr;
@@ -117,7 +127,7 @@ struct ScoreboardScan {
   void endDetail(ScoreEvent *ev) {
     if (!ev || detail < 0 || ev->details.empty()) return;
     const Detail &d = ev->details.back();
-    if (!d.scoringPlay && !d.yellowCard && !d.redCard) ev->details.pop_back();
+    if (!d.scoringPlay && !d.yellowCard && !d.redCard && !d.shootout) ev->details.pop_back();
   }
 
   static void leaf(void *sink, const char (*p)[JsonScan::KEY], int n, const char *v, bool) {
@@ -151,6 +161,7 @@ struct ScoreboardScan {
         Competitor &c = ev.competitors[k];
         if (jsonPathIs(p, n, "events.*.competitions.0.competitors.*.homeAway")) c.homeAway = v;
         else if (jsonPathIs(p, n, "events.*.competitions.0.competitors.*.score")) c.score = v;
+        else if (jsonPathIs(p, n, "events.*.competitions.0.competitors.*.shootoutScore")) c.shootoutScore = atoi(v);
         else if (jsonPathIs(p, n, "events.*.competitions.0.competitors.*.team.abbreviation")) c.abbreviation = v, c.hasAbbreviation = true;
         else if (jsonPathIs(p, n, "events.*.competitions.0.competitors.*.team.color")) c.color = v, c.hasColor = true;
         else if (jsonPathIs(p, n, "events.*.competitions.0.competitors.*.team.alternateColor")) c.alternateColor = v, c.hasAlternateColor = true;
@@ -168,6 +179,7 @@ struct ScoreboardScan {
         else if (jsonPathIs(p, n, "events.*.competitions.0.details.*.scoringPlay")) d.scoringPlay = truth(v);
         else if (jsonPathIs(p, n, "events.*.competitions.0.details.*.yellowCard")) d.yellowCard = truth(v);
         else if (jsonPathIs(p, n, "events.*.competitions.0.details.*.redCard")) d.redCard = truth(v);
+        else if (jsonPathIs(p, n, "events.*.competitions.0.details.*.shootout")) d.shootout = truth(v);
         else if (jsonPathIs(p, n, "events.*.competitions.0.details.*.athletesInvolved.0.jersey")) d.jersey = v, d.hasJersey = true;
         else if (jsonPathIs(p, n, "events.*.competitions.0.details.*.athletesInvolved.0.displayName")) d.displayName = v, d.hasDisplayName = true;
       }
@@ -229,6 +241,11 @@ struct SummaryScan {
 bool parseNextMatch(JsonScan::Next next, void *source, NextMatch &out) {
   NextMatchScan scan{&out};
   return JsonScan::read(next, source, NextMatchScan::leaf, &scan);
+}
+
+bool parseTodayMatch(JsonScan::Next next, void *source, NextMatch &out) {
+  TodayMatchScan scan{&out};
+  return JsonScan::read(next, source, TodayMatchScan::leaf, &scan);
 }
 
 bool parseStandings(JsonScan::Next next, void *source, Groups &out, GroupPoints *points) {
