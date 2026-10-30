@@ -197,12 +197,12 @@ paths:
               type: object
               properties:
                 search: { type: integer, enum: [0, 1], description: Nearest-colour search for dim pixels }
-                guard: { type: integer, enum: [0, 1], description: Hue guard; lifts pixels that would round to black, keeping the hue. On by default }
+                guard: { type: integer, enum: [0, 1], default: 1, description: 'Hue guard; lifts pixels that would round to black, keeping the hue. On by default. Only acts below the pulse-width floor (about panel brightness 137/255), on pixels whose channels all round to level 1 or less' }
                 restore: { type: integer, enum: [0, 1], description: Brightness restore }
                 brightness: { type: number, minimum: 0.01, maximum: 9.99, description: Weight of the brightness error in the search }
                 extra: { type: integer, minimum: 1, maximum: 8, description: Extra weights the search may use }
                 limit: { type: integer, minimum: 4, maximum: 40, description: Plane weights of the brightest channel up to which the search runs }
-                guardMin: { type: number, minimum: 0, maximum: 3.9, description: Lowest light the hue guard still lifts }
+                guardMin: { type: number, minimum: 0, maximum: 3.9, default: 0, description: 'Lowest light, in plane weights, the hue guard still lifts. 0 (default) lifts every non-black pixel; a higher value leaves very dark pixels black. Stored in 1/64 steps' }
                 floor: { type: integer, minimum: 0, maximum: 200, description: Calibrated lowest panel brightness; 0 = none }
                 night: { type: integer, minimum: 0, maximum: 255, description: Panel brightness in night mode; 0 = follow the Minimum slider }
                 wg: { type: number, minimum: 0.1, maximum: 5 }
@@ -1092,7 +1092,7 @@ components:
         brightness: { type: number }
         extra: { type: integer }
         limit: { type: integer }
-        guardMin: { type: number }
+        guardMin: { type: number, description: Default 0 }
         floor: { type: integer }
         night: { type: integer }
         wg: { type: number }
