@@ -1,0 +1,8 @@
+{
+  "name": "Ultimatrix word",
+  "version": "v0.9.0-word",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32", "parts": [ { "path": "ultimatrix-word.bin", "offset": 0 } ] }
+  ]
+}

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ultimatrix Web Flasher</title>
+<meta name="description" content="Install Ultimatrix on an ESP32 LED matrix clock over USB, straight from the browser.">
+<link rel="icon" type="image/png" href="img/favicon.png">
+<script type="module" src="https://unpkg.com/esp-web-tools@10.1.0/dist/web/install-button.js?module"></script>
+<style>
+  :root {
+    --bg:#f4f7f8; --fg:#10191d; --muted:#5b6f77; --accent:#0a8fc4; --accent-fg:#fff;
+    --card:#fff; --line:#dbe4e8; --shadow:0 1px 2px rgba(0,0,0,.06),0 6px 18px rgba(0,0,0,.05);
+    --warn-bg:#fff1ec; --warn-line:#e9a58f; --screen:#000;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#050809; --fg:#e8f4f8; --muted:#8aa0a8; --accent:#46d2ff; --accent-fg:#001018;
+      --card:#0e1417; --line:#1c272c; --shadow:0 1px 2px rgba(0,0,0,.5),0 8px 24px rgba(0,0,0,.35);
+      --warn-bg:#3a1a14; --warn-line:#7a3a2a;
+    }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width:960px; margin:0 auto; padding:0 16px 64px; }
+  a { color:var(--accent); }
+
+  header { display:flex; align-items:center; gap:16px; padding:36px 0 8px; }
+  header img { width:56px; height:56px; border-radius:14px; flex:none; }
+  h1 { margin:0; font-size:28px; line-height:1.15; letter-spacing:-.01em; }
+  .lead { color:var(--muted); margin:2px 0 0; }
+
+  .steps { list-style:none; margin:24px 0 8px; padding:0; display:grid; grid-template-columns:repeat(3,1fr); gap:12px; counter-reset:step; }
+  .steps li { counter-increment:step; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px 14px 56px; position:relative; font-size:14px; color:var(--muted); box-shadow:var(--shadow); }
+  .steps li::before { content:counter(step); position:absolute; left:16px; top:14px; width:28px; height:28px; border-radius:50%; background:var(--accent); color:var(--accent-fg); font-weight:700; display:grid; place-items:center; }
+  .steps b { display:block; color:var(--fg); font-size:15px; margin-bottom:2px; }
+
+  #unsupported { display:none; background:var(--warn-bg); border:1px solid var(--warn-line); border-radius:10px; padding:12px 16px; margin:16px 0 0; }
+
+  h2.group { margin:36px 0 12px; font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; display:flex; flex-direction:column; gap:6px; box-shadow:var(--shadow); transition:transform .15s,border-color .15s; }
+  .card:hover { transform:translateY(-2px); border-color:var(--accent); }
+  .card img { width:100%; height:auto; aspect-ratio:1; image-rendering:pixelated; background:var(--screen); border-radius:8px; display:block; }
+  .card h3 { margin:8px 0 0; font-size:17px; }
+  .card p { margin:0 0 10px; color:var(--muted); font-size:14px; flex:1; }
+  esp-web-install-button { --esp-tools-button-color:var(--accent); --esp-tools-button-text-color:var(--accent-fg); }
+  .install { width:100%; padding:9px 14px; border:0; border-radius:8px; background:var(--accent); color:var(--accent-fg); font:600 15px system-ui,sans-serif; cursor:pointer; }
+  .install:hover { filter:brightness(1.08); }
+  esp-web-install-button { display:block; }
+
+  .note { margin:36px 0 0; padding:18px 20px; background:var(--card); border:1px solid var(--line); border-radius:12px; color:var(--muted); font-size:14px; }
+  .note h2 { margin:0 0 8px; font-size:15px; color:var(--fg); }
+  .note ul { margin:0; padding-left:20px; }
+  .note li { margin-bottom:6px; }
+
+  @media (max-width:640px) {
+    .steps { grid-template-columns:1fr; }
+    h1 { font-size:24px; }
+    .grid { grid-template-columns:repeat(2,1fr); gap:10px; }
+    .card { padding:10px; }
+  }
+  @media (max-width:330px) { .grid { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="img/logo.png" alt="" width="56" height="56">
+    <div>
+      <h1>Ultimatrix Web Flasher</h1>
+      <p class="lead">Install a clock face on your ESP32 over USB, straight from the browser.</p>
+    </div>
+  </header>
+
+  <ol class="steps">
+    <li><b>Connect</b>Plug the clock board into this computer with a data-capable USB cable.</li>
+    <li><b>Pick a face</b>Each face is its own image. You can switch faces later from the clock's settings page.</li>
+    <li><b>Install</b>Press Install, choose the board's serial port and wait for it to finish.</li>
+  </ol>
+
+  <div id="unsupported">This browser has no Web Serial support. Use Chrome, Edge or Opera on a desktop.</div>
+
+  <div id="groups"></div>
+
+  <section class="note">
+    <h2>Good to know</h2>
+    <ul>
+      <li>A fresh install erases the device, including Wi-Fi and settings. Untick "Erase" to keep them.</li>
+      <li>After installing, join the <b>UM-SETUP</b> Wi-Fi network (or scan the QR code on the panel) to set up Wi-Fi. Later updates come over Wi-Fi from the clock's settings page.</li>
+      <li>Flashing needs HTTPS (or localhost) and a Chromium-based desktop browser.</li>
+      <li>Signed update files and source: <a href="updates/">update downloads</a>, <a href="https://github.com/vandalon/ultimatrix">GitHub</a>.</li>
+      <li>Control the clock from your own tools: <a href="api/">API documentation</a> (<a href="api/openapi.yaml">openapi.yaml</a>).</li>
+    </ul>
+  </section>
+</main>
+<script>
+  const groups = [
+    ['Home and sports', [
+      ['home', 'Home', 'Home Assistant status, alerts and energy.'],
+      ['football', 'Football', 'Live scores, fixtures and tables.'],
+      ['f1', 'Formula 1', 'Race calendar, sessions and standings.'],
+      ['motogp', 'MotoGP', 'Race calendar and results.'],
+      ['nfl', 'NFL', 'Live games with the ball on the field, schedule and standings.'],
+      ['nba', 'NBA', 'Live games, schedule and standings.'],
+      ['mlb', 'MLB', 'Live games with bases and count, schedule, series and standings.']
+    ]],
+    ['Clocks', [
+      ['tetris', 'Tetris', 'Clock built from falling blocks.'],
+      ['word', 'Word clock', 'Time spelled out in words.'],
+      ['mario', 'Mario', 'Animated Mario clock.'],
+      ['luigi', 'Luigi', 'Animated Luigi clock.']
+    ]],
+    ['Games you can play', [
+      ['pacman', 'Pac-Man', 'A small random maze with the time in a box in the middle. Play it yourself from the settings page.'],
+      ['invaders', 'Space Invaders', 'A self-playing Space Invaders with the time in a band above the game. Play it yourself from the settings page.'],
+      ['pong', 'Pong', 'The time is a big dim clock behind the court and the computer players score at every minute and hour. Play the left paddle yourself from the settings page.']
+    ]]
+  ];
+  if (!('serial' in navigator)) document.getElementById('unsupported').style.display = 'block';
+  const root = document.getElementById('groups');
+  for (const [title, faces] of groups) {
+    const h = document.createElement('h2');
+    h.className = 'group';
+    h.textContent = title;
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    for (const [id, name, text] of faces) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = '<img loading="lazy" width="160" height="160" alt=""><h3></h3><p></p>' +
+        '<esp-web-install-button><button slot="activate" class="install">Install</button></esp-web-install-button>';
+      card.querySelector('img').src = 'img/' + id + '.gif?v=6';
+      card.querySelector('img').alt = name + ' clock preview';
+      card.querySelector('h3').textContent = name;
+      card.querySelector('p').textContent = text;
+      card.querySelector('esp-web-install-button').setAttribute('manifest', 'firmware/' + id + '/manifest.json');
+      grid.appendChild(card);
+    }
+    root.append(h, grid);
+  }
+</script>
+</body>
+</html>

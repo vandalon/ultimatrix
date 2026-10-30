@@ -1,0 +1,8 @@
+{
+  "name": "Ultimatrix mario",
+  "version": "v0.9.0-mario",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32", "parts": [ { "path": "ultimatrix-mario.bin", "offset": 0 } ] }
+  ]
+}

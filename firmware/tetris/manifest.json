@@ -1,0 +1,8 @@
+{
+  "name": "Ultimatrix tetris",
+  "version": "v0.9.0-tetris",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32", "parts": [ { "path": "ultimatrix-tetris.bin", "offset": 0 } ] }
+  ]
+}

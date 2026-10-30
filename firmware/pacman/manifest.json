@@ -1,0 +1,8 @@
+{
+  "name": "Ultimatrix pacman",
+  "version": "v0.9.0-pacman",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32", "parts": [ { "path": "ultimatrix-pacman.bin", "offset": 0 } ] }
+  ]
+}

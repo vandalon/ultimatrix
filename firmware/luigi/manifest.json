@@ -1,0 +1,8 @@
+{
+  "name": "Ultimatrix luigi",
+  "version": "v0.9.0-luigi",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32", "parts": [ { "path": "ultimatrix-luigi.bin", "offset": 0 } ] }
+  ]
+}

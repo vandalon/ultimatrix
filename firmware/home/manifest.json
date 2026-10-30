@@ -1,0 +1,8 @@
+{
+  "name": "Ultimatrix home",
+  "version": "v0.9.0-home",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32", "parts": [ { "path": "ultimatrix-home.bin", "offset": 0 } ] }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Ultimatrix nfl",
+  "version": "v0.9.0-nfl",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32", "parts": [ { "path": "ultimatrix-nfl.bin", "offset": 0 } ] }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Ultimatrix invaders",
+  "version": "v0.9.0-invaders",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32", "parts": [ { "path": "ultimatrix-invaders.bin", "offset": 0 } ] }
+  ]
+}

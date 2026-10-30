@@ -1,0 +1,8 @@
+{
+  "name": "Ultimatrix nba",
+  "version": "v0.9.0-nba",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32", "parts": [ { "path": "ultimatrix-nba.bin", "offset": 0 } ] }
+  ]
+}

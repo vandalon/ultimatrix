@@ -1,0 +1,8 @@
+{
+  "name": "Ultimatrix motogp",
+  "version": "v0.9.0-motogp",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32", "parts": [ { "path": "ultimatrix-motogp.bin", "offset": 0 } ] }
+  ]
+}

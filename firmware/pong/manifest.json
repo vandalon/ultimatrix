@@ -1,0 +1,8 @@
+{
+  "name": "Ultimatrix pong",
+  "version": "v0.9.0-pong",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32", "parts": [ { "path": "ultimatrix-pong.bin", "offset": 0 } ] }
+  ]
+}

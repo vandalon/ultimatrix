@@ -1,0 +1,8 @@
+{
+  "name": "Ultimatrix mlb",
+  "version": "v0.9.0-mlb",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32", "parts": [ { "path": "ultimatrix-mlb.bin", "offset": 0 } ] }
+  ]
+}
