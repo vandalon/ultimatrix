@@ -1,0 +1,1251 @@
+openapi: 3.0.3
+info:
+  title: Ultimatrix clock API
+  version: 0.9.0
+  description: |
+    The HTTP API of an Ultimatrix LED clock (ESP32, 64x64 HUB75 panel). It is what the clock's own settings page
+    (`/`) uses, so everything the page can do is available here. Not every route exists in every build: faces
+    are compiled in or out (the Pac-Man, Pong, Invaders, NFL and game-controller routes are the main ones),
+    and the WLED routes are not in the bridge image.
+
+    **Calling it**
+    - The clock answers on port 80, by IP address or `.local` name. There is no TLS.
+    - POST routes read their parameters as a form (`application/x-www-form-urlencoded`) or as query-string
+      parameters; both work. The WLED, canvas-frame and timer routes take a JSON body instead (marked below).
+    - Booleans in forms are mostly sent as `1`/`0`, or by the field being present (checkbox style); each
+      field says which.
+
+    **Access rules** (all routes)
+    - `403` for clients outside the allowed network (setting `accessScope`) and for public host names (a name
+      under a real top-level domain) unless `anyHost` is set. Open the clock by IP or `.local`.
+    - POST bodies over 8192 bytes get `413`. A POST carrying an `Origin` header for another host gets `403`
+      (a web page on another site cannot drive the clock). Requests without `Origin` (curl, Home Assistant,
+      the WLED app) pass.
+    - If an admin PIN is set, POST routes need an `X-Token` header (from `POST /api/auth`) and answer `401`
+      with `{"message":"Enter the clock PIN.","pin":true}` without it. These stay open: `/api/auth`,
+      `/api/ha/detect`, `/json`, `/json/state`, `/dlna/*`, `/api/wled*`, `/api/canvas/*`.
+
+    **Verification.** The routes, parameters, ranges and status codes come from reading the firmware
+    (`firmware/src/main.cpp`, `lib/wled/*`, `lib/core/*`). Nothing here was machine-checked against a running
+    clock except `/api/dim-colour`, `/api/hue-test`, `/api/screen`, `/api/display` and `/api/settings`.
+    Large response bodies (settings, Home Assistant configuration, sports schedule) list their fields but
+    not every nested detail.
+  license:
+    name: See LICENSE in the repository
+    url: https://github.com/vandalon/ultimatrix
+servers:
+  - url: http://{clock}
+    description: The clock on your network
+    variables:
+      clock:
+        default: ultimatrix.local
+        description: IP address or .local name of the clock
+tags:
+  - name: Settings
+    description: The settings page's state and saving
+  - name: Display
+    description: Screen preview, brightness, dim colours and tests
+  - name: Security
+    description: Admin PIN and login
+  - name: Setup
+    description: Wi-Fi setup, welcome screen, face lists
+  - name: Firmware
+    description: Updates and face installs
+  - name: Sports
+    description: Sports auto-switch
+  - name: Storage
+    description: Flash disk and saved data
+  - name: Integrations
+    description: MQTT and Home Assistant
+  - name: Play
+    description: Steering the game faces
+  - name: WLED
+    description: WLED-compatible control and the clock's own WLED options
+  - name: Canvas
+    description: Drawing canvas and GIF slots
+  - name: DLNA
+    description: DLNA media renderer for pictures
+security:
+  - {}
+  - pinToken: []
+paths:
+  /api/settings:
+    get:
+      tags: [Settings]
+      summary: State of the settings page
+      description: Everything the page shows - current face, network, free storage, light sensor and all settings.
+      responses:
+        '200':
+          description: The state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SettingsState' }
+    post:
+      tags: [Settings]
+      summary: Save settings
+      description: |
+        Send only the fields you want to change in the same form the page uses. A field that is a checkbox
+        counts as on when present and off when absent, so a client that sends a partial form must send
+        every checkbox it wants to keep on (for example `autoUpdate`, `nightClock`, `hiddenWifi`). Numeric
+        fields are validated against the ranges below; a bad value answers `400` with a `message`.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: '#/components/schemas/SettingsForm' }
+      responses:
+        '200': { $ref: '#/components/responses/Message' }
+        '400': { $ref: '#/components/responses/MessageError' }
+        '500': { $ref: '#/components/responses/MessageError' }
+  /settings:
+    post:
+      tags: [Settings]
+      summary: Save settings (older path)
+      description: Same handler as `POST /api/settings`.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: '#/components/schemas/SettingsForm' }
+      responses:
+        '200': { $ref: '#/components/responses/Message' }
+        '400': { $ref: '#/components/responses/MessageError' }
+  /api/catalog:
+    get:
+      tags: [Settings]
+      summary: Pick lists for the current face
+      description: Riders and drivers (F1/MotoGP) or word-clock languages, as `{value,label}` entries. Streamed.
+      responses:
+        '200':
+          description: Entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Choice' }
+  /api/teams:
+    get:
+      tags: [Settings]
+      summary: Football teams catalog
+      responses:
+        '200':
+          description: Team entries
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+  /api/timezones:
+    get:
+      tags: [Settings]
+      summary: Time zone names
+      responses:
+        '200':
+          description: Zone names
+          content:
+            application/json:
+              schema: { type: array, items: { type: string } }
+  /api/screen:
+    get:
+      tags: [Display]
+      summary: Current picture on the panel
+      description: |
+        A 64x64, 24-bit BMP of the framebuffer, read back from the output after the driver's brightness
+        rounding. Answers `503` while a game is being played or before the display is ready.
+      responses:
+        '200':
+          description: BMP image
+          content:
+            image/bmp:
+              schema: { type: string, format: binary }
+        '503':
+          description: Not available right now
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/display:
+    get:
+      tags: [Display]
+      summary: Panel brightness in use
+      responses:
+        '200':
+          description: The brightness level applied to the panel
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  panel: { type: integer, minimum: 0, maximum: 255 }
+  /api/dim-colour:
+    get:
+      tags: [Display]
+      summary: Dim-colour settings
+      description: How the driver treats very dim colours.
+      responses:
+        '200':
+          description: Current values
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DimColour' }
+    post:
+      tags: [Display]
+      summary: Change dim-colour settings
+      description: |
+        Send any of the fields. By default the result is stored in flash. With `save=0` it applies only
+        until the next restart. `reset=1` restores the defaults but keeps the calibrated `floor` and the
+        `night` level. The answer is the new state.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                search: { type: integer, enum: [0, 1], description: Nearest-colour search for dim pixels }
+                guard: { type: integer, enum: [0, 1], description: Hue guard; lifts pixels that would round to black, keeping the hue. On by default }
+                restore: { type: integer, enum: [0, 1], description: Brightness restore }
+                brightness: { type: number, minimum: 0.01, maximum: 9.99, description: Weight of the brightness error in the search }
+                extra: { type: integer, minimum: 1, maximum: 8, description: Extra weights the search may use }
+                limit: { type: integer, minimum: 4, maximum: 40, description: Plane weights of the brightest channel up to which the search runs }
+                guardMin: { type: number, minimum: 0, maximum: 3.9, description: Lowest light the hue guard still lifts }
+                floor: { type: integer, minimum: 0, maximum: 200, description: Calibrated lowest panel brightness; 0 = none }
+                night: { type: integer, minimum: 0, maximum: 255, description: Panel brightness in night mode; 0 = follow the Minimum slider }
+                wg: { type: number, minimum: 0.1, maximum: 5 }
+                wb: { type: number, minimum: 0.1, maximum: 5 }
+                gg: { type: number, minimum: 0.1, maximum: 5 }
+                gb: { type: number, minimum: 0.1, maximum: 5 }
+                og: { type: number, minimum: 0.1, maximum: 5 }
+                ob: { type: number, minimum: 0.1, maximum: 5 }
+                bg: { type: number, minimum: 0.1, maximum: 5 }
+                bb: { type: number, minimum: 0.1, maximum: 5 }
+                save: { type: integer, enum: [0, 1], default: 1, description: 0 = apply until restart only }
+                reset: { type: integer, enum: [0, 1], description: 1 = restore defaults first }
+      responses:
+        '200':
+          description: The new state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DimColour' }
+  /api/hue-test:
+    post:
+      tags: [Display]
+      summary: Show the colour test grid
+      description: |
+        Shows a grid of swatches on the panel at a chosen brightness: 8 hues x 8 columns of 100, 70, 50, 35,
+        25, 18, 12 and 8 % of full colour (16 hue rows with `wide=1`). It ends after `secs` (at most 600),
+        or at once with `b=0`. Optional tuning arguments change the driver live and are not stored.
+        Read the result back with `GET /api/screen`.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                b: { type: integer, minimum: 0, maximum: 255, description: Panel brightness; 0 stops the test }
+                secs: { type: integer, minimum: 0, maximum: 600, description: How long }
+                deep: { type: integer, enum: [0, 1], description: Allow the lowest brightness to narrow the output window }
+                wide: { type: integer, enum: [0, 1], description: 16 hue rows of 4 px instead of 8 of 8 px }
+                ramp: { type: integer, minimum: 0, maximum: 255, description: 0 = the usual percentages; otherwise the last column is this many of 255 and each earlier one is 1.3x brighter }
+                gd: { type: number, description: Hue guard drop share }
+                gc: { type: number, description: Hue guard carry share (default 0.5) }
+                gm: { type: number, description: Lowest light the hue guard lifts }
+                off: { type: integer, minimum: 0, maximum: 7, description: 'Bits: 1 no search, 2 no hue guard, 4 no brightness restore' }
+                lb: { type: number }
+                kx: { type: integer }
+                ll: { type: integer }
+                wg: { type: number }
+                wb: { type: number }
+                gg: { type: number }
+                gb: { type: number }
+                og: { type: number }
+                ob: { type: number }
+                bg: { type: number }
+                bb: { type: number }
+                fl: { type: integer, enum: [0, 1], description: Scale pixels dimmer than the dimmest visible level up to it }
+                gamma: { type: number, description: Power-law curve instead of CIE in the dim range; 0 = CIE }
+                minb: { type: integer, minimum: 0, maximum: 255, description: Brightness floor in the driver }
+      responses:
+        '204': { description: Started or stopped }
+  /api/night-test:
+    post:
+      tags: [Display]
+      summary: Preview a night brightness
+      description: |
+        Shows the clock at a night brightness for a while. With the night clock on it is the red night
+        clock; with it off it is the normal face at that brightness.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                b: { type: integer, minimum: 0, maximum: 255, description: Panel brightness; 0 stops }
+                secs: { type: integer, minimum: 1, maximum: 600, default: 90 }
+      responses:
+        '204': { description: Started or stopped }
+  /api/auth:
+    post:
+      tags: [Security]
+      summary: Log in with the admin PIN
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [pin]
+              properties:
+                pin: { type: string, description: 4 to 8 digits }
+      responses:
+        '200':
+          description: Token for the `X-Token` header
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+        '401':
+          description: Wrong PIN
+          content:
+            application/json:
+              schema: { type: object, properties: { message: { type: string } } }
+        '429':
+          description: Too many wrong PINs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  wait: { type: integer, description: Seconds to wait }
+  /api/pin:
+    post:
+      tags: [Security]
+      summary: Set or remove the admin PIN
+      description: An empty `pin` removes it. Otherwise 4 to 8 digits.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                pin: { type: string }
+      responses:
+        '200':
+          description: Saved or removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  pinSet: { type: boolean }
+                  token: { type: string, description: Present when a PIN was set }
+        '400': { $ref: '#/components/responses/MessageError' }
+        '500': { $ref: '#/components/responses/MessageError' }
+  /api/wifi/setup:
+    post:
+      tags: [Setup]
+      summary: Restart into Wi-Fi setup
+      description: The clock restarts and opens its setup portal. It is offline until setup finishes.
+      responses:
+        '200': { $ref: '#/components/responses/Message' }
+        '500': { $ref: '#/components/responses/MessageError' }
+  /api/welcome/dismiss:
+    post:
+      tags: [Setup]
+      summary: Hide the welcome notice
+      responses:
+        '200': { $ref: '#/components/responses/Message' }
+        '500': { $ref: '#/components/responses/MessageError' }
+  /api/welcome/start:
+    post:
+      tags: [Setup]
+      summary: Leave the welcome screen and start the clock
+      responses:
+        '200': { $ref: '#/components/responses/Message' }
+        '500': { $ref: '#/components/responses/MessageError' }
+  /api/firmware:
+    get:
+      tags: [Firmware]
+      summary: Update status
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FirmwareStatus' }
+    post:
+      tags: [Firmware]
+      summary: Start an update or switch face
+      description: |
+        With `mode` set to a prepared face the clock switches to it from the spare slot and restarts.
+        Otherwise it downloads and installs the update (for that `mode`, or the current face).
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                mode: { type: string, description: A face id, for example `home` or `football` }
+                force: { type: integer, description: 'Present: update even while a live match or session is running' }
+      responses:
+        '202': { $ref: '#/components/responses/Message' }
+        '400': { $ref: '#/components/responses/MessageError' }
+        '409':
+          description: Refused (busy, live data running, or not enough memory)
+          content:
+            application/json:
+              schema: { type: object, properties: { message: { type: string }, live: { type: boolean }, lowMemory: { type: boolean } } }
+  /api/firmware/check:
+    post:
+      tags: [Firmware]
+      summary: Check for a newer version now
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                force: { type: integer, description: 'Present: check even while a live match is running' }
+      responses:
+        '202': { $ref: '#/components/responses/Message' }
+        '429': { $ref: '#/components/responses/MessageError' }
+  /api/firmware/reboot:
+    post:
+      tags: [Firmware]
+      summary: Restart to install a downloaded update
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                mode: { type: string }
+      responses:
+        '202': { $ref: '#/components/responses/Message' }
+        '400': { $ref: '#/components/responses/MessageError' }
+  /api/firmware/server:
+    post:
+      tags: [Firmware]
+      summary: Set the update source
+      description: An `http://` or `https://` address; empty means GitHub.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                url: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Message' }
+        '400': { $ref: '#/components/responses/MessageError' }
+  /api/sports:
+    get:
+      tags: [Sports]
+      summary: Auto-switch plan and schedules
+      description: Order, lead and hold times, per-sport next events and the day's count.
+      responses:
+        '200':
+          description: Plan
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /api/sports/prepare:
+    post:
+      tags: [Sports]
+      summary: Prepare a face in the spare slot
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [mode]
+              properties:
+                mode: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Message' }
+        '202': { $ref: '#/components/responses/Message' }
+        '400': { $ref: '#/components/responses/MessageError' }
+        '409': { $ref: '#/components/responses/MessageError' }
+  /api/nfl/demo:
+    post:
+      tags: [Sports]
+      summary: NFL demo screens (NFL build only)
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                'on': { type: integer, enum: [0, 1] }
+      responses:
+        '204': { description: Done }
+  /api/storage:
+    get:
+      tags: [Storage]
+      summary: Flash disk and cached data
+      responses:
+        '200':
+          description: Storage state
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /api/storage/clear:
+    post:
+      tags: [Storage]
+      summary: Clear cached data
+      description: Saved drawings are never removed. With `updates` the update history is cleared.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                updates: { type: integer, description: 'Present: clear the update records' }
+      responses:
+        '200':
+          description: The storage state after clearing
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /api/storage/reformat:
+    post:
+      tags: [Storage]
+      summary: Format the flash disk (drawings are lost)
+      responses:
+        '200':
+          description: Restarting
+          content:
+            application/json:
+              schema: { type: object, properties: { restarting: { type: boolean } } }
+        '500': { $ref: '#/components/responses/MessageError' }
+  /api/nvs:
+    get:
+      tags: [Storage]
+      summary: Settings storage summary (text)
+      description: The same text as the telnet `nvs` command.
+      responses:
+        '200':
+          description: Text
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/mqtt:
+    get:
+      tags: [Integrations]
+      summary: MQTT link state
+      responses:
+        '200':
+          description: State
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+                  screenCamera: { type: boolean }
+                  host: { type: string }
+                  port: { type: integer }
+                  user: { type: string }
+                  passwordSet: { type: boolean }
+                  connected: { type: boolean }
+                  status: { type: string }
+    post:
+      tags: [Integrations]
+      summary: Save the MQTT settings
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                enabled: { type: string, enum: ['0', '1'] }
+                screenCamera: { type: string, enum: ['0', '1'] }
+                host: { type: string, description: IP address or host name of the broker }
+                port: { type: integer, minimum: 1, maximum: 65535, default: 1883 }
+                user: { type: string }
+                password: { type: string, writeOnly: true }
+                passwordClear: { type: string, enum: ['1'], description: Remove the stored password }
+      responses:
+        '200': { $ref: '#/components/responses/Message' }
+        '400': { $ref: '#/components/responses/MessageError' }
+        '500': { $ref: '#/components/responses/MessageError' }
+  /api/ha:
+    get:
+      tags: [Integrations]
+      summary: Home Assistant face configuration and link state
+      description: Host, port, TLS, whether a token is set (never the token), pages, tiles, icons, energy sensors, media players, washer, weather and doorbell.
+      responses:
+        '200':
+          description: Configuration
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+    post:
+      tags: [Integrations]
+      summary: Save the Home Assistant configuration
+      description: |
+        Known form fields: `host`, `port`, `tls`, `token` (write-only), `clearToken`, `pages`, `phono`, `noinfo`,
+        `thin`, `weeks`, `order`, `pageSecs`, `export`, `gridImportPositive`, `batteryDischargePositive`,
+        `weather`, `doorbell`, `doorbellFlags`, `washerEntity`, `washerFlags`, and the tile, icon, energy and
+        media-player entity fields the page sends. Invalid values answer `400`; a full settings storage `500`.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { $ref: '#/components/responses/Message' }
+        '400': { $ref: '#/components/responses/MessageError' }
+        '500': { $ref: '#/components/responses/MessageError' }
+  /api/ha/suggest:
+    get:
+      tags: [Integrations]
+      summary: Entity suggestions from Home Assistant
+      parameters:
+        - { name: kind, in: query, schema: { type: string }, description: Kind of entity wanted (for example power, energy or media player) }
+        - { name: q, in: query, schema: { type: string }, description: Text to match }
+      responses:
+        '200':
+          description: Entities, or an `error` text with an empty list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  entities:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        name: { type: string }
+                        unit: { type: string }
+  /api/ha/detect:
+    get:
+      tags: [Integrations]
+      summary: Result of the Energy dashboard detection
+      description: Open without a PIN. Reads the result of the last `POST /api/ha/detect`.
+      responses:
+        '200':
+          description: State, a note and the sensors found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state: { type: string }
+                  note: { type: string }
+                  entities: { type: array, items: { type: string } }
+        '500': { $ref: '#/components/responses/MessageError' }
+    post:
+      tags: [Integrations]
+      summary: Ask Home Assistant for the Energy dashboard sensors
+      description: Open without a PIN. Stores nothing.
+      responses:
+        '202': { $ref: '#/components/responses/Message' }
+        '409': { $ref: '#/components/responses/MessageError' }
+  /api/play/steer:
+    post:
+      tags: [Play]
+      summary: Steer a game face (Pac-Man, Pong, Invaders builds)
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                dir: { type: integer, enum: [-1, 0, 1, 2, 3], description: '0 up, 1 right, 2 down, 3 left, -1 back to the computer; what each does is up to the face' }
+      responses:
+        '204': { description: Done }
+  /api/pacman/steer:
+    post:
+      tags: [Play]
+      summary: Steer Pac-Man (older path)
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                dir: { type: integer }
+      responses:
+        '204': { description: Done }
+  /play:
+    get:
+      tags: [Play]
+      summary: Game controller WebSocket (Pong and Invaders)
+      description: |
+        WebSocket upgrade. Text frames "230" (steer codes) and "4" or "-1"; with an admin PIN set the first
+        frame must be `t<token>`.
+      responses:
+        '101': { description: Switching protocols }
+  /api/gamepad:
+    get:
+      tags: [Play]
+      summary: Bluetooth game controller state (Pac-Man build)
+      responses:
+        '200':
+          description: State
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+                  state: { type: string }
+                  name: { type: string }
+                  bonded: { type: integer }
+  /api/gamepad/enable:
+    post:
+      tags: [Play]
+      summary: Turn the controller support on or off
+      description: The clock restarts, as memory is set aside at start.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                'on': { type: integer, enum: [0, 1] }
+      responses:
+        '204': { description: Saved; restarting }
+        '507': { description: The settings storage is full }
+  /api/gamepad/pair:
+    post:
+      tags: [Play]
+      summary: Start pairing a controller
+      responses:
+        '204': { description: Started }
+  /api/gamepad/forget:
+    post:
+      tags: [Play]
+      summary: Forget bonded controllers
+      responses:
+        '204': { description: Done }
+  /api/wled:
+    get:
+      tags: [WLED]
+      summary: The clock's WLED options and live state
+      description: enabled, listening, timeoutMin, ignoreLive, bootEffect, on, source, live, packets, dropped, free heap, and an effects list.
+      responses:
+        '200':
+          description: Options
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+    post:
+      tags: [WLED]
+      summary: Save the WLED options
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                enabled: { type: string, enum: ['0', '1'] }
+                timeoutMin: { type: integer, minimum: 0, maximum: 255 }
+                ignoreLive: { type: string, enum: ['0', '1'] }
+                bootEffect: { type: integer, description: Effect id, or -1 for none }
+      responses:
+        '200': { $ref: '#/components/responses/Message' }
+        '400': { $ref: '#/components/responses/MessageError' }
+        '507': { $ref: '#/components/responses/MessageError' }
+  /api/wled/timers:
+    get:
+      tags: [WLED]
+      summary: WLED timers
+      responses:
+        '200':
+          description: '`{"timers":[...]}`'
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+    post:
+      tags: [WLED]
+      summary: Save WLED timers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { $ref: '#/components/responses/Message' }
+        '400': { $ref: '#/components/responses/MessageError' }
+  /api/wled/backup:
+    get:
+      tags: [WLED]
+      summary: Download a backup of WLED options, state, presets and timers
+      responses:
+        '200':
+          description: 'JSON with `"format":"ultimatrix-wled","version":1`'
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+    post:
+      tags: [WLED]
+      summary: Restore a backup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { $ref: '#/components/responses/Message' }
+        '400': { $ref: '#/components/responses/MessageError' }
+  /wled:
+    get:
+      tags: [WLED]
+      summary: WLED control page (HTML)
+      responses:
+        '200': { description: HTML page, content: { text/html: { schema: { type: string } } } }
+  /json:
+    get:
+      tags: [WLED]
+      summary: WLED full state, info, effects and palettes
+      description: WLED-compatible. See the WLED JSON API documentation for the format.
+      responses:
+        '200': { description: JSON, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        '404': { description: WLED is off in the settings }
+    post:
+      tags: [WLED]
+      summary: Set WLED state
+      description: Open without a PIN. Body is a WLED state object. Answers `{"success":true}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { description: Applied, content: { application/json: { schema: { type: object, properties: { success: { type: boolean } } } } } }
+        '400': { description: 'Not a JSON object (`{"error":9}`)' }
+        '404': { description: WLED is off in the settings }
+  /json/state:
+    get:
+      tags: [WLED]
+      summary: WLED state
+      responses:
+        '200': { description: JSON, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+    post:
+      tags: [WLED]
+      summary: Set WLED state
+      description: Open without a PIN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { description: Applied }
+        '400': { description: Not a JSON object }
+        '404': { description: WLED is off in the settings }
+  /json/info:
+    get: { tags: [WLED], summary: WLED info, responses: { '200': { description: JSON, content: { application/json: { schema: { type: object, additionalProperties: true } } } } } }
+  /json/si:
+    get: { tags: [WLED], summary: WLED state and info, responses: { '200': { description: JSON, content: { application/json: { schema: { type: object, additionalProperties: true } } } } } }
+  /json/eff:
+    get: { tags: [WLED], summary: Effect names, responses: { '200': { description: JSON array, content: { application/json: { schema: { type: array, items: { type: string } } } } } } }
+  /json/effects:
+    get: { tags: [WLED], summary: Effect names (alias of /json/eff), responses: { '200': { description: JSON array, content: { application/json: { schema: { type: array, items: { type: string } } } } } } }
+  /json/pal:
+    get: { tags: [WLED], summary: Palette names, responses: { '200': { description: JSON array, content: { application/json: { schema: { type: array, items: { type: string } } } } } } }
+  /json/palettes:
+    get: { tags: [WLED], summary: Palette names (alias of /json/pal), responses: { '200': { description: JSON array, content: { application/json: { schema: { type: array, items: { type: string } } } } } } }
+  /json/fxdata:
+    get: { tags: [WLED], summary: Effect parameter descriptions, responses: { '200': { description: JSON, content: { application/json: { schema: { type: array, items: { type: string } } } } } } }
+  /json/nodes:
+    get: { tags: [WLED], summary: Other WLED nodes, responses: { '200': { description: JSON, content: { application/json: { schema: { type: object, additionalProperties: true } } } } } }
+  /json/cfg:
+    get: { tags: [WLED], summary: WLED configuration, responses: { '200': { description: JSON, content: { application/json: { schema: { type: object, additionalProperties: true } } } } } }
+  /presets.json:
+    get: { tags: [WLED], summary: WLED presets, responses: { '200': { description: JSON, content: { application/json: { schema: { type: object, additionalProperties: true } } } } } }
+  /win:
+    get:
+      tags: [WLED]
+      summary: Legacy WLED HTTP API
+      description: |
+        Query parameters as in the old WLED API: `T` (0 off, 1 on, 2 toggle), `A` (brightness), `FX`, `SX`,
+        `IX`, `FP` (palette), colour channels `R/G/B` (and the second/third colour), `TT` (transition, ms),
+        `PL` (preset), `NL` (nightlight minutes). Refuses `Sec-Fetch-Site: cross-site`. Answers XML.
+      responses:
+        '200': { description: XML state, content: { text/xml: { schema: { type: string } } } }
+        '403': { description: Cross-site request }
+        '404': { description: WLED is off in the settings }
+  /ws:
+    get:
+      tags: [WLED]
+      summary: WLED WebSocket
+      description: WebSocket upgrade for live WLED state.
+      responses:
+        '101': { description: Switching protocols }
+  /gifs:
+    get: { tags: [Canvas], summary: GIF loader page (HTML), responses: { '200': { description: HTML page, content: { text/html: { schema: { type: string } } } } } }
+  /canvas:
+    get: { tags: [Canvas], summary: Canvas editor page (HTML), responses: { '200': { description: HTML page, content: { text/html: { schema: { type: string } } } } } }
+  /api/canvas:
+    get:
+      tags: [Canvas]
+      summary: Canvas state
+      description: Whether a canvas is active, the shown slot, cycle time, frames, import bytes, flash free and total, and the list of slots with id, name, frames, delay and bytes.
+      responses:
+        '200': { description: State, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+  /api/canvas/pixels:
+    get:
+      tags: [Canvas]
+      summary: Current canvas pixels
+      responses:
+        '200': { description: Pixel data, content: { text/plain: { schema: { type: string } } } }
+    post:
+      tags: [Canvas]
+      summary: Apply pixel changes
+      description: Body is the compact change list the canvas page sends. Answers `{"pixels":<count>}`.
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema: { type: string }
+      responses:
+        '200': { description: Applied, content: { application/json: { schema: { type: object, properties: { pixels: { type: integer } } } } } }
+  /api/canvas/open:
+    post: { tags: [Canvas], summary: Open the canvas or a slot for drawing, responses: { '200': { description: State } } }
+  /api/canvas/rows:
+    post:
+      tags: [Canvas]
+      summary: Write one row of pixels
+      parameters:
+        - { name: y, in: query, required: true, schema: { type: integer, minimum: 0, maximum: 63 } }
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema: { type: string }
+      responses:
+        '200': { description: Applied }
+  /api/canvas/clear:
+    post: { tags: [Canvas], summary: Clear the canvas, responses: { '200': { description: Cleared } } }
+  /api/canvas/save:
+    post:
+      tags: [Canvas]
+      summary: Save the canvas, or the imported animation (`ram`), to a slot
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                slot: { type: integer }
+                name: { type: string }
+                delay: { type: integer, minimum: 20, maximum: 60000, default: 100, description: Frame delay in ms }
+                append: { type: string, description: 'Present: add a frame to the slot' }
+                ram: { type: string, description: 'Present: save the imported animation held in RAM' }
+      responses:
+        '200': { description: Saved }
+  /api/canvas/keep:
+    post:
+      tags: [Canvas]
+      summary: Keep the played GIF in a vacant slot
+      description: With `estimate` it only answers `{bytes, free, frames, fits}`.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                slot: { type: integer }
+                name: { type: string }
+                estimate: { type: string, description: 'Present: only report whether it fits' }
+      responses:
+        '200': { description: Kept, or the estimate }
+  /api/canvas/frame:
+    post:
+      tags: [Canvas]
+      summary: Upload GIF frame data in chunks
+      parameters:
+        - { name: offset, in: query, schema: { type: integer } }
+        - { name: size, in: query, schema: { type: integer } }
+        - { name: total, in: query, schema: { type: integer } }
+        - { name: delay, in: query, schema: { type: integer, minimum: 20, maximum: 60000 } }
+        - { name: first, in: query, schema: { type: string }, description: 'Present on the first chunk: frees earlier import data' }
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema: { type: string }
+      responses:
+        '200': { description: Chunk accepted }
+  /api/canvas/slot:
+    post:
+      tags: [Canvas]
+      summary: Load or delete a saved slot
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                slot: { type: integer }
+                op: { type: string, enum: [delete], description: 'Omit to load the slot' }
+                import: { type: string, description: 'Present with delete: the import is still running' }
+      responses:
+        '200': { description: The canvas state }
+  /api/canvas/auth:
+    post:
+      tags: [Canvas]
+      summary: Sign the GIF search page in
+      description: |
+        The clock signs the browser page in to the GIF search Worker. `202 {"pending":true}` while it
+        does so; `200 {id, token, ttl}` when done. With `force` the old token is discarded.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                force: { type: string }
+      responses:
+        '200': { description: Token, content: { application/json: { schema: { type: object, properties: { id: { type: string }, token: { type: string }, ttl: { type: integer } } } } } }
+        '202': { description: Pending }
+  /api/canvas/cycle:
+    post:
+      tags: [Canvas]
+      summary: Cycle through the saved slots
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                sec: { type: integer, minimum: 0, maximum: 3600, description: Seconds per slot; 0 stops }
+      responses:
+        '200': { description: Applied }
+  /dlna/device.xml:
+    get: { tags: [DLNA], summary: UPnP device description, responses: { '200': { description: XML, content: { text/xml: { schema: { type: string } } } } } }
+  /dlna/av.xml:
+    get: { tags: [DLNA], summary: AVTransport service description, responses: { '200': { description: XML, content: { text/xml: { schema: { type: string } } } } } }
+  /dlna/cm.xml:
+    get: { tags: [DLNA], summary: ConnectionManager service description, responses: { '200': { description: XML, content: { text/xml: { schema: { type: string } } } } } }
+  /dlna/rc.xml:
+    get: { tags: [DLNA], summary: RenderingControl service description, responses: { '200': { description: XML, content: { text/xml: { schema: { type: string } } } } } }
+  /dlna/av/control:
+    post:
+      tags: [DLNA]
+      summary: AVTransport SOAP control
+      description: Play and Stop of pictures. Open without a PIN. Event subscriptions answer `412 Use polling`.
+      requestBody:
+        content:
+          text/xml:
+            schema: { type: string }
+      responses:
+        '200': { description: SOAP response, content: { text/xml: { schema: { type: string } } } }
+  /dlna/cm/control:
+    post:
+      tags: [DLNA]
+      summary: ConnectionManager SOAP control
+      requestBody:
+        content:
+          text/xml:
+            schema: { type: string }
+      responses:
+        '200': { description: SOAP response, content: { text/xml: { schema: { type: string } } } }
+  /dlna/rc/control:
+    post:
+      tags: [DLNA]
+      summary: RenderingControl SOAP control (not supported)
+      requestBody:
+        content:
+          text/xml:
+            schema: { type: string }
+      responses:
+        '401': { description: SOAP fault `Invalid Action` }
+components:
+  securitySchemes:
+    pinToken:
+      type: apiKey
+      in: header
+      name: X-Token
+      description: Token from `POST /api/auth`; only needed when an admin PIN is set.
+  responses:
+    Message:
+      description: Done
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Message' }
+    MessageError:
+      description: Refused or failed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Message' }
+  schemas:
+    Message:
+      type: object
+      properties:
+        message: { type: string }
+    Choice:
+      type: object
+      properties:
+        value: {}
+        label: { type: string }
+    DimColour:
+      type: object
+      properties:
+        search: { type: integer, enum: [0, 1] }
+        guard: { type: integer, enum: [0, 1] }
+        restore: { type: integer, enum: [0, 1] }
+        brightness: { type: number }
+        extra: { type: integer }
+        limit: { type: integer }
+        guardMin: { type: number }
+        floor: { type: integer }
+        night: { type: integer }
+        wg: { type: number }
+        wb: { type: number }
+        gg: { type: number }
+        gb: { type: number }
+        og: { type: number }
+        ob: { type: number }
+        bg: { type: number }
+        bb: { type: number }
+    FirmwareStatus:
+      type: object
+      properties:
+        version: { type: string }
+        message: { type: string }
+        busy: { type: boolean }
+        ready: { type: boolean }
+        failed: { type: boolean }
+        received: { type: integer }
+        total: { type: integer }
+        lowMemory: { type: boolean }
+        available: { type: boolean }
+        latest: { type: string }
+        checkError: { type: string }
+        checking: { type: boolean }
+        checkedAt: { type: integer, description: Unix time }
+        server: { type: string }
+        freeHeap: { type: integer }
+        minimumHeap: { type: integer }
+    SettingsState:
+      type: object
+      description: Status fields, and the settings under `settings`.
+      properties:
+        mode: { type: string, description: Face name }
+        modeId: { type: string, description: Face id }
+        timeSynced: { type: boolean }
+        lightReading: { type: integer, description: Light sensor reading }
+        nightActive: { type: boolean }
+        nightWhy: { type: string }
+        nvsFree: { type: integer, description: Free entries in the settings storage }
+        pinSet: { type: boolean }
+        sunTimes: { type: object, additionalProperties: true }
+        network:
+          type: object
+          properties:
+            ssid: { type: string }
+            ip: { type: string }
+            hostname: { type: string }
+        welcomeHidden: { type: boolean }
+        welcomeMode: { type: boolean }
+        settings: { $ref: '#/components/schemas/Settings' }
+    Settings:
+      type: object
+      description: |
+        The values the page edits. Names match the form fields of `POST /api/settings`. Only fields that exist
+        in the running face's build are meaningful.
+      properties:
+        accessScope: { type: integer, minimum: 0, maximum: 2 }
+        anyHost: { type: boolean }
+        mdnsUseName: { type: boolean }
+        clockName: { type: string }
+        brightness: { type: integer, minimum: 1, maximum: 255 }
+        rotation: { type: integer, minimum: 0, maximum: 3 }
+        use24h: { type: integer, enum: [0, 1] }
+        ntpServer: { type: string }
+        autoBrightness: { type: boolean }
+        ldrPin: { type: integer, minimum: 32, maximum: 39 }
+        minimumBrightness: { type: integer, minimum: 1, maximum: 255, default: 1 }
+        ldrDark: { type: integer, minimum: 0, maximum: 4094, default: 50 }
+        ldrLight: { type: integer, minimum: 1, maximum: 4095, default: 2500 }
+        nightEnabled: { type: boolean, description: Night mode on a schedule }
+        nightStart: { type: string, description: 'HH:MM, default 22:00' }
+        nightEnd: { type: string, description: 'HH:MM, default 07:00' }
+        nightBrightness: { type: integer }
+        nightSun: { type: boolean, description: Night from sunset to sunrise }
+        nightClock: { type: boolean, default: false, description: Show the red night clock in night mode }
+        timezone: { type: string }
+        autoTimezone: { type: boolean }
+        matchSecs: { type: integer, minimum: 3, maximum: 60 }
+        resultMins: { type: integer, minimum: 0, maximum: 1440 }
+        timeStyle: { type: integer, minimum: 0, maximum: 5 }
+        dither: { type: boolean }
+        swapBlueGreen: { type: boolean }
+        telnet: { type: boolean }
+        hiddenWifi: { type: boolean, default: false, description: The saved Wi-Fi network is hidden, so the clock retries the connection at boot instead of scanning for it first }
+        autoUpdate: { type: boolean, default: true }
+        birthdays: { type: string }
+        sportsOrder: { type: string }
+        sportsHome: { type: string }
+        sportsLead: { type: integer }
+        sportsOthers: { type: boolean }
+        sportsRacing: { type: boolean }
+        sportsFav: { type: boolean }
+        sportsMax: { type: integer }
+        sportsHold: { type: integer }
+        sportsBridge: { type: integer }
+        fbLeagues: { type: string }
+        fbTeams: { type: string }
+        f1Drivers: { type: string }
+        showRankings: { type: boolean }
+        footballOthers: { type: boolean }
+        ballRoll: { type: boolean }
+        numberFont: { type: integer }
+        wordLanguage: { type: integer }
+        wordAnimation: { type: integer, minimum: 0, maximum: 5 }
+        wordDate: { type: integer, minimum: 0, maximum: 2 }
+        nbaTeams: { type: string }
+        nbaIdle: { type: integer }
+        nbaTables: { type: boolean }
+        nbaLiveOnly: { type: boolean }
+        nbaExtra: { type: boolean }
+        mlbTeams: { type: string }
+        mlbIdle: { type: integer }
+        mlbTables: { type: boolean }
+        mlbLiveOnly: { type: boolean }
+        mlbExtra: { type: boolean }
+        mlbHours: { type: integer }
+        mlbMinutes: { type: integer }
+        nflTeams: { type: string }
+        nflIdle: { type: integer }
+        nflTables: { type: boolean }
+        nflLiveOnly: { type: boolean }
+        nflExtra: { type: boolean }
+        nflHours: { type: integer }
+        nflMinutes: { type: integer }
+        pongBackdrop: { type: integer, minimum: 0, maximum: 5 }
+        pongSpeed: { type: integer, minimum: 0, maximum: 4 }
+        pongLevel: { type: integer, minimum: 0, maximum: 8 }
+        pongDate: { type: integer, minimum: 0, maximum: 2 }
+        pongDay: { type: integer, minimum: 0, maximum: 2 }
+        arcHours: { type: integer }
+        arcMinutes: { type: integer }
+        arcScore: { type: integer }
+        color: { type: integer, description: Pac-Man wall colour index }
+        dotColor: { type: integer }
+        btPad: { type: boolean }
+        pacmanClockColor: { type: integer }
+        clockMinutesColor: { type: integer }
+        clockShade: { type: integer, minimum: 0, maximum: 1 }
+        marioWorld: { type: integer, minimum: 0, maximum: 10 }
+        f1Flags: { type: boolean, description: Host country flag on the race screens }
+        f1Chequers: { type: boolean, default: true, description: Chequered flag squares behind the lists; hidden while a list is dimmed and loading }
+    SettingsForm:
+      type: object
+      description: |
+        Form fields of `POST /api/settings`: the keys of `Settings` above, plus `ghost1Color` to `ghost4Color`.
+        Checkbox-type fields (booleans) are on when present. `nightStart` and `nightEnd` are `HH:MM`.
+        Selections (`fbLeagues`, `f1Drivers`, `nbaTeams`, `mlbTeams`, `nflTeams`) are repeated fields or
+        comma lists and are capped at 400 characters each.
+      additionalProperties: true
+      properties:
+        brightness: { type: integer, minimum: 1, maximum: 255 }
+        minimumBrightness: { type: integer, minimum: 1, maximum: 255 }
+        hiddenWifi: { type: string, description: 'Present: the saved Wi-Fi network is hidden' }
+        f1Chequers: { type: string, description: 'Present: show the chequered background' }
+        nightClock: { type: string, description: 'Present: the red night clock may replace the face' }

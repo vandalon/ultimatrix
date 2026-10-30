@@ -8,6 +8,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 14 clock fa
 - README.md: user docs for all clock faces. LICENSE*, THIRD_PARTY_NOTICES.md, LICENSE_SCOPE.md: licensing
 - .github/workflows/release.yml: release CI
 - .gitignore: local tooling, build output and handoff/log exclusions
+- docs/openapi.yaml: OpenAPI 3.0 description of the clock's HTTP API (routes, parameters, access rules); .github/workflows/api-docs.yml builds it with Redoc and publishes it with GitHub Pages
 - docs/: HARDWARE.md (wiring, boards, power, LDR, troubleshooting), ARCHITECTURE.md (runtime/design), UPDATES.md (signed OTA)
 - docs/photos/: real-panel Home Assistant photos (connecting, home, energy, now playing; 1000 px) shown in a row at the top of README
 - docs/previews/: README GIFs (quickstart.gif: flash/Wi-Fi/face-picker intro, built by firmware/tools/preview/quickstart.py) and welcome-preview.html (standalone welcome mockup)
@@ -82,7 +83,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 14 clock fa
 - mlb-feed/: MlbTypes.h (Snapshot: games with runs per inning, bases/count/outs, hits/errors; fixtures of today and 3 days; AL and NL tables ordered by ESPN's playoff seed), MlbTicker (one feed task like NbaTicker: ESPN baseball/mlb scoreboard 20 s live / 5 min, standings every 30 min)
 - nfl-feed/: NflTypes.h (Snapshot: week's games with quarters/down/spot/timeouts, fixtures, AFC and NFC tables), NflTicker (one feed task: scoreboard of the whole week 15 s live / 5 min idle, next week's schedule when this one is over, standings every 30 min)
 - tetris/: TetrisDigits, TetrisLayout, TetrisShapes (digit animation, layout and block shapes)
-- ha-feed/: HaConfig (slot settings in one NVS blob, separate fourth-tile/legacy-weather/washer-alert keys, token write-only), HaDefaults (defaults and entity rules), HaTemplate (builds the Jinja template, parses the result line), HaClient (WebSocket task: auth, render_template subscriptions, reconnect), HaMedia (Now playing: players template/parser, album-art fetch + ROM JPEG decode to 36x36)
+- ha-feed/: HaConfig (slot settings in one NVS blob, separate fourth-tile/legacy-weather/washer-alert keys, token write-only), HaDefaults (defaults and entity rules), HaTemplate (builds the Jinja template, parses the result line), HaClient (WebSocket task: auth, render_template subscriptions, reconnect), HaMedia (Now playing: players template/parser, album-art fetch + ROM JPEG decode to 36x36), HaPrices (today + tomorrow hourly prices template/parser for the Energy price strip)
 - firmware/lib/ha-feed/HaDevices.cpp/.h — Devices page: names of low-battery and offline devices (own HA template + parser)
 - faces/: FaceKit.h, MiniFont.h, PlumberSprites.h (drawing helpers, small font and walking poses); PlumberWorld.h defines courses, mushroom drops, items and Piranha pipes
 

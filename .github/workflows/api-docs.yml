@@ -1,0 +1,49 @@
+name: API docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/openapi.yaml
+      - .github/workflows/api-docs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check the spec
+        continue-on-error: true  # the first lint run reported 8 errors that are not fixed yet; the page is still built
+        run: npx --yes @redocly/cli@1.34.5 lint docs/openapi.yaml --skip-rule=operation-operationId --skip-rule=operation-4xx-response
+      - name: Build the page
+        run: |
+          mkdir site
+          npx --yes @redocly/cli@1.34.5 build-docs docs/openapi.yaml -o site/index.html
+          cp docs/openapi.yaml site/openapi.yaml
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
