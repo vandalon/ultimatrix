@@ -1216,28 +1216,28 @@ components:
         mlbTables: { type: boolean, description: 'AL and NL tables: 0 off, 1 between games, 2 always, also during games' }
         mlbLiveOnly: { type: boolean, description: 'While a game is live: 1 shows only the live games, 0 also the other pages' }
         mlbExtra: { type: boolean, description: 'Extra pages: line scores and your favourites. Off keeps the clock on the next-up page or big clock' }
-        mlbHours: { type: integer, description: 'Colour of the big clock hours (index in the colour list; 10 = white)' }
-        mlbMinutes: { type: integer, description: 'Colour of the big clock minutes (index in the colour list; 5 = peach)' }
+        mlbHours: { type: integer, description: 'Colour of the big clock hours: 0 the face''s own colour, 1 green, 2 pink, 3 blue, 4 lemon, 5 peach, 6 purple, 7 red, 8 orange, 9 cyan, 10 white (default 10, white)' }
+        mlbMinutes: { type: integer, description: 'Colour of the big clock minutes: 0 the face''s own colour, 1 green, 2 pink, 3 blue, 4 lemon, 5 peach, 6 purple, 7 red, 8 orange, 9 cyan, 10 white (default 5, peach)' }
         nflTeams: { type: string, description: 'Favourite NFL teams, as a comma list of abbreviations' }
         nflIdle: { type: integer, description: 'What to show while no game is live: 0 the next-up page, 1 the big clock, 2 both in turn' }
         nflTables: { type: boolean, description: 'AFC and NFC tables: 0 off, 1 between games, 2 always, also during games' }
         nflLiveOnly: { type: boolean, description: 'While a game is live: 1 shows only the live games, 0 also the other pages' }
         nflExtra: { type: boolean, description: 'Extra pages: line scores and your favourites. Off keeps the clock on the next-up page or big clock' }
-        nflHours: { type: integer, description: 'Colour of the big clock hours (index in the colour list)' }
-        nflMinutes: { type: integer, description: 'Colour of the big clock minutes (index in the colour list)' }
+        nflHours: { type: integer, description: 'Colour of the big clock hours: 0 the face''s own colour, 1 green, 2 pink, 3 blue, 4 lemon, 5 peach, 6 purple, 7 red, 8 orange, 9 cyan, 10 white' }
+        nflMinutes: { type: integer, description: 'Colour of the big clock minutes: 0 the face''s own colour, 1 green, 2 pink, 3 blue, 4 lemon, 5 peach, 6 purple, 7 red, 8 orange, 9 cyan, 10 white' }
         pongBackdrop: { type: integer, minimum: 0, maximum: 5, description: 'Brightness of the big clock behind the court: 0 off, 1 very dim, 2 dim, 3 medium, 4 bright, 5 brightest' }
         pongSpeed: { type: integer, minimum: 0, maximum: 4, description: 'Ball speed: 0 slowest, 1 slow, 2 normal, 3 fast, 4 fastest' }
         pongLevel: { type: integer, minimum: 0, maximum: 8, description: 'How well the computer plays: 0 (easiest) to 8 (shown as difficulty 1 to 9)' }
         pongDate: { type: integer, minimum: 0, maximum: 2, description: 'Day and month, in the minutes colour: 1 above the time, 2 below the time, 0 hidden' }
         pongDay: { type: integer, minimum: 0, maximum: 2, description: 'Weekday, in the hours colour: 1 above the time, 2 below the time, 0 hidden' }
-        arcHours: { type: integer, description: 'Colour of the clock hours on Space Invaders and Pong (index in the colour list)' }
-        arcMinutes: { type: integer, description: 'Colour of the clock minutes on Space Invaders and Pong (index in the colour list)' }
-        arcScore: { type: integer, description: 'Colour of the score (index in the colour list)' }
-        color: { type: integer, description: Pac-Man wall colour index }
-        dotColor: { type: integer, description: 'Pac-Man dot colour (index in the colour list)' }
+        arcHours: { type: integer, description: 'Colour of the clock hours on Space Invaders and Pong: 0 the face''s own colour, 1 green, 2 pink, 3 blue, 4 lemon, 5 peach, 6 purple, 7 red, 8 orange, 9 cyan, 10 white' }
+        arcMinutes: { type: integer, description: 'Colour of the clock minutes on Space Invaders and Pong: 0 the face''s own colour, 1 green, 2 pink, 3 blue, 4 lemon, 5 peach, 6 purple, 7 red, 8 orange, 9 cyan, 10 white' }
+        arcScore: { type: integer, description: 'Colour of the score on Space Invaders and Pong: 0 the face''s own colour, 1 green, 2 pink, 3 blue, 4 lemon, 5 peach, 6 purple, 7 red, 8 orange, 9 cyan, 10 white' }
+        color: { type: integer, description: 'Pac-Man wall colour: 0 blue walls with a dark red night clock (default), 1 pastel purple, 2 pastel green, 3 pastel pink, 4 pastel blue, 5 peach, 6 lemon, 7 orange, 8 red, 9 cyan. The wall colour also sets the night-clock colour' }
+        dotColor: { type: integer, description: 'Pac-Man dot colour: 0 the face''s own colour, 1 green, 2 pink, 3 blue, 4 lemon, 5 peach, 6 purple, 7 red, 8 orange, 9 cyan, 10 white' }
         btPad: { type: boolean, description: 'Allow a Bluetooth game controller to steer Pac-Man. Off by default; uses about 90 KB of memory while on' }
-        pacmanClockColor: { type: integer, description: 'Colour of the clock hours (index in the colour list)' }
-        clockMinutesColor: { type: integer, description: 'Colour of the clock minutes (index in the colour list)' }
+        pacmanClockColor: { type: integer, description: 'Pac-Man clock hours colour: 0 the face''s own colour, 1 green, 2 pink, 3 blue, 4 lemon, 5 peach, 6 purple, 7 red, 8 orange, 9 cyan, 10 white' }
+        clockMinutesColor: { type: integer, description: 'Pac-Man clock minutes colour: 0 the face''s own colour, 1 green, 2 pink, 3 blue, 4 lemon, 5 peach, 6 purple, 7 red, 8 orange, 9 cyan, 10 white' }
         clockShade: { type: integer, minimum: 0, maximum: 1, description: 'Clock brightness: 0 subtle, 1 strong' }
         marioWorld: { type: integer, minimum: 0, maximum: 10, description: 'Mario and Luigi world: 1 rotate every hour (random), 0 overground, 2 underground, 3 castle, 4 snow, 5 underwater, 6 cloud top, 7 ghost house, 8 lava, 9 airship, 10 demo (cycle through all worlds)' }
         f1Flags: { type: boolean, description: Host country flag on the race screens }
@@ -1245,7 +1245,7 @@ components:
     SettingsForm:
       type: object
       description: |
-        Form fields of `POST /api/settings`: the keys of `Settings` above, plus `ghost1Color` to `ghost4Color`.
+        Form fields of `POST /api/settings`: the keys of `Settings` above, plus `ghost1Color` to `ghost4Color` (Pac-Man ghost colours, 0 to 10 as in the colour list: 0 the ghost's own colour, 1 green, 2 pink, 3 blue, 4 lemon, 5 peach, 6 purple, 7 red, 8 orange, 9 cyan, 10 white).
         Checkbox-type fields (booleans) are on when present. `nightStart` and `nightEnd` are `HH:MM`.
         Selections (`fbLeagues`, `f1Drivers`, `nbaTeams`, `mlbTeams`, `nflTeams`) are repeated fields or
         comma lists and are capped at 400 characters each.
