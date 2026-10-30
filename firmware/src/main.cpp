@@ -1870,7 +1870,7 @@ struct DimColour {
   float w[8];                          // wg wb gg gb og ob bg bb (1 = neutral)
 };
 static const char *const kDimNames[8] = {"wg", "wb", "gg", "gb", "og", "ob", "bg", "bb"};
-static const DimColour kDimDefault = {0, 1, 1, 2, 8, 5, 0, 31, 0.06f, {1, 1, 1, 1, 1, 1, 1, 1}};
+static const DimColour kDimDefault = {0, 1, 1, 2, 8, 0, 0, 31, 0.06f, {1, 1, 1, 1, 1, 1, 1, 1}};
 static DimColour dimColour = kDimDefault;
 static void applyDimColour() {
   brightFloor = dimColour.floorB;
