@@ -1184,7 +1184,7 @@ components:
         dither: { type: boolean, description: 'Smoother dark colours at low brightness (ordered dithering). Off by default' }
         swapBlueGreen: { type: boolean, description: 'Swap the blue and green channels. Turn on if the panel shows the wrong colours. Needs a restart' }
         telnet: { type: boolean, description: 'Remote console over Telnet on the local network. No password: use only on a trusted network' }
-        hiddenWifi: { type: boolean, default: false, description: The saved Wi-Fi network is hidden, so the clock retries the connection at boot instead of scanning for it first }
+        hiddenWifi: { type: boolean, default: false, description: The saved Wi-Fi network is hidden (set in the Wi-Fi setup page, not on the settings page), so the clock retries the connection at boot instead of scanning for it first }
         autoUpdate: { type: boolean, default: true, description: 'Check for a newer firmware once a day and install it automatically. The clock restarts when it installs' }
         birthdays: { type: string, description: 'Birthdays as one text, `MMDD:NAME:YYYY` entries separated by commas (up to 10). The year is optional (`0511:ELIOT:`), a space in a name is written as `_`. On the day the clock shows a birthday party instead of the face' }
         sportsOrder: { type: string, description: 'Sports that may take over the panel automatically, best first, as a comma list such as `f1,motogp,football`. Empty = automatic switching off' }
