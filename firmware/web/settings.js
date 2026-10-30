@@ -509,13 +509,14 @@ document.querySelectorAll('.sidebar nav a').forEach(link => link.addEventListene
 load();
 
 let updatePolling = false, currentFace = '';
-const betaServer = 'https://raw.githubusercontent.com/vandalon/ultimatrix/beta-updates';
+const betaServer = 'https://raw.githubusercontent.com/vandalon/ultimatrix/beta';
+const betaServerOld = betaServer + '-updates';  // the earlier branch name, still saved on some clocks
 async function refreshFirmware() {
   try {
     const response = await fetch('/api/firmware', {cache:'no-store'}); if (!response.ok) return;
     const state = await response.json();
     document.querySelector('#firmware-version').textContent = state.version;
-    { const field = document.querySelector('#update-server'); if (document.activeElement !== field) field.value = state.server || ''; document.querySelector('#update-beta').checked = (state.server || '') === betaServer; }
+    { const field = document.querySelector('#update-server'); if (document.activeElement !== field) field.value = state.server || ''; document.querySelector('#update-beta').checked = [betaServer, betaServerOld].includes(state.server || ''); }
     document.querySelector('#firmware-memory').textContent = Math.round(state.freeHeap / 1024) + ' KiB';
     document.querySelector('#firmware-status').textContent = state.message;
     document.querySelector('#firmware-latest').textContent = state.checking ? 'Checking…' : state.available ? state.latest + ' available' : state.checkedAt ? 'Up to date' : '—';

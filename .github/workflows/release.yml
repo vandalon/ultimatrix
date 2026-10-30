@@ -1,9 +1,9 @@
 name: Build and release
 # Every push to main, pull request and manual run builds every clock face (no signing, nothing published).
 # Push a tag such as v0.3.0 to also sign the update manifests, publish a GitHub release and deploy the web flasher and a mirror of the update files to GitHub Pages.
-# A tag with -beta in it (v0.3.0-beta.1) builds and signs the same way but only replaces the beta channel: the branch beta-updates, laid out as <face>/manifest.json,
+# A tag with -beta in it (v0.3.0-beta.1) builds and signs the same way but only replaces the beta channel: the branch beta (also still beta-updates, the old name), laid out as <face>/manifest.json,
 # and puts a beta web flasher and the beta API docs under /beta/ on the Pages site (the stable site comes back from the pages-stable branch).
-# Clocks follow it by entering https://raw.githubusercontent.com/vandalon/ultimatrix/beta-updates as the update server (Settings > Advanced); empty goes back to stable.
+# Clocks follow it by entering https://raw.githubusercontent.com/vandalon/ultimatrix/beta as the update server (Settings > Advanced); empty goes back to stable.
 on:
   push:
     branches: [main]
@@ -102,17 +102,18 @@ jobs:
         with:
           name: signed-release
           path: dist/release
-      - name: Replace the beta-updates branch (one commit, so old betas do not pile up in the repository)
+      - name: Replace the beta branch, and its old name beta-updates for clocks that still use it (one commit, so old betas do not pile up in the repository)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd dist/release
-          git init -q -b beta-updates
+          git init -q -b beta
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -q -m "Beta $GITHUB_REF_NAME"
-          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" beta-updates
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" beta
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" beta:beta-updates  # old address; remove once no clock uses it
   release:
     needs: sign
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-beta')  # only a stable release tag publishes
