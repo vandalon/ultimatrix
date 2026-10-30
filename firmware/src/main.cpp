@@ -996,7 +996,6 @@ static void saveSettings() {
   s.dither = server.hasArg("dither");
   s.telnet = server.hasArg("telnet");
   s.autoUpdate = server.hasArg("autoUpdate");
-  s.hiddenWifi = server.hasArg("hiddenWifi");
 #ifdef UM_SPORTS_SWITCH
   if (server.hasArg("sportsOrder")) {  // the sports page sends all of its fields together
     s.sportsOrder = server.arg("sportsOrder");
