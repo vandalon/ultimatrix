@@ -21,6 +21,7 @@ struct Player {
   char title[kText], artist[kText];
   char picture[kPicture];  // entity_picture path, empty when the player has none
   char station[kText];     // the radio station: from Home Assistant (media_channel) or the stream's own name; empty when unknown
+  char source[16];         // the player's chosen input ("TV", "Line-in"); empty when it has none
   uint8_t needsStation;    // 1: the station is still to be read from the stream (Snapshot::stream)
   uint32_t position, duration;  // seconds; position as of `at`, duration 0 when unknown (streams)
   uint32_t at;                  // millis() when the result arrived

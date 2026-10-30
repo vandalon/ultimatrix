@@ -2,6 +2,7 @@
 // Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 
+#include "ColonBlink.h"
 #include "F1Renderer.h"
 #include <PanelLayout.h>
 #include <ScreenTimer.h>
@@ -227,12 +228,11 @@ static void drawTimeRight(MatrixPanel_I2S_DMA *d, const char *s, int right, int 
   }
 }
 
-// The colon of the current time breathes: a fade between a third and full brightness, in 32 steps (a frame is 50 ms)
-static const unsigned long PULSE_MS = 2000;
-int pulseLevel() { return (int)roundf((0.5f - 0.5f * cosf((millis() % PULSE_MS) * 6.2831853f / PULSE_MS)) * 31); }
+// The colon of the current time blinks: 31 while it is on, 0 while it is off (a frame is 50 ms)
+int pulseLevel() { return colon::on(millis()) ? 31 : 0; }
 // Blend toward the background at the dim end: headers and backdrop tiles keep their colour beneath the pulse
 static uint16_t pulsed(uint16_t color, uint16_t bg = 0) {
-  int f = 85 + pulseLevel() * 170 / 31;  // out of 255; keep the dim end visible to avoid a blink
+  int f = pulseLevel() * 255 / 31;  // out of 255
   auto mix = [f](int c, int b) { return b + (c - b) * f / 255; };
   int r = mix(color >> 11 & 31, bg >> 11 & 31), g = mix(color >> 5 & 63, bg >> 5 & 63), b = mix(color & 31, bg & 31);
   return r << 11 | g << 5 | b;

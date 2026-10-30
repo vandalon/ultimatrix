@@ -19,7 +19,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 14 clock fa
 - main/CMakeLists.txt: mode/source selection, generated timezone table, embedded web assets; MotoGP selects the F1 face
 - components/clock-libraries/CMakeLists.txt: vendored display/Wi-Fi libraries and shared panel colour-depth setting
 - partitions.csv, sdkconfig.defaults, dependencies.lock: partition table, IDF config, deps
-- src/main.cpp: app entry (setup/loop), service wiring, mDNS peer detection with MAC-suffixed hostnames for multiple clocks, boot/geo-IP/update flow and web/API routes, read-only /api/screen BMP preview
+- src/main.cpp: app entry (setup/loop), service wiring, dim-colour options and the calibrated brightness floor (GET/POST /api/dim-colour, NVS blob dimColour; panelBrightness() spreads user brightness 1..255 over floor..255; night level for the red night clock via dimColour night=, preview POST /api/night-test), mDNS peer detection with MAC-suffixed hostnames for multiple clocks, boot/geo-IP/update flow and web/API routes, read-only /api/screen BMP preview
 - HANDOFF.txt: older firmware-local notes; root HANDOFF.txt holds current state
 
 ### clockfaces/<name>/ (each: Clockface.cpp/.h, library.json)
@@ -45,7 +45,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 14 clock fa
 - Birthdays.h: birthday setting parse/clean/lookup. BirthdayCanvas.h: 3 KB band renderer + fonts; BirthdayParty.h: the birthday screen (24 s story loop)
 - FirmwareUpdate.cpp/.h, UpdateTrust.h: OTA update + trust/verification
 - TimeService, ClockTime, NightClock, SunTimes: time, timezone, night mode, sunrise/sunset
-- PanelTier.h: panel colour quality levels (depth, I2S clock, refresh), the NVS state and the retry rule
+- PanelTier.h: the panel colour quality (8 bit, 20 MHz, 100 Hz; a light one for the update-only boot); no levels or fall-back
 - DisplayControl, PanelLayout, BootScreen, ScreenTimer, FlipDigits, NumericFont, LapFonts: display/panel helpers, fonts
 - TelnetConsole.cpp/.h, Console.h: remote logging console
 - ScreenPng.h: bounded 192x192 indexed PNG encoder (kScale 3) from 64x64 display rows; square LED gaps, fixed DEFLATE runs/repeated cells/rows, no large framebuffer or zlib window
@@ -97,6 +97,8 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 14 clock fa
 - package-firmware.py: packages application images and signed OTA manifests into dist/ (generated)
 - check-nvs-keys.py: fails when a key stored in the "ultimatrix" NVS namespace is missing from kKnownKeys (main.cpp) or the Home cleanup list; runs in CI
 - check-static-ram.py: post-build check that fails a face above the 60 KB static RAM budget (hooked in firmware/CMakeLists.txt)
+- hue-test.sh: steps the clock through panel brightness levels with the POST /api/hue-test swatch grid (8 hues x 8 values); WG/WB env set the low-light channel weights
+- colour-calibrate.py: finds the lowest panel brightness with right colours (test grid at rising levels, stores it as the floor via POST /api/dim-colour floor=); --tune also tries the optional hue guard, search and per-LED weights (Ctrl-C restores)
 
 - img2base64.py: JPEG/PNG -> 64x64 rgb565_base64 JSON payload for MQTT pixels/set (Pillow)
 - football-catalog/generate.py: adds leagues (+ ESPN club lists) to lib/core/FootballCatalog.h and regroups the picker by continent; re-runnable

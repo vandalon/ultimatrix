@@ -349,7 +349,6 @@ async function load() {
     showPin(data.pinSet);
     const racing = data.mode === 'F1' || data.mode === 'MotoGP', sporty = racing || data.mode === 'Football';
     const pacman = data.mode === 'Pac-Man', arcade = pacman || data.mode === 'Invaders' || data.mode === 'Pong';   // faces you can play from this page
-    field('dither').closest('label').style.display = arcade || data.mode === 'Mario' || data.mode === 'Luigi' ? 'none' : '';  // those faces decide for themselves
     const homeFace = data.mode === 'Home'; document.querySelector('#homeassistant').hidden = !homeFace; document.querySelector('#nav-ha').hidden = !homeFace;
     if (homeFace) { initHomeAssistant(); document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('#nav-ha').classList.add('active'); }
     section('[data-sports]', sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'NFL' || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade); section('[data-sportfields]', sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'NFL'); section('[data-clockanim]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', arcade);
@@ -395,6 +394,7 @@ async function load() {
     document.querySelector('#sidebar-ip').textContent = data.network.ip || 'Offline';
     if (data.welcomeHidden && !data.welcomeMode) hideWelcome();
     document.body.classList.toggle('welcome-only', !!data.welcomeMode);
+    window.calWelcome?.();
     { const start = document.querySelector('#welcome-start'); if (start) start.hidden = !data.welcomeMode; const dismiss = document.querySelector('#welcome-dismiss'); if (dismiss) dismiss.parentElement.hidden = !!data.welcomeMode; }
     { const link = document.querySelector('#welcome-ip'); const url = data.network.ip ? 'http://' + data.network.ip + '/' : ''; if (link) { link.textContent = url || '—'; link.href = url || '#'; } }
     lightNow = data.lightReading; nightWhy = data.nightWhy || '';
@@ -589,38 +589,6 @@ document.querySelector('#faces').addEventListener('click', event => {
 });
 refreshFirmware();
 
-// Colour quality: the clock lowers it by itself when memory runs short (and tries again after a quiet day when it was a busy time)
-async function refreshDisplay() {
-  try {
-    const response = await fetch('/api/display', {cache:'no-store'}); if (!response.ok) return;
-    const state = await response.json(), select = document.querySelector('#display-quality');
-    select.innerHTML = '';
-    select.add(new Option('Automatic', '0'));
-    state.levels.forEach((name, index) => select.add(new Option((index === 0 ? 'Best' : index === state.levels.length - 1 ? 'Lowest' : 'Level ' + (index + 1)) + ' · ' + name, String(index + 1))));
-    select.value = String(state.lock);
-    const name = state.levels[state.level - 1];
-    let text = 'Running at ' + name + '.';
-    if (state.lock) text = 'Fixed at ' + name + '. The clock does not change it.';
-    else if (state.level > 1) text = 'Lowered to ' + name + ' after memory ran short' + (state.reason === 'busy' ? ' during live data. It tries the best quality again from ' + state.retryHour + ':00, when nothing live is running.' : ' at a quiet time. It stays until you reset it.');
-    document.querySelector('#display-status').textContent = text;
-    document.querySelector('#display-reset').hidden = state.lock !== 0 || state.level === 1;
-    const lowered = state.lock === 0 && state.level > 1;
-    document.querySelector('#display-banner').hidden = !lowered;
-    if (lowered) document.querySelector('#display-banner-text').textContent = 'The clock ran short of memory and now runs at ' + name + ' (level ' + state.level + ' of ' + state.levels.length + '). ' + (state.reason === 'busy' ? 'It tries the best quality again from ' + state.retryHour + ':00 when nothing live is running.' : 'It stays until you reset it.');
-  } catch (_) {}
-}
-async function saveDisplay(body) {
-  try {
-    const response = await fetch('/api/display', {method:'POST', body}); const result = await response.json();
-    if (!response.ok) throw new Error(result.message);
-    busy = true; controls.disabled = true; message(result.message); setTimeout(reconnect, 2500);
-  } catch (error) { message(error.message || 'Could not save the display quality.', true); }
-}
-document.querySelector('#display-quality').addEventListener('change', event => saveDisplay(new URLSearchParams({lock: event.target.value})));
-document.querySelector('#display-reset').addEventListener('click', () => saveDisplay(new URLSearchParams({reset: '1'})));
-document.querySelector('#display-banner-reset').addEventListener('click', () => saveDisplay(new URLSearchParams({reset: '1'})));
-refreshDisplay();
-
 function hideWelcome() { document.querySelector('#welcome')?.remove(); document.querySelector('.sidebar nav a[href="#welcome"]')?.remove(); }
 document.querySelector('#welcome-dismiss')?.addEventListener('click', async () => {
   try { const response = await fetch('/api/welcome/dismiss', { method: 'POST' }); if (response.ok) hideWelcome(); } catch (_) {}
@@ -721,9 +689,9 @@ function haBindSuggest(input, kind) {
 // Several entities in one field, as tags (like the favourite teams): the value stays "id,id,id", with "auto" as a single tag
 const HA_TILE_MULTI = [0, 1, 2, 3];  // temperature, humidity, people and power tiles combine several entities
 function haLock(root, off) { root.querySelector('input').disabled = off; root.style.opacity = off ? 0.5 : ''; root.style.pointerEvents = off ? 'none' : ''; }
-function haTags(value, placeholder, kind, limit = 95) {
+function haTags(value, placeholder, kind, limit = 95, sortable = false) {
   let ids = (value || '').split(',').map(id => id.trim()).filter(Boolean);
-  const list = haEl('div', {className: 'tags'}), input = haEl('input', {type: 'text', placeholder, autocomplete: 'off', spellcheck: false});
+  const list = haEl('div', {className: sortable ? 'choice-list' : 'tags'}), input = haEl('input', {type: 'text', placeholder, autocomplete: 'off', spellcheck: false});
   const box = haEl('div', {className: 'tag-box'}, list, input), menu = haEl('div', {className: 'suggest', hidden: true}), note = haEl('p', {className: 'hint'});
   const root = haEl('div', {}, box, menu, note);
   let shown = [], active = 0, seq = 0;
@@ -732,8 +700,14 @@ function haTags(value, placeholder, kind, limit = 95) {
     list.replaceChildren(...ids.map(id => {
       const remove = haEl('button', {type: 'button', className: 'tag-x', textContent: '×'}); remove.setAttribute('aria-label', 'Remove ' + id);
       remove.addEventListener('click', () => { ids = ids.filter(one => one !== id); changed(); input.focus(); });
-      return haEl('span', {className: 'tag'}, id, remove);
+      if (!sortable) return haEl('span', {className: 'tag'}, id, remove);
+      const grip = haEl('span', {className: 'grip', textContent: '⋮⋮', title: 'Drag to change the order'});  // a row per entry, dragged like the page order
+      grip.style.cssText = 'cursor:grab;touch-action:none;user-select:none;padding:6px 10px;font-weight:700;opacity:.7';
+      const row = haEl('div', {className: 'bday'}, haEl('span', {textContent: id}), remove, grip);
+      row.dataset.id = id;
+      return row;
     }));
+    if (sortable) haSortable(list, () => { ids = [...list.children].map(r => r.dataset.id); root.dispatchEvent(new Event('change', {bubbles: true})); });
     note.textContent = ids.join(',').length > limit ? 'Too many for the clock to store: remove one.' : '';
     note.hidden = !note.textContent;
   };
@@ -864,8 +838,9 @@ async function initHomeAssistant() {
   tlsBox.addEventListener('change', () => { if (tlsBox.checked && ['8123', '80'].includes(port.value)) port.value = 443; else if (!tlsBox.checked && port.value === '443') port.value = 8123; });
 
   const [energyBox, energyLabel] = haCheck('Energy page', state.pages & 2), [homeBox, homeLabel] = haCheck('Home page', state.pages & 1);
-  const [mediaBox, mediaLabel] = haCheck('Now playing page', state.pages & 4), [devicesBox, devicesLabel] = haCheck('Device problems page', state.pages & 8), [backdropBox, backdropLabel] = haCheck('Show the album art, dimmed, behind every page', state.pages & 16), [onlineBox, onlineLabel] = haCheck('Find missing album art online', state.pages & 32), [logoBox, logoLabel] = haCheck('Show the station logo of radio streams', state.pages & 64);
+  const [mediaBox, mediaLabel] = haCheck('Now playing page', state.pages & 4), [devicesBox, devicesLabel] = haCheck('Device problems page', state.pages & 8), [backdropBox, backdropLabel] = haCheck('Show the album art, dimmed, behind every page', state.pages & 16), [onlineBox, onlineLabel] = haCheck('Find missing album art online', state.pages & 32), [logoBox, logoLabel] = haCheck('Show the station logo of radio streams', state.pages & 64), [offlineBox, offlineLabel] = haCheck('Device problems page only when a device is offline', state.pages & 128), [phonoBox, phonoLabel] = haCheck('Show the Line-in source as a record player (Phono)', state.phono), [bareBox, bareLabel] = haCheck('Skip Now playing when there is no song info', state.noinfo), [exportBox, exportLabel] = haCheck('Energy page: three rows (solar by day, battery at night) and a graph that also shows the power sent out', state.export), [thinBox, thinLabel] = haCheck('Time and date at the top in thin letters (1 px) instead of fat ones (2 px)', state.thin);
   const secs = haEl('input', {type: 'number', min: 3, max: 120, value: state.pageSecs});
+  const weeks = haEl('input', {type: 'number', min: 1, max: 26, value: state.weeks || 13});
   const pages = haGroup('Pages', 'The clock starts on the Energy page and rotates between the pages you tick. A page without data is skipped: the Energy page needs its entities below, Now playing needs something playing, and Device problems lists low batteries (20% or less) and offline devices, so it only shows while there are any. Find missing album art online: when the player has no picture of its own (or one outside Home Assistant), the clock searches Deezer, then iTunes, by artist and title, and downloads the cover. This sends the artist and song name to those services. Show the station logo: a radio stream without a cover shows the logo of its station instead of the placeholder, and also when the search finds nothing. The logo is found by station name in the radio-browser.info directory and resized by wsrv.nl, which sends them the station name and your country. The album art option needs a media player under Now playing; while it plays, its cover sits at a quarter brightness behind every other page.');
   const pageLabels = {E: energyLabel, H: homeLabel, M: mediaLabel, D: devicesLabel};
   const pageList = haEl('div', {className: 'choice-list'});
@@ -878,10 +853,10 @@ async function initHomeAssistant() {
   }
   const pageOrder = () => [...pageList.children].map(r => r.dataset.id).join('');
   haSortable(pageList, () => pageList.dispatchEvent(new Event('change', {bubbles: true})));
-  pages.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Page order, drag to change'}), pageList), haEl('div', {className: 'field'}, backdropLabel), haEl('div', {className: 'field'}, onlineLabel), haEl('div', {className: 'field'}, logoLabel), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Seconds per page'}), secs));
+  pages.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Page order, drag to change'}), pageList), haEl('div', {className: 'field'}, backdropLabel), haEl('div', {className: 'field'}, onlineLabel), haEl('div', {className: 'field'}, logoLabel), haEl('div', {className: 'field'}, offlineLabel), haEl('div', {className: 'field'}, phonoLabel), haEl('div', {className: 'field'}, bareLabel), haEl('div', {className: 'field'}, exportLabel), haEl('div', {className: 'field'}, thinLabel), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Seconds per page'}), secs), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Energy graph: weeks of history for the expected usage'}), weeks, haEl('small', {textContent: 'The expected usage of the coming hours is the average of the same weekday over this many weeks. Days with very low usage (holidays) are ignored, but with only a few weeks a holiday can still leave too little to go on, or skew the average: use at least 8 weeks if you travel a lot. Needs a house or grid power sensor with statistics.'})));
   body.append(pages);
-  const playing = haGroup('Now playing', 'Pick up to four rooms (media players). The page shows the title, the artist and the album art of the first of them that is playing (the order below), and is skipped when none is. Album art needs a JPEG picture from Home Assistant; other pictures show a note.');
-  const rooms = haTags((state.media || []).filter(Boolean).join(','), 'Type to find a media player…', () => 'media', 400);
+  const playing = haGroup('Now playing', 'Pick up to four rooms (media players). The page shows the title, the artist and the album art of the first of them that is playing: drag the rooms to change the order, and is skipped when none is. Album art needs a JPEG picture from Home Assistant; other pictures show a note.');
+  const rooms = haTags((state.media || []).filter(Boolean).join(','), 'Type to find a media player…', () => 'media', 400, true);
   playing.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Rooms'}), rooms));
   body.append(playing);
 
@@ -1022,7 +997,7 @@ async function initHomeAssistant() {
   showStatus();
   let lastSent = '', haSaving = false, haSaveTimer;
   const build = () => {
-    const body = new URLSearchParams({host: host.value, port: port.value || '8123', tls: tlsBox.checked ? '1' : '0', order: pageOrder(), pages: String((homeBox.checked ? 1 : 0) | (energyBox.checked ? 2 : 0) | (mediaBox.checked ? 4 : 0) | (devicesBox.checked ? 8 : 0) | (backdropBox.checked ? 16 : 0) | (onlineBox.checked ? 32 : 0) | (logoBox.checked ? 64 : 0)), pageSecs: secs.value,
+    const body = new URLSearchParams({host: host.value, port: port.value || '8123', tls: tlsBox.checked ? '1' : '0', order: pageOrder(), pages: String((homeBox.checked ? 1 : 0) | (energyBox.checked ? 2 : 0) | (mediaBox.checked ? 4 : 0) | (devicesBox.checked ? 8 : 0) | (backdropBox.checked ? 16 : 0) | (onlineBox.checked ? 32 : 0) | (logoBox.checked ? 64 : 0) | (offlineBox.checked ? 128 : 0)), pageSecs: secs.value, phono: phonoBox.checked ? '1' : '0', noinfo: bareBox.checked ? '1' : '0', export: exportBox.checked ? '1' : '0', thin: thinBox.checked ? '1' : '0', weeks: weeks.value,
       gridImportPositive: gridBox.checked ? '1' : '0', batteryDischargePositive: batteryBox.checked ? '1' : '0', doorbell: doorbell.value, washerEntity: washer.value, washerFlags: String(washerPopup.value()),
       alarmFlags: String(alarmPopup.value()), doorbellFlags: String(bellPopup.value())});
     if (token.value.trim()) body.set('token', token.value.trim());
@@ -1092,6 +1067,11 @@ async function loadStorage() {
   } catch (_) { summary.textContent = 'Could not read the storage.'; }
 }
 document.querySelector('#storage-card').addEventListener('toggle', event => { if (event.target.open) loadStorage(); });
+document.querySelector('#storage-updates').addEventListener('click', async () => {
+  if (!confirm('Clear the update records?')) return;
+  try { const response = await fetch('/api/storage/clear?updates=1', { method: 'POST' }); if (!response.ok) throw new Error('Could not clear the update records.'); message('Cleared'); await loadStorage(); }
+  catch (error) { message(error.message, true); }
+});
 document.querySelector('#storage-clear').addEventListener('click', async event => {
   const button = event.currentTarget;
   if (!confirm('Remove ' + button.dataset.count + ' cached item(s), ' + Math.ceil(button.dataset.bytes / 1024) + ' KB? Saved drawings stay.')) return;
@@ -1302,3 +1282,62 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
 document.querySelector('#nflDemo')?.addEventListener('click', async () => {
   try { const r = await fetch('/api/nfl/demo', { method: 'POST', body: new URLSearchParams({ on: 1 }) }); if (!r.ok) throw new Error(await r.text()); message('Demo started: every screen once'); } catch (error) { message(error.message, true); }
 });
+
+{  // Display > Calibrate colours: the lowest panel brightness that keeps this panel's colours right (POST /api/dim-colour floor=); brightness 1 then means that level
+  const card = document.querySelector('#calibrate-card');
+  if (card) {
+    const q = selector => card.querySelector(selector);
+    const level = q('#cal-level'), out = q('#cal-out'), start = q('#cal-start'), save = q('#cal-save'), cancel = q('#cal-cancel'), clear = q('#cal-clear'), run = q('#cal-run'), status = q('#cal-status'), map = q('#cal-map');
+    let floorNow = 0, timer = 0, keep = 0;
+    const post = (path, params) => fetch(path + '?' + new URLSearchParams(params), { method: 'POST' });
+    const show = () => { const percent = +level.value, value = Math.round(percent * 2.55); out.textContent = percent + '% (' + value + '/255)'; map.textContent = 'After saving, brightness 1 means ' + percent + '% on the panel and 255 still means full brightness.'; return value; };
+    const grid = () => post('/api/hue-test', { b: show(), secs: 90, wide: 1 }).catch(() => {});
+    const welcome = () => { const notice = document.querySelector('#welcome-cal'); if (notice) notice.hidden = !!floorNow || document.body.classList.contains('welcome-only'); };
+    window.calWelcome = welcome;
+    const refresh = async () => {
+      try { floorNow = (await (await fetch('/api/dim-colour', { cache: 'no-store' })).json()).floor || 0; } catch (_) {}
+      status.textContent = floorNow ? 'Calibrated: brightness 1 is ' + Math.round(floorNow / 2.55) + '% on the panel.' : "Not calibrated: brightness 1 is the panel's lowest step.";
+      clear.hidden = !floorNow || !run.hidden; welcome();
+    };
+    const stop = () => { clearTimeout(timer); clearInterval(keep); run.hidden = save.hidden = cancel.hidden = true; start.hidden = false; post('/api/hue-test', { b: 0 }).catch(() => {}); };
+    start.addEventListener('click', () => { level.value = floorNow ? Math.round(floorNow / 2.55) : 12; run.hidden = save.hidden = cancel.hidden = false; start.hidden = true; clear.hidden = true; grid(); clearInterval(keep); keep = setInterval(grid, 60000); });
+    level.addEventListener('input', () => { show(); clearTimeout(timer); timer = setTimeout(grid, 250); });
+    cancel.addEventListener('click', () => { stop(); refresh(); });
+    save.addEventListener('click', async () => {
+      const value = show();
+      try { if (!(await post('/api/dim-colour', { floor: value })).ok) throw new Error('save'); } catch (_) { status.textContent = 'Could not save.'; return; }
+      stop(); await refresh();
+      const minimum = field('minimumBrightness');  // the old minimum would sit on top of the new floor
+      if (minimum && +minimum.value > 1) { minimum.value = 1; minimum.dispatchEvent(new Event('input', { bubbles: true })); }
+    });
+    clear.addEventListener('click', async () => { try { await post('/api/dim-colour', { floor: 0 }); } catch (_) {} refresh(); });
+    document.querySelector('#welcome-cal-button')?.addEventListener('click', () => { card.open = true; card.scrollIntoView({ behavior: 'smooth', block: 'center' }); start.click(); });
+    refresh();
+  }
+}
+
+{  // Display > Night mode brightness: the panel brightness in night mode (POST /api/dim-colour night=; previewed with POST /api/night-test)
+  const card = document.querySelector('#night-tune-card');
+  if (card) {
+    const q = selector => card.querySelector(selector);
+    const level = q('#nt-level'), out = q('#nt-out'), start = q('#nt-start'), save = q('#nt-save'), cancel = q('#nt-cancel'), run = q('#nt-run'), status = q('#nt-status');
+    let nightNow = 0, timer = 0, keep = 0;
+    const post = (path, params) => fetch(path + '?' + new URLSearchParams(params), { method: 'POST' });
+    const show = () => { out.textContent = level.value + '/255'; return +level.value; };
+    const preview = () => post('/api/night-test', { b: show(), secs: 90 }).catch(() => {});
+    const refresh = async () => {
+      try { nightNow = (await (await fetch('/api/dim-colour', { cache: 'no-store' })).json()).night || 0; } catch (_) {}
+      status.textContent = nightNow ? 'Night mode brightness: ' + nightNow + '/255.' : 'Night mode follows the Minimum brightness slider.';
+    };
+    const stop = () => { clearTimeout(timer); clearInterval(keep); run.hidden = save.hidden = cancel.hidden = true; start.hidden = false; post('/api/night-test', { b: 0 }).catch(() => {}); };
+    start.addEventListener('click', () => { level.value = nightNow || 31; run.hidden = save.hidden = cancel.hidden = false; start.hidden = true; preview(); clearInterval(keep); keep = setInterval(preview, 60000); });
+    level.addEventListener('input', () => { show(); clearTimeout(timer); timer = setTimeout(preview, 250); });
+    cancel.addEventListener('click', () => { stop(); refresh(); });
+    save.addEventListener('click', async () => {
+      const value = show();
+      try { if (!(await post('/api/dim-colour', { night: value })).ok) throw new Error('save'); } catch (_) { status.textContent = 'Could not save.'; return; }
+      stop(); await refresh();
+    });
+    refresh();
+  }
+}

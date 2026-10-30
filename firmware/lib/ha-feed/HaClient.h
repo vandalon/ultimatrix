@@ -28,9 +28,17 @@ class HaClient {
     void prefs(EnergyPrefs &out);    // the latest answer
 
     // The last hours of usage and solar power (kW), from the recorder; hour is when the newest bar starts (epoch seconds)
-    struct History { float use[ha::kHistoryBars] = {}, solar[ha::kHistoryBars] = {}; uint32_t useMask = 0, solarMask = 0, hour = 0; uint32_t version = 0; };
+    struct History { float use[ha::kHistoryBars] = {}, solar[ha::kHistoryBars] = {}, battery[ha::kHistoryBars] = {}, grid[ha::kHistoryBars] = {}, gridOut[ha::kHistoryBars] = {}; uint32_t useMask = 0, solarMask = 0, batteryMask = 0, gridMask = 0, gridOutMask = 0, hour = 0; uint32_t version = 0; };  // gridOut: what the grid received in the hour (kWh = average kW), from its energy meter
     void history(History &out);
     uint32_t historyVersion() const { return _historyVersion; }
+
+    // The coming hours of today: solar forecast (kW, from the Energy dashboard's forecast) and the expected usage (kW, the same
+    // weekday of earlier weeks without the low days). day is dayKey() of the date they are for; the bit of an hour is set when it has a value
+    struct Outlook { float solar[24] = {}, use[24] = {}, out[24] = {}, nextUse[24] = {}, nextOut[24] = {}; uint32_t solarMask = 0, useMask = 0, outMask = 0, nextUseMask = 0, nextOutMask = 0;  // next: the same for tomorrow (no solar forecast)  // out: the usual export per hour, from the to-grid meters
+    int solarDay = -1, useDay = -1, nextDay = -1; uint32_t useDays = 0; float peak = 0; int peakDay = -1; };
+    void outlook(Outlook &out);
+    uint32_t outlookVersion() const { return _outlookVersion; }
+    static int dayKey(time_t when);  // the local date as one number
 
     // The energy sensors in use, with "auto" resolved from the Energy dashboard; false until a connection has resolved them
     bool energyIds(char (*out)[ha::kEntity]);
@@ -58,6 +66,8 @@ class HaClient {
     float _today[4] = {};      // today's kWh of usage, solar, battery and grid, from the recorder's statistics
     uint8_t _todayOk = 0;
     History _history;
+    Outlook _outlook;
+    std::atomic<uint32_t> _outlookVersion{0};
     char _resolved[ha::E_COUNT][ha::kEntity] = {};
     char _gridTo[ha::kEntity] = "";  // with the grid on auto: the production meters, taken off the grid's kWh
     bool _resolvedOk = false;

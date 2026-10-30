@@ -156,7 +156,7 @@ void Settings::load() {
     // No valid record (a fresh or factory-reset clock; the keys of firmware before version 2 are erased at every start): the defaults
     rotation = 0; matchSecs = 8; resultMins = 120; timeStyle = 2; numberFont = 1;
     autoBrightness = lightSensorReadable(ldrPin);  // auto brightness on when a light sensor answers
-    minimumBrightness = 3;
+    minimumBrightness = 31;  // 12 %: dimmer than this the colours lose their shades
     brightness = autoBrightness ? 255 : 128;  // full with auto brightness, otherwise half
     swapBlueGreen = false; ballRoll = true; showRankings = true; f1Flags = false; telnet = false;
     f1Drivers = "";
@@ -202,6 +202,7 @@ bool Settings::save() {
   Preferences p;
   if (!p.begin("ultimatrix", false)) return false;
   bool saved = p.putBytes("settingsV2", &record, sizeof(record)) == sizeof(record);  // one write commits everything
+  if (!saved) { p.remove("settingsV2"); saved = p.putBytes("settingsV2", &record, sizeof(record)) == sizeof(record); }  // the flash of settings is small: when the new record does not fit next to the old one, replace it instead of updating it
   if (saved) saved = p.putString("clockName", clockName) == clockName.length();
   if (saved) saved = p.putBool("mdnsUseName", mdnsUseName) == 1;
   if (saved) p.putBool("anyHost", anyHost);

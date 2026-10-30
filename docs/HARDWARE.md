@@ -169,6 +169,16 @@ Automatic brightness needs a light-dependent resistor. Wire a voltage divider:
 
 GPIO 35 is the default. The settings page accepts GPIO 32, 33, 34, 35, 36 or 39, which are the ADC1 pins. GPIO 34 to 39 are input-only, which suits a sensor. After wiring, open the settings page and turn on Automatic brightness. Set the dark and light calibration values while the sensor is in each condition.
 
+## Dim colours (optional)
+
+At low brightness a colour is only a few whole LED-on steps, so the mix of red, green and blue can drift (amber turns orange, a pale green turns fully green). How much depends on the panel, because the LEDs of different brands give different light per step. By default the clock uses the plain brightness table with no correction; the cleanest fix is a minimum brightness that keeps the colours right on your panel (Settings > Display > Calibrate colours, or the script below): the lowest brightness where your colours still look right becomes the panel's lowest step, so brightness 1 means that level and 255 stays full. A hue guard that keeps a dim pixel from turning black or grey, a nearest-colour search and per-LED weights are optional.
+
+Options, over the clock's API (no settings-page entry yet):
+
+- `GET /api/dim-colour` shows the current values.
+- `POST /api/dim-colour` changes them: `search` (nearest-colour search for dim pixels, 0/1), `guard` (hue guard, 0/1), `restore`, `guardMin` (plane weights below which the guard leaves a pixel black), and the per-LED weights `wg wb gg gb og ob bg bb` (1 = neutral). `save=0` applies until the next restart; `reset=1` restores the defaults.
+- `python3 firmware/tools/colour-calibrate.py CLOCK_IP` shows the test grid at rising panel brightness and stores the lowest level with right colours as the floor (`POST /api/dim-colour?floor=N`, 0-200; `floor=0` removes it; `reset=1` keeps it). Add `--tune` to also try the optional hue guard, search and weights and store the ones that look right.
+
 ## Pin conflicts
 
 These behaviours come from the ESP32 itself, not from this firmware. They matter if the clock misbehaves at boot.
@@ -195,7 +205,7 @@ If the board refuses to boot only with the panel plugged in, disconnect the HUB7
 | Colours wrong (red OK, green and blue swapped) | Panel wiring order differs. Use the **swap blue and green** option on the settings page; it needs **Save & restart**. |
 | Picture repeats or looks vertically scrambled | Address lines A–E wrong or loose (GPIO 23, 19, 5, 17, 18). Check E in particular for 64×64 panels. |
 | Picture is mirrored or rotated | Change the display orientation on the settings page. |
-| Flicker or noise, worse with long wires | Shorten and twist the signal wires; add a capacitor; the firmware also lowers colour quality automatically if it detects memory or timing trouble (Settings, Advanced, Display quality). |
+| Flicker or noise, worse with long wires | Shorten and twist the signal wires; add a capacitor. |
 | Random reboots at high brightness | Power supply too weak or wires too thin. Power the panel directly from the supply, and use a stronger supply. |
 | Board does not boot with the panel connected | A strapping pin is being held. See [Pin conflicts](#pin-conflicts). |
 | Dim, washed-out colours | Supply voltage sags under load. Measure 5 V at the panel connector. |

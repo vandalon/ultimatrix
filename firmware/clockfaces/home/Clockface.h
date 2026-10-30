@@ -42,15 +42,23 @@ class Clockface: public IClockface {
     // Now playing: the players that are playing, the one on show and its album art (kept here so the display never waits for the fetch)
     ha::media::Snapshot _media{};
     uint32_t _mediaSeen = 0, _scrollSince = 0;
+    bool _hideBare = false;  // the setting the snapshot in _media was filtered with
     char _scrollKey[ha::media::kText + 4] = "";
 
     ha::devices::Snapshot _devices{};
     uint32_t _devicesSeen = 0, _devicesSince = 0;
 
-    float _use[home::kBars] = {}, _solar[home::kBars] = {};  // kW per hour, the newest last
-    float _useSum = 0, _solarSum = 0;
-    int _samples = 0, _hourKey = -1;
-    uint32_t _historySeen = 0;
+    float _price[24] = {};  // the tariff per hour of today; known when its bit in _priceMask is set
+    uint32_t _priceMask = 0;
+    float _priceNext[24] = {};  // tomorrow's, when the sensor has them
+    uint32_t _priceNextMask = 0;
+    float _gridOut[24] = {}, _prevGridOut[24] = {};  // what the grid received in each hour (kWh) from its energy meter; below 0 for an hour without one
+    float _prevUse[24] = {}, _prevSolar[24] = {}, _prevBattery[24] = {}, _prevGrid[24] = {};  // the same for yesterday: the left of the graph before midnight
+    float _use[24] = {}, _solar[24] = {}, _battery[24] = {}, _grid[24] = {};  // battery: kW it delivers  // kW per hour of today (the hour in progress is the running mean)
+    float _useSum = 0, _solarSum = 0, _batterySum = 0, _gridSum = 0;
+    int _samples = 0, _hourKey = -1, _dayStamp = -1, _hour24 = 0, _hourApplied = -1;
+    uint32_t _historySeen = 0, _outlookSeen = 0;
+    HaClient::Outlook _outlook;    // the solar forecast and the expected usage of today
     HaClient::History _past;       // the recorder's last hours, kept to work out today's usage
     float _useToday = 0;           // kWh of usage since midnight, from the hourly means, when no energy sensor says
     bool _useTodayOk = false;

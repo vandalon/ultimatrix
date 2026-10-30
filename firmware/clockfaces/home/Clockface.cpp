@@ -1,16 +1,21 @@
 // Project-authored portions: SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
+#include "ColonBlink.h"
 #include "Clockface.h"
 
 #include <algorithm>
 #include <atomic>
 #include <math.h>
+#include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <esp_heap_caps.h>
 #include "Console.h"
 #include "FaceKit.h"
 #include "HaClient.h"
+#include "HaPrices.h"
 #include "NetworkBudget.h"
 #include "HaConfig.h"
 
@@ -112,7 +117,8 @@ void deriveUsage(ha::Snapshot &now) {
 }
 
 void kilowatts(char *out, size_t size, bool ok, float value) {
-  if (ok) snprintf(out, size, "%.1fKW", fabsf(value));  // always kilowatts: the same unit on every row
+  if (ok && fabsf(value) < 9.9995f) snprintf(out, size, "%dW", (int)fminf(9999.0f, lroundf(fabsf(value) * 1000)));  // watts up to 9999: the same unit on the rows that usually show
+  else if (ok) snprintf(out, size, "%.1fKW", fabsf(value));
   else strlcpy(out, "-", size);
 }
 
@@ -196,16 +202,33 @@ void Clockface::followSnapshot(uint32_t now) {
   }
 }
 
-// One average per hour, kept in memory: the bars on the Energy page. The newest bar is the hour in progress.
+// One average per hour of today, kept in memory: the bars on the Energy page (index = hour of the day). The hour in progress is the running mean.
 void Clockface::collectHours(int hourKey, int hour24, int minute) {
-  if (hourKey != _hourKey) {
-    if (_hourKey >= 0) {
-      memmove(_use, _use + 1, sizeof(_use) - sizeof(_use[0]));
-      memmove(_solar, _solar + 1, sizeof(_solar) - sizeof(_solar[0]));
-      _use[kBars - 1] = _solar[kBars - 1] = 0;
+  _hour24 = hour24;
+  if (hourKey / 24 != _dayStamp) {  // a new day starts empty
+    const bool nextDay = _dayStamp == hourKey / 24 - 1;
+    _dayStamp = hourKey / 24;
+    if (nextDay) {
+      memcpy(_prevUse, _use, sizeof(_use)); memcpy(_prevSolar, _solar, sizeof(_solar));
+      memcpy(_prevBattery, _battery, sizeof(_battery)); memcpy(_prevGrid, _grid, sizeof(_grid));
+      memcpy(_prevGridOut, _gridOut, sizeof(_gridOut));
+    } else {
+      memset(_prevUse, 0, sizeof(_prevUse)); memset(_prevSolar, 0, sizeof(_prevSolar));
+      memset(_prevBattery, 0, sizeof(_prevBattery)); memset(_prevGrid, 0, sizeof(_prevGrid));
+      for (float &v : _prevGridOut) v = -1.f;
     }
+    for (float &v : _gridOut) v = -1.f;
+    memset(_use, 0, sizeof(_use));
+    memset(_solar, 0, sizeof(_solar));
+    memset(_battery, 0, sizeof(_battery));
+    memset(_grid, 0, sizeof(_grid));
+    _priceMask = 0;
+    _hourApplied = -1;
+    _hourKey = -1;
+  }
+  if (hourKey != _hourKey) {
     _hourKey = hourKey;
-    _useSum = _solarSum = 0;
+    _useSum = _solarSum = _batterySum = _gridSum = 0;
     _samples = 0;
   }
   // The hours before this one come from Home Assistant's recorder, so the bars are there after a restart too
@@ -214,12 +237,41 @@ void Clockface::collectHours(int hourKey, int hour24, int minute) {
   if (client.historyVersion() != _historySeen) {
     client.history(_past);
     _historySeen = _past.version;
+    _hourApplied = -1;
+  }
+  if (_past.version && _hourApplied != hourKey) {
+    _hourApplied = hourKey;
     const int late = _past.hour <= thisHour ? (int)((thisHour - _past.hour) / 3600) : 0;  // hours since the answer was made
-    for (int i = 0; i < kBars - 1; i++) {
-      const int at = ha::kHistoryBars - 1 - (kBars - 1 - i) - late;
-      if (at < 0) continue;
-      if (_past.useMask >> at & 1) _use[i] = _past.use[at];
-      if (_past.solarMask >> at & 1) _solar[i] = _past.solar[at];
+    for (int h = 0; h < 24; h++) {  // yesterday's hours that the history still covers
+      const int at = ha::kHistoryBars - 1 - (hour24 + 24 - h) + late;
+      if (at < 0 || at > ha::kHistoryBars - 2 || h < hour24 + 14) continue;
+      if (_past.useMask >> at & 1) _prevUse[h] = _past.use[at];
+      if (_past.solarMask >> at & 1) _prevSolar[h] = _past.solar[at];
+      if (_past.batteryMask >> at & 1) _prevBattery[h] = _past.battery[at];
+      if (_past.gridMask >> at & 1) _prevGrid[h] = _past.grid[at];
+      _prevGridOut[h] = _past.gridOutMask >> at & 1 ? _past.gridOut[at] : -1.f;
+    }
+    for (int h = 0; h < hour24; h++) {
+      const int at = ha::kHistoryBars - 1 - (hour24 - h) + late;
+      if (at < 0 || at > ha::kHistoryBars - 2) continue;  // the last one was still running when it was asked: keep what was measured here
+      if (_past.useMask >> at & 1) _use[h] = _past.use[at];
+      if (_past.solarMask >> at & 1) _solar[h] = _past.solar[at];
+      if (_past.batteryMask >> at & 1) _battery[h] = _past.battery[at];
+      if (_past.gridMask >> at & 1) _grid[h] = _past.grid[at];
+      _gridOut[h] = _past.gridOutMask >> at & 1 ? _past.gridOut[at] : -1.f;
+    }
+  }
+  if (client.outlookVersion() != _outlookSeen) {
+    _outlookSeen = client.outlookVersion();
+    client.outlook(_outlook);
+  }
+  // The tariff of each hour of today, from the price sensor's attributes
+  _priceMask = _priceNextMask = 0;
+  ha::prices::Snapshot tariff;
+  if (ha::prices::snapshot(tariff) && tariff.day == hourKey / 24) {
+    for (int h = 0; h < 24; h++) {
+      if (tariff.mask >> h & 1) { _price[h] = tariff.hour[h]; _priceMask |= 1u << h; }
+      if (tariff.nextMask >> h & 1) { _priceNext[h] = tariff.next[h]; _priceNextMask |= 1u << h; }
     }
   }
   // Today's usage in kWh: the hourly means since midnight plus the hour in progress
@@ -228,8 +280,8 @@ void Clockface::collectHours(int hourKey, int hour24, int minute) {
   if (_past.version && _past.hour <= thisHour) {
     const int late = (int)((thisHour - _past.hour) / 3600);
     for (int k = 1; k <= hour24; k++) {
-      const int at = ha::kHistoryBars - 1 - k - late;
-      if (at >= 0 && (_past.useMask >> at & 1)) { _useToday += _past.use[at]; _useTodayOk = true; }
+      const int at = ha::kHistoryBars - 1 - k + late;
+      if (at >= 0 && at < ha::kHistoryBars && (_past.useMask >> at & 1)) { _useToday += _past.use[at]; _useTodayOk = true; }
     }
     // Before the first completed hour there are no bars for today yet.
     if (hour24 == 0 && _haveNow && (_now.energyOk >> ha::E_USAGE & 1)) _useTodayOk = true;
@@ -238,11 +290,20 @@ void Clockface::collectHours(int hourKey, int hour24, int minute) {
   if (!_haveNow) return;
   if (_now.energyOk >> ha::E_USAGE & 1) {
     _useSum += _now.energy[ha::E_USAGE];
-    _use[kBars - 1] = _samples ? _useSum / (_samples + 1) : _now.energy[ha::E_USAGE];
+    _use[hour24] = _samples ? _useSum / (_samples + 1) : _now.energy[ha::E_USAGE];
   }
   if (_now.energyOk >> ha::E_SOLAR & 1) {
     _solarSum += _now.energy[ha::E_SOLAR];
-    _solar[kBars - 1] = _samples ? _solarSum / (_samples + 1) : _now.energy[ha::E_SOLAR];
+    _solar[hour24] = _samples ? _solarSum / (_samples + 1) : _now.energy[ha::E_SOLAR];
+  }
+  if (_now.energyOk >> ha::E_BATTERY & 1) {
+    _batterySum += _now.energy[ha::E_BATTERY] * (ha::config().batteryDischargePositive ? 1 : -1);
+    _battery[hour24] = _samples ? _batterySum / (_samples + 1) : _now.energy[ha::E_BATTERY] * (ha::config().batteryDischargePositive ? 1 : -1);
+  }
+  if (_now.energyOk >> ha::E_GRID & 1) {
+    const float sign = ha::config().gridImportPositive ? 1.0f : -1.0f;
+    _gridSum += _now.energy[ha::E_GRID] * sign;
+    _grid[hour24] = _samples ? _gridSum / (_samples + 1) : _now.energy[ha::E_GRID] * sign;
   }
   _samples++;
 }
@@ -258,7 +319,7 @@ int Clockface::pagesAvailable(uint8_t *pages) const {
     if (*letter == 'E' && (config.pages & ha::PAGE_ENERGY) && energy) pages[count++] = SCREEN_ENERGY;
     else if (*letter == 'H' && (config.pages & ha::PAGE_HOME)) pages[count++] = SCREEN_HOME;
     else if (*letter == 'M' && (config.pages & ha::PAGE_MEDIA) && _media.count) pages[count++] = SCREEN_MEDIA;  // only while something is playing
-    else if (*letter == 'D' && (config.pages & ha::PAGE_DEVICES) && (_devices.lowTotal || _devices.offlineTotal)) pages[count++] = SCREEN_DEVICES;  // only while something is low or offline
+    else if (*letter == 'D' && (config.pages & ha::PAGE_DEVICES) && (_devices.offlineTotal || (!(config.pages & ha::PAGE_DEVICES_OFFLINE) && _devices.lowTotal))) pages[count++] = SCREEN_DEVICES;  // only while something is low or offline
   }
   if (!count) pages[count++] = SCREEN_HOME;
   return count;
@@ -339,39 +400,212 @@ void Clockface::fillEnergy(Frame &frame) const {
   auto have = [&](int e) { return (_now.energyOk >> e & 1) != 0; };
   auto value = [&](int e) { return _now.energy[e]; };
 
-  if (usageShown(config)) {
-    frame.rowIcon[0] = SI_HOUSE; frame.rowTone[0] = T_AMBER;
-    kilowatts(frame.left[0], 8, have(ha::E_USAGE), value(ha::E_USAGE));
-    if (have(ha::E_USAGE_KWH) || !_useTodayOk) kilowattHours(frame.right[0], 8, have(ha::E_USAGE_KWH), value(ha::E_USAGE_KWH));
-    else kilowattHours(frame.right[0], 8, true, _useToday);  // no meter: worked out from the hourly means
-  }
-  // The middle row is solar; with no solar power it is the battery when that is giving power to the house
+  // Up to four rows: the house, the solar panels, the battery and the grid, those that are set up
   const bool batteryOn = energyConfigured(config, ha::E_BATTERY);
   const float discharge = have(ha::E_BATTERY) ? value(ha::E_BATTERY) * (config.batteryDischargePositive ? 1 : -1) : 0;
   const bool solarOn = energyConfigured(config, ha::E_SOLAR);
-  const bool producing = solarOn && have(ha::E_SOLAR) && value(ha::E_SOLAR) >= 0.05f;
-  if (batteryOn && ((!solarOn) || (!producing && discharge > 0.05f))) {
-    frame.rowIcon[1] = SI_BATTERY; frame.rowTone[1] = T_BATTERY;
+  int n = 0;
+  if (usageShown(config)) {
+    frame.rowIcon[n] = SI_HOUSE; frame.rowTone[n] = T_BLUE;
+    if (have(ha::E_USAGE)) {  // blue when quiet, towards pink-red at the highest load of the last month (5 kW until that is known)
+      const float peak = _outlook.peakDay == HaClient::dayKey(time(nullptr)) && _outlook.peak > 0.5f ? _outlook.peak : 5.0f;
+      frame.houseLoad = (uint8_t)fminf(255, fmaxf(1, lroundf(value(ha::E_USAGE) / peak * 255)));
+    }
+    kilowatts(frame.left[n], 8, have(ha::E_USAGE), value(ha::E_USAGE));
+    if (have(ha::E_USAGE_KWH) || !_useTodayOk) kilowattHours(frame.right[n], 8, have(ha::E_USAGE_KWH), value(ha::E_USAGE_KWH));
+    else kilowattHours(frame.right[n], 8, true, _useToday);  // no meter: worked out from the hourly means
+    n++;
+  }
+  // Three rows (export graph): the middle one is the sun while it produces, the battery otherwise
+  const bool threeRows = ha::exportGraph();
+  const bool sunNow = have(ha::E_SOLAR) && value(ha::E_SOLAR) > 0.05f;
+  const bool showSolar = solarOn && (!threeRows || sunNow || !batteryOn);
+  const bool showBattery = batteryOn && (!threeRows || !showSolar);
+  if (showSolar) {
+    frame.rowIcon[n] = SI_SUN; frame.rowTone[n] = T_GREEN;
+    kilowatts(frame.left[n], 8, have(ha::E_SOLAR), value(ha::E_SOLAR));
+    kilowattHours(frame.right[n], 8, have(ha::E_SOLAR_KWH), value(ha::E_SOLAR_KWH));
+    n++;
+  }
+  if (showBattery) {
+    frame.rowIcon[n] = SI_BATTERY; frame.rowTone[n] = T_BATTERY;
+    if (have(ha::E_BATTERY) && fabsf(discharge) >= 0.05f) {
+      frame.batteryFlow = discharge < 0 ? 1 : -1;
+      frame.batteryStep = (uint8_t)(millis() / 400 % 5);
+    }
     frame.batterySoc = have(ha::E_SOC) ? (uint8_t)fminf(fmaxf(value(ha::E_SOC), 0), 100) : 0;
-    kilowatts(frame.left[1], 8, have(ha::E_BATTERY), discharge);
-    kilowattHours(frame.right[1], 8, have(ha::E_BATTERY_KWH), value(ha::E_BATTERY_KWH));
-  } else if (solarOn) {
-    frame.rowIcon[1] = SI_SUN; frame.rowTone[1] = T_SUN;
-    kilowatts(frame.left[1], 8, have(ha::E_SOLAR), value(ha::E_SOLAR));
-    kilowattHours(frame.right[1], 8, have(ha::E_SOLAR_KWH), value(ha::E_SOLAR_KWH));
+    kilowatts(frame.left[n], 8, have(ha::E_BATTERY), discharge);
+    kilowattHours(frame.right[n], 8, have(ha::E_BATTERY_KWH), value(ha::E_BATTERY_KWH));
+    n++;
   }
+  int gridRow = -1;
   if (energyConfigured(config, ha::E_GRID)) {
+    gridRow = n;
     const float grid = have(ha::E_GRID) ? value(ha::E_GRID) * (config.gridImportPositive ? 1 : -1) : 0;  // positive: importing
-    frame.rowIcon[2] = SI_POLE;
-    frame.rowTone[2] = !have(ha::E_GRID) || fabsf(grid) < 0.05f ? T_MUTE : grid < 0 ? T_GREEN : T_ORANGE;
-    kilowatts(frame.left[2], 8, have(ha::E_GRID), grid);
-    kilowattHours(frame.right[2], 8, have(ha::E_GRID_KWH), value(ha::E_GRID_KWH));
+    frame.rowIcon[n] = SI_POLE;
+    // The pole stays the grid's yellow; the numbers show the direction (amber importing, pastel blue sending out)
+    const float out = fmaxf(0, -grid);
+    frame.rowTone[n] = T_AMBER;  // the pole is always the grid's yellow, whatever flows
+    // The numbers: amber for importing, pastel blue for what is sent out (the power now; the day's total only when that is negative too)
+    frame.rowLeftTone[n] = !have(ha::E_GRID) ? T_MUTE : out > 0.05f ? T_PASTEL : T_AMBER;
+    frame.rowRightTone[n] = !have(ha::E_GRID) ? T_MUTE : have(ha::E_GRID_KWH) && value(ha::E_GRID_KWH) * (config.gridImportPositive ? 1 : -1) < 0 ? T_PASTEL : T_AMBER;
+    kilowatts(frame.left[n], 8, have(ha::E_GRID), grid);
+    kilowattHours(frame.right[n], 8, have(ha::E_GRID_KWH), value(ha::E_GRID_KWH));
+    n++;
   }
-  float top = 1.0f;
-  for (int i = 0; i < kBars; i++) top = fmaxf(top, fmaxf(_use[i], _solar[i]));
+  for (int i = 0; i < n; i++) if (i != gridRow) frame.rowLeftTone[i] = frame.rowRightTone[i] = frame.rowTone[i];
+  frame.rowCount = n;
+  // 20 hours of the day: from midnight until the evening has to scroll (the hour now sits at the 12th column, at most)
+  const int first = _hour24 - kBars / 2;  // the current hour always in the middle; hours before 0:00 and after 23:00 stay empty
+  frame.nowCol = (int8_t)(kBars / 2);
+  frame.narrowStart = _hour24 >= 21;
+  frame.hourFrom = (int8_t)first;
+  frame.hourTo = (int8_t)((first + kBars) % 24);
+  const int today = HaClient::dayKey(time(nullptr));
+  const bool expectOk = _outlook.useDay == today, forecastOk = solarOn && _outlook.solarDay == today, nextOk = _outlook.nextDay == today;
+  // The prediction of hour h: today's, or (h > 23) tomorrow's usual weekday, which has no solar forecast
+  auto usable = [&](int h) { return h < 24 ? expectOk && (_outlook.useMask >> h & 1) : nextOk && h < 48 && (_outlook.nextUseMask >> (h - 24) & 1); };
+  auto useRaw = [&](int h) { return h < 24 ? _outlook.use[h] : _outlook.nextUse[h - 24]; };
+  // The prediction follows today: when the hours so far used more or less than predicted, the coming hours are scaled by that, fading out over about 6 hours
+  float level = 1.f;
+  if (expectOk) {
+    float actual = 0, predicted = 0;
+    int hours = 0;
+    for (int h = 0; h < _hour24; h++) if ((_outlook.useMask >> h & 1) && _use[h] > 0) { actual += _use[h]; predicted += _outlook.use[h]; hours++; }
+    if (hours >= 3 && predicted > 0.1f) level = fminf(1.4f, fmaxf(0.7f, actual / predicted));
+  }
+  auto expectedUse = [&](int h) { return useRaw(h) * (1.f + (level - 1.f) * powf(0.5f, (h - _hour24) / 6.0f)); };
+  // The tariff of each hour as cheap / normal / expensive: the lowest and highest third of the hours of today
+  float sorted[24];
+  int known = 0;
+  for (int h = 0; h < 24; h++) if (_priceMask >> h & 1) sorted[known++] = _price[h];
+  std::sort(sorted, sorted + known);
+  float low = 0, high = 0;
+  if (known >= 4) { low = sorted[known / 3]; high = sorted[known - 1 - known / 3]; }
+  // With the export graph the power sent out hangs below the bars: what the grid takes, from the battery as far as it delivers, the rest from the solar panels
+  const bool exportOn = (threeRows || n <= 3) && energyConfigured(config, ha::E_GRID);  // three rows or fewer always get the export graph
+  // Hours before 0:00 (h < 0) are yesterday's late hours
+  auto useAt = [&](int h) { return h < 0 ? _prevUse[h + 24] : _use[h]; };
+  auto solarAt = [&](int h) { return h < 0 ? _prevSolar[h + 24] : _solar[h]; };
+  auto batteryAt = [&](int h) { return h < 0 ? _prevBattery[h + 24] : _battery[h]; };
+  auto gridAt = [&](int h) { return h < 0 ? _prevGrid[h + 24] : _grid[h]; };
+  auto sentOut = [&](int h, float &fromSolar, float &fromBattery) {
+    const float own = h < 0 ? _prevGridOut[h + 24] : _gridOut[h];
+    const float out = own >= 0 ? own : fmaxf(0, -gridAt(h));  // the export meter when there is one, else the net power
+    fromBattery = batteryOn ? fminf(out, fmaxf(0, batteryAt(h))) : 0;
+    fromSolar = out - fromBattery;
+  };
+  auto expectedOut = [&](int h) {
+    if (h > 23) return nextOk && h < 48 && (_outlook.nextOutMask >> (h - 24) & 1) ? _outlook.nextOut[h - 24] : 0.0f;
+    if (expectOk && (_outlook.outMask >> h & 1)) return _outlook.out[h];  // the usual export of this weekday from the to-grid meters, as the Energy dashboard shows it
+    return forecastOk && expectOk && (_outlook.solarMask >> h & 1) && (_outlook.useMask >> h & 1) ? fmaxf(0, _outlook.solar[h] - expectedUse(h)) : 0.0f;
+  };
+  // The scale covers the whole day but not the hour in progress, so the bars already drawn do not change size as the day goes on
+  float top = 1.0f, maxOut = 0;
+  for (int h = 0; h < 24; h++) {
+    if (h != _hour24) top = fmaxf(top, fmaxf(_use[h], exportOn ? 0.0f : _solar[h]));
+    if (h > _hour24) {
+      if (usable(h)) top = fmaxf(top, expectedUse(h));
+      if (forecastOk && _outlook.solarMask >> h & 1) top = fmaxf(top, _outlook.solar[h]);
+    }
+    if (exportOn) {
+      float fromSolar, fromBattery;
+      sentOut(h, fromSolar, fromBattery);
+      maxOut = fmaxf(maxOut, h <= _hour24 ? fromSolar + fromBattery : expectedOut(h));
+    }
+  }
+  for (int h = 24; h < first + kBars; h++) {  // tomorrow's hours at the right edge count for the scale too
+    if (usable(h)) top = fmaxf(top, expectedUse(h));
+    if (exportOn) maxOut = fmaxf(maxOut, expectedOut(h));
+  }
+  for (int h = first; h < 0; h++) {  // yesterday's hours on the left of the graph count for the scale too
+    top = fmaxf(top, fmaxf(useAt(h), exportOn ? 0.0f : solarAt(h)));
+    if (exportOn) {
+      float fromSolar, fromBattery;
+      sentOut(h, fromSolar, fromBattery);
+      maxOut = fmaxf(maxOut, fromSolar + fromBattery);
+    }
+  }
+  int total = barRoom(n);
+  auto exact = [](float perKw) { return perKw > 0.f ? 1000.f / (5.f * ceilf(1000.f / perKw / 5.f)) : perKw; };  // a scale of a whole 5 Wh per pixel (rounded down in pixels, so everything still fits): the label is then exact
+  float pixelsPerKw = exact(total / top);
+  int hang = 0;  // rows under the baseline for the power sent out (and one clear row)
+  if (exportOn && maxOut > 0.05f) {
+    pixelsPerKw = exact((total - 1) / (top + maxOut));
+    hang = std::min(total - 2, (int)ceilf(maxOut * pixelsPerKw));
+  }
+  auto scaleValue = [&](float perKw) { return perKw > 0.f ? (uint16_t)fminf(9995.f, fmaxf(5.f, 5.f * lroundf(1000.f / perKw / 5.f))) : (uint16_t)0; };  // rounded to 5, so it hardly ever changes while on screen
+  frame.scaleSpot = SCALE_CENTRE;
+  if (!hang) {  // nothing hangs below: the scale text goes in the top row of the graph, in the middle if no bar reaches it, else the right, else the left corner
+    const int w = scaleWidth(scaleValue(pixelsPerKw)), topRow = 61 - total + 1;
+    auto colKw = [&](int i) {  // the tallest thing in this column, in kW (the same hour's values the bars are drawn from)
+      const int h = first + i;
+      if (h > 23) return usable(h) ? expectedUse(h) : 0.f;
+      return fmaxf(h <= _hour24 ? fmaxf(usageShown(config) ? useAt(h) : 0.f, solarOn ? solarAt(h) : 0.f) : 0.f,
+                          h < _hour24 ? 0.f : fmaxf(usable(h) ? expectedUse(h) : 0.f, forecastOk && (_outlook.solarMask >> h & 1) ? _outlook.solar[h] : 0.f));
+    };
+    auto clear = [&](int x0) {  // no bar in [x0 - 1, x0 + w] comes within the text's 5 rows and the clear row under it
+      for (int i = 0; i < kBars; i++) {
+        const int bx = barX(i, !frame.narrowStart), bw = barW(i, !frame.narrowStart);
+        if (bx + bw <= x0 - 1 || bx >= x0 + w + 1) continue;
+        const float kw = colKw(i);
+        if (kw > 0.f && 61 - (int)fmaxf(1, lroundf(kw * pixelsPerKw)) + 1 <= topRow + 5) return false;
+      }
+      return true;
+    };
+    if (clear((64 - w) / 2)) frame.scaleSpot = SCALE_CENTRE;
+    else if (clear(64 - w)) frame.scaleSpot = SCALE_RIGHT;
+    else if (clear(0)) frame.scaleSpot = SCALE_LEFT;
+    else {  // none: the graph gives way, and the text takes the right corner
+      frame.scaleSpot = SCALE_RIGHT;
+      total -= kScaleBand;
+      pixelsPerKw = exact(total / top);
+    }
+  }
+  const int room = total - (hang ? hang + 1 : 0);
+  frame.baseY = (uint8_t)(61 - (hang ? hang + 1 : 0));
+  frame.whPerPx = scaleValue(pixelsPerKw);
+  frame.negRows = (uint8_t)hang;
+  auto bar = [&](float kw) { return (uint8_t)fminf(room, fmaxf(1, lroundf(kw * pixelsPerKw))); };
+  auto hung = [&](float kw) { return (int)fminf(hang, fmaxf(1, lroundf(kw * pixelsPerKw))); };
   for (int i = 0; i < kBars; i++) {
-    if (usageShown(config) && _use[i] > 0) frame.useBars[i] = (uint8_t)fminf(12, fmaxf(1, lroundf(_use[i] / top * 12)));
-    if (solarOn && _solar[i] > 0) frame.solarBars[i] = (uint8_t)fminf(12, fmaxf(1, lroundf(_solar[i] / top * 12)));
+    const int h = first + i;
+    if (h > 33) continue;
+    if (h >= 0 && known >= 4 && (h < 24 ? _priceMask >> h & 1 : h < 48 && (_priceNextMask >> (h - 24) & 1))) {
+      const float price = h < 24 ? _price[h] : _priceNext[h - 24];
+      frame.priceBand[i] = low >= high ? 2 : price <= low ? 1 : price >= high ? 3 : 2;
+    } else if (h >= 0 && known >= 4) frame.priceBand[i] = 4;  // no price for this hour yet (tomorrow's, before they are published): grey
+    if (h <= _hour24) {
+      if (usageShown(config) && useAt(h) > 0) frame.useBars[i] = bar(useAt(h));
+      float sentSolar = 0, sentBattery = 0;
+      if (hang) sentOut(h, sentSolar, sentBattery);
+      const float usedSolar = fmaxf(0, solarAt(h) - sentSolar);  // the solar power the house used itself: what was exported is not part of the use
+      if (solarOn && solarAt(h) > 0) frame.solarBars[i] = bar(hang && useAt(h) > 0 ? fminf(usedSolar, useAt(h)) : solarAt(h));  // what the house does not use goes below
+      if (batteryOn && batteryAt(h) > 0.02f && useAt(h) > 0) {  // the part of the use the battery delivered, between the solar part and the grid part
+        const float solar = fminf(useAt(h), hang ? usedSolar : fmaxf(0, solarAt(h))), battery = fminf(useAt(h) - solar, batteryAt(h));
+        const int below = solar > 0 ? bar(solar) : 0, upTo = bar(solar + battery);
+        frame.batteryBars[i] = (uint8_t)std::max(1, upTo - below);
+      }
+      if (solarOn && !frame.batteryBars[i] && solarAt(h) > 0 && frame.useBars[i] > 0) {  // the row where solar turns into grid: half green, half amber when the boundary is in the middle of it, never in the top row
+        const float px = (hang && useAt(h) > 0 ? fminf(usedSolar, useAt(h)) : solarAt(h)) * pixelsPerKw;
+        const int whole = (int)floorf(px);
+        if (px - whole >= 0.25f && px - whole < 0.75f && whole + 1 < frame.useBars[i]) {
+          frame.solarBars[i] = (uint8_t)whole;
+          frame.halfRow[i] = (uint8_t)(whole + 1);
+        }
+      }
+      if (hang) {
+        float fromSolar, fromBattery;
+        sentOut(h, fromSolar, fromBattery);
+        if (fromSolar > 0.02f) frame.exportSolar[i] = (uint8_t)hung(fromSolar);
+        if (fromBattery > 0.02f) frame.exportBattery[i] = (uint8_t)std::max(1, hung(fromSolar + fromBattery) - (int)frame.exportSolar[i]);
+      }
+    }
+    if (h >= _hour24) {  // the coming hours, and under the hour in progress: the prediction, dim, with what is measured bright over it
+      if (usageShown(config) && usable(h) && useRaw(h) > 0) frame.expectBars[i] = bar(expectedUse(h));
+      if (forecastOk && h < 24 && _outlook.solarMask >> h & 1 && _outlook.solar[h] > 0) frame.forecastBars[i] = bar(_outlook.solar[h]);
+      if (hang && expectedOut(h) > 0.02f) frame.exportExpect[i] = (uint8_t)hung(expectedOut(h));
+    }
   }
 }
 
@@ -404,6 +638,26 @@ void Clockface::poll() {
   collectHours(_dateTime->getDay() * 24 + _dateTime->getHour24(), _dateTime->getHour24(), _dateTime->getMinute());
 }
 
+namespace {
+// The picture for a source name (case ignored); SRC_TEXT when there is none
+uint8_t sourceIconFor(const char *source) {
+  char name[16];
+  size_t n = 0;
+  for (; source[n] && n + 1 < sizeof(name); n++) name[n] = tolower((unsigned char)source[n]);
+  name[n] = 0;
+  auto has = [&](const char *part) { return strstr(name, part) != nullptr; };
+  if (has("hdmi")) return SRC_HDMI;
+  if (has("optic") || has("toslink") || has("spdif")) return SRC_OPTICAL;
+  if (has("line") || has("aux")) return ha::lineInAsPhono() ? SRC_PHONO : SRC_LINE;
+  if (has("bluetooth")) return SRC_BLUETOOTH;
+  if (has("airplay")) return SRC_AIRPLAY;
+  if (has("radio") || has("tunein")) return SRC_RADIO;
+  if (has("phono") || has("turntable") || has("vinyl")) return SRC_PHONO;
+  if (!strcmp(name, "tv") || !strncmp(name, "tv ", 3)) return SRC_TV;
+  return SRC_TEXT;
+}
+}  // namespace
+
 void Clockface::fillMedia(Frame &frame, uint32_t now) {
   if (!_media.count) return;
   const ha::media::Player &p = _media.player[0];  // the first of the chosen players that is playing
@@ -433,6 +687,13 @@ void Clockface::fillMedia(Frame &frame, uint32_t now) {
   const uint16_t *cover = nullptr;
   uint16_t id = 0;
   if (ha::media::art(p, (ha::config().pages & ha::PAGE_ART_ONLINE) != 0, (ha::config().pages & ha::PAGE_STATION_LOGO) != 0, &cover, &id) == ha::media::ART_READY) { frame.art = cover; frame.artVersion = id; }
+  // Nothing to show but the player's source (a Sonos on its TV input, Line-in...): a picture for it, or its name, and no text bars
+  if (!frame.art && p.source[0] && !p.artist[0] && !p.station[0] && (!p.title[0] || !strcasecmp(p.title, p.source))) {
+    strlcpy(frame.source, p.source, sizeof(frame.source));
+    frame.title[0] = frame.artist[0] = 0;
+    frame.progress = 0;
+    frame.sourceIcon = sourceIconFor(p.source);
+  }
 }
 
 // The Device problems page lists every low or offline device, seven rows at a time: after a rest it scrolls a row at a time to the end of
@@ -464,8 +725,8 @@ void Clockface::fillDevices(Frame &frame, uint32_t now) const {
   for (int n = 0; n < (dy ? 9 : 8) && first + n < rows; n++) {
     const int k = first + n;
     uint8_t kind;
-    if (k < _devices.lowShown) { ha::devices::nameAt(_devices.low, k, frame.device[n], sizeof(frame.device[n])); kind = SI_LOW_BATTERY; }
-    else if (k < _devices.lowShown + _devices.offlineShown) { ha::devices::nameAt(_devices.offline, k - _devices.lowShown, frame.device[n], sizeof(frame.device[n])); kind = SI_OFFLINE; }
+    if (k < _devices.offlineShown) { ha::devices::nameAt(_devices.offline, k, frame.device[n], sizeof(frame.device[n])); kind = SI_OFFLINE; }  // offline first: the more serious
+    else if (k < _devices.offlineShown + _devices.lowShown) { ha::devices::nameAt(_devices.low, k - _devices.offlineShown, frame.device[n], sizeof(frame.device[n])); kind = SI_LOW_BATTERY; }
     else {  // what did not fit in the lists the clock keeps
       snprintf(frame.device[n], sizeof(frame.device[n]), "+%u MORE", (unsigned)std::min(_devices.lowTotal + _devices.offlineTotal - _devices.lowShown - _devices.offlineShown, 99));
       kind = SI_NONE;
@@ -489,7 +750,19 @@ void Clockface::update() {
     }
   } timing{now, lastFrame ? now - lastFrame : 0};
   lastFrame = now;
-  if (ha::media::version() != _mediaSeen) { _mediaSeen = ha::media::version(); ha::media::snapshot(_media); }
+  if (ha::media::version() != _mediaSeen || ha::hideBareMedia() != _hideBare) {
+    _mediaSeen = ha::media::version(); _hideBare = ha::hideBareMedia();
+    ha::media::snapshot(_media);
+    if (_hideBare) {  // players with nothing but a source (no title, artist or station) are left out
+      int kept = 0;
+      for (int i = 0; i < _media.count; i++) {
+        const ha::media::Player &p = _media.player[i];
+        if (p.artist[0] || p.station[0] || (p.title[0] && strcasecmp(p.title, p.source))) _media.player[kept++] = p;
+      }
+      for (int i = kept; i < _media.count; i++) memset(&_media.player[i], 0, sizeof(ha::media::Player));
+      _media.count = kept;
+    }
+  }
   if (!_media.count && !_sliding && !_drawn.art) ha::media::release();
   if (ha::devices::version() != _devicesSeen) { _devicesSince = now; _devicesSeen = ha::devices::version(); ha::devices::snapshot(_devices); }
 
@@ -504,8 +777,9 @@ void Clockface::update() {
 
   Frame frame;
   memset(&frame, 0, sizeof(frame));
-  frame.colonLevel = (uint8_t)(46 + 209 * (0.5f - 0.5f * cosf(((now / 33 * 33) % 3000) * (2.0f * 3.14159265f / 3000))));
+  frame.colonLevel = colon::level(now);
   frame.page = pages[_pageIndex];
+  frame.thinClock = ha::thinClock();
   frame.pageCount = count;
   frame.pageIndex = _pageIndex;
   snprintf(frame.time, sizeof(frame.time), _dateTime->is24hFormat() ? "%02d:%02d" : "%d:%02d", _dateTime->getHour(), _dateTime->getMinute());

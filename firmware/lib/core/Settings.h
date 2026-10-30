@@ -21,7 +21,7 @@ struct Settings {
   bool autoBrightness = false;
   uint8_t ldrPin = 35;
   uint16_t ldrDark = 50, ldrLight = 2500;
-  uint8_t minimumBrightness = 3;
+  uint8_t minimumBrightness = 31;  // 12 % of 255
   bool nightEnabled = false;
   uint16_t nightStart = 22 * 60, nightEnd = 7 * 60;
   uint8_t nightBrightness = 3;

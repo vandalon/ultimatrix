@@ -9,6 +9,7 @@
 #include "HaTemplate.h"
 #define private public  // the preview sets what the connection task would
 #include "HaClient.h"
+#include "HaPrices.h"
 #undef private
 #include "Clockface.h"
 #include "HaConfig.h"
@@ -36,7 +37,8 @@ const Slot &tileSlot(const Config &c, int index) { return index < kTiles ? c.til
 Slot &washerAlert() { static Slot slot = {ICON_WASHER, 0, 0, 0, 0, "", "binary_sensor.washer_running"}; return slot; }
 bool configured() { return gConfigured; }
 char (*mediaPlayers())[kEntity] { static char rooms[kRooms][kEntity] = {}; return rooms; }
-uint32_t version() { return 1; }
+uint32_t gConfigVersion = 1;
+uint32_t version() { return gConfigVersion; }
 }  // namespace ha
 // Now playing: what the player task and the art fetch would give
 static ha::media::Snapshot gMedia;
@@ -53,12 +55,40 @@ ArtState art(const Player &, bool, bool, const uint16_t **pixels, uint16_t *id) 
 HaClient &HaClient::instance() { static HaClient client; return client; }
 void HaClient::begin() {}
 bool HaClient::snapshot(ha::Snapshot &out) { out = gSnapshot; return _state == LIVE; }
-void HaClient::history(History &out) { out = History{}; }
+void HaClient::outlook(Outlook &out) {  // a made-up prediction for today: the usual use per hour and the sun forecast
+  out = Outlook{};
+  static const float use[24] = {0.35f, 0.3f, 0.28f, 0.27f, 0.3f, 0.4f, 0.7f, 1.1f, 0.9f, 0.7f, 0.6f, 0.7f, 0.9f, 0.84f, 0.8f, 0.9f, 1.2f, 1.7f, 2.1f, 1.9f, 1.4f, 1.0f, 0.7f, 0.5f};
+  for (int h = 0; h < 24; h++) {
+    out.use[h] = use[h] * 1.05f;
+    out.solar[h] = h >= 6 && h <= 18 ? 3.4f * sinf((h - 6) / 12.0f * 3.14159f) : 0;
+    out.useMask |= 1u << h;
+    if (out.solar[h] > 0) out.solarMask |= 1u << h;
+  }
+  out.useDay = out.solarDay = dayKey(time(nullptr));
+  out.peak = 3.0f;
+}
+int HaClient::dayKey(time_t when) { struct tm t; localtime_r(&when, &t); return (t.tm_year + 1900) * 400 + t.tm_yday; }
 bool HaClient::energyIds(char (*)[ha::kEntity]) { return false; }
 void HaClient::status(char *out, size_t size) { strlcpy(out, _state == FAILED ? "Home Assistant refused the token" : "Connecting", size); }
 
 static MatrixPanel_I2S_DMA display;
 static ClockTime clockTime;
+
+void HaClient::history(History &out) {  // a made-up day behind the bars: the house, the sun, the battery and the grid (kW, import positive)
+  out = History{};
+  out.hour = (uint32_t)(time(nullptr) / 3600 * 3600);
+  out.version = 1;
+  static const float use[24] = {0.35f, 0.3f, 0.28f, 0.27f, 0.3f, 0.4f, 0.7f, 1.1f, 0.9f, 0.7f, 0.6f, 0.7f, 0.9f, 0.84f, 0.8f, 0.9f, 1.2f, 1.7f, 2.1f, 1.9f, 1.4f, 1.0f, 0.7f, 0.5f};
+  for (int at = 0; at < ha::kHistoryBars; at++) {
+    int h = at - (ha::kHistoryBars - 1) + clockTime.hour;
+    if (h < 0) h += 24;  // yesterday looks like today
+    if (h < 0 || h > 23) continue;
+    const float sun = h >= 6 && h <= 18 ? 3.2f * sinf((h - 6) / 12.0f * 3.14159f) : 0;
+    const float battery = h == 19 || h == 20 ? 1.0f : 0;  // the battery sends power out in the evening
+    out.use[at] = use[h]; out.solar[at] = sun; out.battery[at] = battery; out.grid[at] = use[h] - sun - battery;
+    out.useMask |= 1u << at; out.solarMask |= 1u << at; out.batteryMask |= 1u << at; out.gridMask |= 1u << at;
+  }
+}
 static std::string outDir;
 static std::ofstream scenes;
 static int sceneNumber = 0;
@@ -87,7 +117,15 @@ static void setClock(int hour, int minute) {
   clockTime.hour = hour; clockTime.minute = minute; clockTime.day = 15; clockTime.month = 10;
 }
 
-static void feed(const ha::Snapshot &snapshot) { gSnapshot = snapshot; HaClient::instance()._state = HaClient::LIVE; HaClient::instance()._updates++; }
+static void tariff() {  // a made-up day of electricity prices
+  static const float p[24] = {.18f, .17f, .16f, .16f, .17f, .2f, .26f, .31f, .30f, .24f, .2f, .17f, .15f, .14f, .13f, .14f, .18f, .27f, .34f, .36f, .31f, .26f, .22f, .2f};
+  ha::prices::Snapshot snapshot{};
+  snapshot.day = clockTime.day; snapshot.mask = 0xFFFFFF;
+  for (int h = 0; h < 24; h++) snapshot.hour[h] = p[h];
+  ha::prices::publish(snapshot);
+}
+
+static void feed(const ha::Snapshot &snapshot) { gSnapshot = snapshot; HaClient::instance()._state = HaClient::LIVE; HaClient::instance()._updates++; HaClient::instance()._historyVersion++; HaClient::instance()._outlookVersion++; tariff(); }
 
 static ha::Snapshot base() {
   ha::Snapshot s;
@@ -243,6 +281,15 @@ int main(int argc, char **argv) {
   capture("Evening, home page");
   gConfig.pages = ha::PAGE_ENERGY; step(50);
   capture("Energy, battery supplies the house");
+  for (int k = 1; k < 5; k++) { step(400); capture("Battery discharging, next sweep step"); }
+  {  // charging from the solar panels: the battery takes power
+    setClock(13, 5);
+    ha::Snapshot c = base();
+    energyValues(c, 0.8f, 3.0f, -1.5f, 62, -0.7f, 11.2f, 8.9f, 3.4f, 2.3f);
+    feed(c);
+    step(50);
+    for (int k = 0; k < 5; k++) { capture("Battery charging, sweep step"); step(400); }
+  }
 
   // Night, nothing from the battery, no solar
   setClock(2, 13);
@@ -251,6 +298,20 @@ int main(int argc, char **argv) {
   feed(n);
   step(50);
   capture("Energy, no solar and an idle battery");
+  {  // no battery set up: three rows and a taller graph
+    const ha::Config kept = gConfig;
+    gConfig.energy[ha::E_BATTERY][0] = 0; gConfig.energy[ha::E_SOC][0] = 0; ha::gConfigVersion++;
+    feed(e); step(50);
+    capture("Energy, no battery");
+    {  // midday, solar covers the house and the rest goes to the grid
+      setClock(13, 5);
+      ha::Snapshot x = base();
+      energyValues(x, 0.9f, 3.1f, 0.0f, 62, -2.2f, 11.2f, 8.9f, 3.4f, 2.3f);
+      feed(x); step(50);
+      capture("Energy, no battery, exporting");
+    }
+    gConfig = kept; ha::gConfigVersion++; feed(n); step(50);
+  }
 
   // Alerts over the home page
   setClock(21, 47);

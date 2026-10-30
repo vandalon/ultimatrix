@@ -82,6 +82,11 @@ Config &config() {
 
 char (&weatherEntity())[kEntity] { return weather; }
 char (&pageOrder())[8] { return order; }
+bool &exportGraph() { static bool on = false; return on; }
+bool &thinClock() { static bool on = false; return on; }
+int &predictWeeks() { static int weeks = 13; return weeks; }
+bool &hideBareMedia() { static bool hide = false; return hide; }
+bool &lineInAsPhono() { static bool phono = false; return phono; }
 char (*mediaPlayers())[kEntity] { return rooms.id; }
 size_t iconEntityCopy(int index, char *out, size_t size) {
   std::lock_guard<std::mutex> guard(iconLock);
@@ -116,6 +121,11 @@ void load() {
     barStored = p.getBool("haBarV", false);
     p.getString("haWeather", weather, sizeof(weather));
     if (p.isKey("haOrder")) p.getString("haOrder", order, sizeof(order));
+    lineInAsPhono() = p.getBool("haPhono", false);
+    hideBareMedia() = p.getBool("haNoInfo", false);
+    exportGraph() = p.getBool("haExport", false);
+    thinClock() = p.getBool("haThin", false);
+    predictWeeks() = constrain((int)p.getUChar("haWeeks", 13), 1, 26);
     tileStored = cacheblob::get(p, "haTile4", extras[0], 1);
     if (!tileStored) {
       extras[0] = {TILE_WEATHER, uint8_t(weather[0] ? 0 : 1), 0, 0, 0, "", ""};
@@ -230,6 +240,31 @@ bool save() {
     if (strcmp(order, "EHMD")) ok = p.putString("haOrder", order) == strlen(order);
     else if (p.isKey("haOrder")) ok = p.remove("haOrder");
     if (!ok) failedStep = "page order";
+  }
+  if (ok) {
+    if (lineInAsPhono()) ok = p.putBool("haPhono", true) > 0;
+    else if (p.isKey("haPhono")) ok = p.remove("haPhono");
+    if (!ok) failedStep = "phono";
+  }
+  if (ok) {
+    if (hideBareMedia()) ok = p.putBool("haNoInfo", true) > 0;
+    else if (p.isKey("haNoInfo")) ok = p.remove("haNoInfo");
+    if (!ok) failedStep = "media filter";
+  }
+  if (ok) {
+    if (exportGraph()) ok = p.putBool("haExport", true) > 0;
+    else if (p.isKey("haExport")) ok = p.remove("haExport");
+    if (!ok) failedStep = "energy layout";
+  }
+  if (ok) {
+    if (thinClock()) ok = p.putBool("haThin", true) > 0;
+    else if (p.isKey("haThin")) ok = p.remove("haThin");
+    if (!ok) failedStep = "clock style";
+  }
+  if (ok) {
+    if (predictWeeks() != 13) ok = p.putUChar("haWeeks", (uint8_t)predictWeeks()) > 0;
+    else if (p.isKey("haWeeks")) ok = p.remove("haWeeks");
+    if (!ok) failedStep = "prediction weeks";
   }
   if (ok && !(ok = cacheblob::put(p, "haWasher", washer, 1))) failedStep = "washer";
   for (int i = 0; ok && i < kHomeTiles - kTiles; i++) {

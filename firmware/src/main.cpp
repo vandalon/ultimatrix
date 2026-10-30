@@ -1,3 +1,4 @@
+#include <StreamString.h>
 #include <Arduino.h>
 #ifdef UM_GAMEPAD
 #include "Gamepad.h"
@@ -57,6 +58,7 @@
 #include <GzipAsset.h>
 #ifdef UM_SPORTS_SWITCH
 #include <Preferences.h>
+#include "CacheBlob.h"
 #include <SportsWatch.h>
 #endif
 #include <nvs.h>
@@ -122,6 +124,10 @@ static const Birthdays::Entry *birthdayToday() {
 }
 static FirmwareUpdate firmwareUpdate;
 static uint8_t appliedBrightness = 0;
+// Hue test (POST /api/hue-test?b=1..255&deep=0|1&secs=60[&wg=1.5&wb=1.0], b=0 or no secs stops it): an 8x8 grid of 8x8 swatches (rows red, orange, amber, yellow, green, cyan, blue, pink;
+// columns from full value down to 8 %) at a forced panel brightness, to look for colours that change hue when dimmed. The tier can be locked on the settings page.
+static struct { uint32_t until = 0; uint8_t brightness = 0; bool deep = false, wide = false, shown = false; uint8_t ramp = 0; } hueTest;
+static struct { uint32_t until = 0; uint8_t brightness = 0; } nightTest;  // Settings > Display > night mode brightness: the red night clock at a chosen level for a short while
 static bool appliedDither = false;
 static bool appliedDeepDim = false;
 
@@ -177,8 +183,6 @@ static bool updateAvailable() {
 static const uint8_t kBootPanelBrightness = 255;
 static unsigned bootScale = 0;  // the user's brightness over the panel's, 8.8 fixed point
 static const uint8_t *panelLut = lumConvTab_7bit;  // the brightness table of the colour depth in use (set before the panel starts)
-static paneltier::State panelState;  // the colour quality level: see PanelTier.h
-static int panelLevel = 0;
 static uint8_t bootMap[256];  // a level at full scale -> the input that looks like it at bootScale
 static uint8_t bootInverse[256];  // output level -> smallest input that gives at least it
 
@@ -196,11 +200,16 @@ static void setBootScale(unsigned scale) {
   bootScreen.invalidate();
 }
 
-// The panel brightness for a user setting, rescaling the boot screens to match
-static uint8_t panelBrightness(uint8_t userBrightness) {
+// The lowest panel brightness at which this panel still shows its colours right (Settings > Display > Calibrate colours, key dimColour); 0 = not calibrated
+static uint8_t brightFloor = 0;
+
+// The panel brightness for a user setting, rescaling the boot screens to match. With a calibrated floor the user scale 1..255 is spread over floor..255; the night clock (exempt) and 0 are not
+static uint8_t panelBrightness(uint8_t userBrightness, bool exempt = false) {
   // The boot screens, the welcome and the setup QR codes are at full brightness whatever the setting (phones then scan the QR reliably), until the clock is synced and the face takes over
   setBootScale(256);
-  return bootDone ? userBrightness : kBootPanelBrightness;
+  if (!bootDone) return kBootPanelBrightness;
+  if (!brightFloor || exempt || !userBrightness) return userBrightness;
+  return (uint8_t)(brightFloor + ((userBrightness - 1u) * (255u - brightFloor) + 127u) / 254u);
 }
 
 // The logo's gradient: the wanted output level is kept fractional and ordered-dithered across the lattice (8x8 Bayer),
@@ -1073,7 +1082,12 @@ static void storageReformat() {
   server.send(200, "application/json", "{\"restarting\":true}");
   restartAt = millis() + 1000;  // every face and cache starts again on the empty disk
 }
-static void storageClear() { storage::clear(); server.send(200, "application/json", storage::json()); }
+static void clearUpdateRecords();
+static void storageClear() {
+  if (server.hasArg("updates")) clearUpdateRecords();  // the update history, on its own button
+  else storage::clear();
+  server.send(200, "application/json", storage::json());
+}
 
 // Admin PIN: POST /api/auth trades the PIN for a token, POST /api/pin sets, changes or removes it (pin empty = remove).
 static void pinLogin() {
@@ -1098,28 +1112,7 @@ static void pinSave() {
   server.send(200, "application/json", String("{\"message\":\"PIN saved.\",\"pinSet\":true,\"token\":\"") + token + "\"}");
 }
 
-static void displayStatus() {
-  String json = "{\"level\":" + String(panelLevel + 1) + ",\"lock\":" + String(panelState.lock) + ",\"reason\":\"" +
-      (panelState.reason == paneltier::Busy ? "busy" : panelState.reason == paneltier::Quiet ? "quiet" : "none") +
-      "\",\"since\":" + String(panelState.at) + ",\"retryHour\":" + String(paneltier::kRetryHour) + ",\"levels\":[";
-  for (int i = 0; i < paneltier::kCount; i++) { if (i) json += ","; json += "\""; json += paneltier::kTiers[i].name; json += "\""; }
-  json += "]}";
-  server.send(200, "application/json", json);
-}
-
-// reset=1 goes back to the best level; lock=0 is automatic, 1..n stays on that level. Both restart the clock.
-static void displaySave() {
-  if (server.hasArg("reset")) paneltier::reset(panelState);
-  if (server.hasArg("lock")) {
-    int lock = server.arg("lock").toInt();
-    if (lock < 0 || lock > paneltier::kCount) { settingsResponse(400, "Unknown level."); return; }
-    panelState.lock = (uint8_t)lock;
-    if (!lock) paneltier::reset(panelState);
-    else paneltier::save(panelState);
-  }
-  settingsResponse(200, "Saved. The clock restarts with the new colour quality.");
-  restartAt = millis() + 1000;
-}
+static void displayStatus() { server.send(200, "application/json", String("{\"panel\":") + String(appliedBrightness) + "}"); }
 
 // What Home Assistant (over MQTT) can ask of the clock: the follow-ups of a changed setting that saveSettings() runs for the settings
 // page, and the restart and update actions
@@ -1487,42 +1480,15 @@ static void reportMemory() {
   }
 }
 
-// Lowers the panel's colour quality one level and restarts into it. The reason decides whether it is tried again
-// later: a busy time (a live match or session) passes, a quiet one does not.
-// Live data that ran in the last few minutes still counts as a busy time: allocation failures often land between two live reads
-static uint32_t lastLiveAt = 0;
-static void noteLiveData() {
-  if (liveDataActive() || liveFavouriteOn.load()) lastLiveAt = millis() | 1;
-}
-static bool recentlyLive() {
-  constexpr uint32_t kGraceMs = 10 * 60 * 1000;
-  return lastLiveAt && millis() - lastLiveAt < kGraceMs;
-}
-
-static void lowerPanelQuality(const char *why) {
-  static bool done = false;
-  if (done || restartAt || setupRefresh || updateOnly || !paneltier::canLower(panelState)) return;
-  done = true;
-  noteLiveData();
-  bool busy = recentlyLive();
-  paneltier::lower(panelState, busy);
-  consoleLog("[Panel] %s: lowering the colour quality to level %d (%s), reason %s\n", why, paneltier::active(panelState) + 1,
-      paneltier::kTiers[paneltier::active(panelState)].name, busy ? "busy" : "quiet");
-  restartAt = millis() + 1500;
-}
-
 // Memory safeguard: the first allocation failure after boot stops the telnet server and mDNS to give their RAM back.
-// If failures go on after that (or pile up before the boot is done), the panel's colour quality goes one level lower.
 static void shedOnLowMemory() {
-  static uint32_t seen = 0, strikes = 0;
+  static uint32_t seen = 0;
   uint32_t failures = memoryAllocationFailures.load(std::memory_order_relaxed);
   if (failures == seen) return;
-  uint32_t fresh = failures - seen;
   seen = failures;
   FirmwareUpdate::Latest check; firmwareUpdate.latest(check);
   if (check.checking || firmwareUpdating || updateOnly) return;  // an update check runs the heap nearly dry on purpose and copes with it; telnet and mDNS stay
-  if (!bootDone) { strikes += fresh; if (strikes >= 6) lowerPanelQuality("allocation failures during boot"); return; }
-  if (memoryShed) { strikes += fresh; if (strikes >= 3) lowerPanelQuality("allocation failures after shedding"); return; }
+  if (!bootDone || memoryShed) return;
   memoryShed = true;
   telnet.stop(); telnetStarted = false; telnetLow = true;  // telnet comes back by itself once memory is free again (main loop)
   if (mdnsStarted) { MDNS.end(); mdnsStarted = false; }
@@ -1531,17 +1497,6 @@ static void shedOnLowMemory() {
 #endif
   consoleLog("[Memory] allocation failures: telnet stopped until memory is free, mDNS until restart (free=%u largest=%u)\n",
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-}
-
-// A lowered level that was caused by a busy time is tried again from 11:00 local time on the next quiet moment, when nothing live is running
-static void retryPanelQuality(uint32_t now) {
-  static uint32_t nextAt = 0;
-  if (!bootDone || updateOnly || restartAt || (int32_t)(now - nextAt) < 0) return;
-  nextAt = now + 60000;
-  if (liveDataActive() || liveFavouriteOn.load() || !paneltier::retryDue(panelState)) return;
-  paneltier::reset(panelState);
-  consoleLog("[Panel] trying the best colour quality again\n");
-  restartAt = now + 1500;
 }
 
 #ifdef UM_HOME
@@ -1560,7 +1515,7 @@ static void haState() {
   String json;
   json.reserve(2600);
   json = "{\"host\":" + jsonText(c.host) + ",\"port\":" + String(c.port) + ",\"tls\":" + String(c.tls ? "true" : "false");
-  json += ",\"tokenSet\":" + String(c.token[0] ? "true" : "false") + ",\"pages\":" + String(c.pages) + ",\"order\":" + jsonText(ha::pageOrder()) + ",\"pageSecs\":" + String(c.pageSecs);
+  json += ",\"tokenSet\":" + String(c.token[0] ? "true" : "false") + ",\"pages\":" + String(c.pages) + ",\"phono\":" + String(ha::lineInAsPhono() ? "true" : "false") + ",\"noinfo\":" + String(ha::hideBareMedia() ? "true" : "false") + ",\"weeks\":" + String(ha::predictWeeks()) + ",\"export\":" + String(ha::exportGraph() ? "true" : "false") + ",\"thin\":" + String(ha::thinClock() ? "true" : "false") + ",\"order\":" + jsonText(ha::pageOrder()) + ",\"pageSecs\":" + String(c.pageSecs);
   json += ",\"gridImportPositive\":" + String(c.gridImportPositive ? "true" : "false") + ",\"batteryDischargePositive\":" + String(c.batteryDischargePositive ? "true" : "false");
   json += ",\"state\":" + String((int)HaClient::instance().state()) + ",\"status\":" + jsonText(status) + ",\"art\":" + jsonText(artNote) + ",\"tiles\":[";
   for (int i = 0; i < ha::kHomeTiles; i++) json += (i ? "," : "") + haSlotJson(ha::tileSlot(c, i), ha::tileSlot(c, i).entity);
@@ -1697,7 +1652,7 @@ static void haSave() {
   if (token.isEmpty() && (strcmp(c->host, ha::config().host) != 0 || c->port != ha::config().port)) c->token[0] = 0;  // a new address never receives the saved token
   if (server.hasArg("clearToken")) c->token[0] = 0;
   if (server.hasArg("pages")) {
-    if (!number("pages", 1, 127, value) || !(value & 15)) { settingsResponse(400, "Choose at least one page."); return; }
+    if (!number("pages", 1, 255, value) || !(value & 15)) { settingsResponse(400, "Choose at least one page."); return; }
     c->pages = value;
   }
   if (server.hasArg("order")) {
@@ -1706,6 +1661,14 @@ static void haSave() {
     for (const char *letter = "EHMD"; *letter; letter++) good = good && order.indexOf(*letter) >= 0;
     if (!good) { settingsResponse(400, "The page order is not valid."); return; }
     strlcpy(ha::pageOrder(), order.c_str(), sizeof(ha::pageOrder()));
+  }
+  if (server.hasArg("phono")) ha::lineInAsPhono() = server.arg("phono") == "1";
+  if (server.hasArg("noinfo")) ha::hideBareMedia() = server.arg("noinfo") == "1";
+  if (server.hasArg("export")) ha::exportGraph() = server.arg("export") == "1";
+  if (server.hasArg("thin")) ha::thinClock() = server.arg("thin") == "1";
+  if (server.hasArg("weeks")) {
+    if (!number("weeks", 1, 26, value)) { settingsResponse(400, "Weeks of history must be between 1 and 26."); return; }
+    ha::predictWeeks() = (int)value;
   }
   if (server.hasArg("pageSecs")) {
     if (!number("pageSecs", 3, 120, value)) { settingsResponse(400, "Page time must be between 3 and 120 seconds."); return; }
@@ -1870,6 +1833,48 @@ private:
 
 static void postRoute(const char *uri, WebServer::THandlerFunction fn) { server.addHandler(new BoundedPost(uri, fn)); }
 
+// How the driver handles very dim colours (vendor/hub75): the hue guard is on by default; the dim-colour search and the per-LED weights are
+// optional, because the right weights depend on the panel (tools/colour-calibrate.py finds them). One small NVS blob, key "dimColour".
+struct DimColour {
+  uint8_t search, guard, restore, kx;  // 0/1, 0/1, 0/1, extra weights the search may use
+  uint8_t limit, guardMin, floorB, nightB;  // floorB: the calibrated lowest panel brightness (0 = none); nightB: the panel brightness in night mode (default 31, 12 %; 0 = it follows the Minimum slider);  plane weights of the brightest channel up to which the search runs; the hue guard leaves pixels with less than guardMin/64 plane weights black
+  float brightness;                    // weight of the brightness error in the search
+  float w[8];                          // wg wb gg gb og ob bg bb (1 = neutral)
+};
+static const char *const kDimNames[8] = {"wg", "wb", "gg", "gb", "og", "ob", "bg", "bb"};
+static const DimColour kDimDefault = {0, 0, 1, 2, 8, 5, 0, 31, 0.06f, {1, 1, 1, 1, 1, 1, 1, 1}};
+static DimColour dimColour = kDimDefault;
+static void applyDimColour() {
+  brightFloor = dimColour.floorB;
+  if (!display) return;
+  display->setLowLightSkip((dimColour.search ? 0 : 1) | (dimColour.guard ? 0 : 2) | (dimColour.restore ? 0 : 4));
+  display->setLowLightSearch(dimColour.brightness, dimColour.kx, dimColour.limit);
+  display->setHueGuardMin(dimColour.guardMin / 64.f);
+  display->setLowLightWeights(dimColour.w[0], dimColour.w[1], dimColour.w[2], dimColour.w[3], dimColour.w[4], dimColour.w[5], dimColour.w[6], dimColour.w[7]);
+}
+static void loadDimColour() {
+  Preferences p;
+  DimColour stored;
+  if (p.begin("ultimatrix", true)) {
+    if (cacheblob::get(p, "dimColour", stored, 1)) dimColour = stored;
+    p.end();
+  }
+}
+static void saveDimColour() {
+  Preferences p;
+  if (!p.begin("ultimatrix", false)) return;
+  if (!memcmp(&dimColour, &kDimDefault, sizeof(kDimDefault))) p.remove("dimColour");  // nothing changed from the defaults: keep the NVS entries free
+  else cacheblob::put(p, "dimColour", dimColour, 1);
+  p.end();
+}
+static void sendDimColour() {
+  char out[320];
+  int n = snprintf(out, sizeof(out), "{\"search\":%d,\"guard\":%d,\"restore\":%d,\"brightness\":%.3f,\"extra\":%u,\"limit\":%u,\"guardMin\":%.3f,\"floor\":%u,\"night\":%u", dimColour.search, dimColour.guard, dimColour.restore, dimColour.brightness, dimColour.kx, dimColour.limit, dimColour.guardMin / 64.f, dimColour.floorB, dimColour.nightB);
+  for (int i = 0; i < 8 && n > 0 && n < (int)sizeof(out); i++) n += snprintf(out + n, sizeof(out) - n, ",\"%s\":%.3f", kDimNames[i], dimColour.w[i]);
+  if (n > 0 && n < (int)sizeof(out) - 2) { out[n++] = '}'; out[n] = 0; }
+  server.send(200, "application/json", String(out));
+}
+
 // Web requests run on the drawing task, so a submitted frame stays stable while streamed.
 static void screenPreview() {
   if (playing(millis())) { server.send(503, "text/plain", "Paused while a game is being played."); return; }
@@ -2000,9 +2005,7 @@ static void background() {
   if (!playing(now)) sportsSwitch(now);
 #endif
   reportMemory();
-  noteLiveData();
   shedOnLowMemory();
-  retryPanelQuality(now);
   telnet.poll();
   if (mdnsDue) { mdnsDue = false; startMdns(); }
   if (restartAt && (int32_t)(millis() - restartAt) >= 0) {
@@ -2030,6 +2033,26 @@ static void nvsEraseNamespace(const char *name) {
   nvs_commit(handle);
   nvs_close(handle);
 }
+// Every key of a namespace that starts with prefix (empty: all of them), except keep
+static void nvsEraseMatching(const char *name, const char *prefix, const char *keep = nullptr) {
+  char found[64][16];
+  size_t count = 0;
+  nvs_iterator_t it = nullptr;
+  for (esp_err_t err = nvs_entry_find("nvs", name, NVS_TYPE_ANY, &it); err == ESP_OK && count < 64; err = nvs_entry_next(&it)) {
+    nvs_entry_info_t info; nvs_entry_info(it, &info);
+    if (strncmp(info.key, prefix, strlen(prefix)) || (keep && !strcmp(info.key, keep))) continue;
+    strlcpy(found[count++], info.key, sizeof(found[0]));
+  }
+  if (it) nvs_release_iterator(it);
+  nvs_handle_t handle;
+  if (!count || nvs_open(name, NVS_READWRITE, &handle) != ESP_OK) return;
+  for (size_t i = 0; i < count; ++i) nvs_erase_key(handle, found[i]);
+  nvs_commit(handle);
+  nvs_close(handle);
+}
+// The update history (release numbers and digests per face, the spare slot): the releaseFloor() in FirmwareUpdate.cpp still stops older images.
+// "pending" is an update in progress and stays.
+static void clearUpdateRecords() { nvsEraseMatching("um-updates", "", "pending"); }
 static void nvsEraseKeys(const char *name, const char *const *keys, size_t count) {
   nvs_handle_t handle;
   if (nvs_open(name, NVS_READWRITE, &handle) != ESP_OK) return;
@@ -2043,9 +2066,9 @@ static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
   "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
-  "ptier", "preason", "plock", "pat", "ptierv",                                                                   // PanelTier.h
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
-  "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder",  // HaConfig.cpp
+  "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder", "haPhono", "haNoInfo", "haWeeks", "haExport", "haThin",  // HaConfig.cpp
+  "dimColour",                                                                                                             // main.cpp (low-light settings)
   "btPad",                                                                                                                 // Gamepad.cpp
   "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5",
 };
@@ -2073,18 +2096,15 @@ static void tidyNvs(bool force = false) {
   // Another face's own records stay for people who switch faces often, and go only when the partition is nearly full
   nvs_stats_t now = {};
   nvs_get_stats(nullptr, &now);
-  const bool crowded = force || now.free_entries < 100;
+  const bool crowded = force || now.free_entries < 100 + 126;  // 126: the page kept empty
+  (void)crowded;
+  // Short of room for the settings record to be rewritten: the update records and the setup access point's Wi-Fi settings go, both are rebuilt
+  if (now.free_entries < 60 + 126) { clearUpdateRecords(); nvsEraseMatching("nvs.net80211", "ap."); }
   nvsEraseUnknownKeys();  // every boot: keys no firmware writes any more
 #if !defined(UM_F1)
   if (crowded) nvsEraseNamespace("um-f1cache");
 #endif
-#if !defined(UM_HOME)
-  if (crowded) {  // the Home Assistant face's own records (settings, token, tiles, alert and media options)
-    static const char *const homeKeys[] = {"haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder",
-  "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5"};
-    nvsEraseKeys("ultimatrix", homeKeys, sizeof(homeKeys) / sizeof(homeKeys[0]));
-  }
-#endif
+  // The Home Assistant face's records (settings, token, tiles) are the user's own setup: they are never removed to make room
   nvs_get_stats(nullptr, &after);
   if (before.used_entries != after.used_entries) consoleLog("[Nvs] removed data that no longer belongs: %u of %u entries used (was %u)\n", (unsigned)after.used_entries, (unsigned)after.total_entries, (unsigned)before.used_entries);
 }
@@ -2094,8 +2114,11 @@ static void tidyNvs(bool force = false) {
 static void watchNvs() {
   nvs_stats_t stats = {};
   if (nvs_get_stats(nullptr, &stats) != ESP_OK) return;
-  if (stats.free_entries < 100) { tidyNvs(true); nvs_get_stats(nullptr, &stats); }
-  nvsFreeEntries = stats.free_entries;
+  // One page of 126 entries always stays empty for the flash's own tidying: that is not room for settings
+  constexpr uint32_t kSparePage = 126;
+  auto usable = [&]() { return stats.free_entries > kSparePage ? stats.free_entries - kSparePage : 0u; };
+  if (usable() < 100) { tidyNvs(true); nvs_get_stats(nullptr, &stats); }
+  nvsFreeEntries = usable();
 }
 
 void setup() {
@@ -2138,16 +2161,14 @@ void setup() {
   panel.gpio.e = 18;
   panel.clkphase = false;
   panel.double_buff = !setupRefresh;  // the setup and welcome display is single buffered (static screens, half the DMA memory)
-  {  // The colour quality level (PanelTier.h). The update-only boot has no face and every KB goes to the download: it always takes the last, lightest level
-    panelState = paneltier::load();
-    panelLevel = updateOnly ? paneltier::kCount - 1 : paneltier::active(panelState);
-    const paneltier::Tier &tier = paneltier::kTiers[panelLevel];
+  {  // The colour quality (PanelTier.h). The update-only boot has no face and every KB goes to the download: it takes the light level
+    const paneltier::Tier &tier = updateOnly ? paneltier::kUpdateOnly : paneltier::kNormal;
     panelLut = cie_lut_for_depth(tier.bits);
     panel.setPixelColorDepthBits(tier.bits);
-    panel.i2sspeed = tier.mhz >= 20 ? HUB75_I2S_CFG::HZ_20M : tier.mhz >= 16 ? HUB75_I2S_CFG::HZ_16M : HUB75_I2S_CFG::HZ_8M;
+    panel.i2sspeed = tier.mhz >= 20 ? HUB75_I2S_CFG::HZ_20M : HUB75_I2S_CFG::HZ_8M;
     panel.min_refresh_rate = tier.minRefresh;  // the driver merges the lowest bit planes until this is reached, and each plane it keeps doubles the DMA descriptors
     boot::setQuality(tier.iconPercent, tier.uFloor, tier.gradient);
-    consoleLog("[Panel] level %d of %d: %s, state level %u reason %u lock %u\n", panelLevel + 1, paneltier::kCount, tier.name, panelState.level, panelState.reason, panelState.lock);
+    consoleLog("[Panel] %d bit, %d MHz, %d Hz\n", tier.bits, tier.mhz, tier.minRefresh);
   }
 #ifndef UM_RING_ROWS
 #define UM_RING_ROWS 8
@@ -2172,6 +2193,8 @@ void setup() {
     appliedBrightness = panelBrightness(s.brightness);
     appliedDither = s.dither;
     display->setDither(s.dither);
+    loadDimColour();
+    applyDimColour();
     display->setBrightness8(appliedBrightness);
     display->setRotation(s.rotation);
     bootAt = millis();
@@ -2183,12 +2206,6 @@ void setup() {
   } else {
     // No panel: a new image that cannot drive it goes back; a proven one stays up headless so Wi-Fi, settings and updates can repair it
     consoleLog("Display allocation failed\n");
-    if (!setupRefresh && !updateOnly && paneltier::canLower(panelState)) {  // too heavy for this level: one lighter and restart
-      paneltier::lower(panelState, false);
-      consoleLog("[Panel] the display did not start: level %d next\n", paneltier::active(panelState) + 1);
-      delay(200);
-      ESP.restart();
-    }
     FirmwareUpdate::rollbackIfPending();
   }
   {  // the router lists each clock under its own name: two clocks would otherwise both be "ultimatrix"
@@ -2325,6 +2342,66 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/faces/nfl.png", HTTP_GET, []() { sendIcon(nflStart, nflEnd); });
   server.on("/faces/home.png", HTTP_GET, []() { sendIcon(homeStart, homeEnd); });
   server.on("/api/screen", HTTP_GET, screenPreview);
+  server.on("/api/dim-colour", HTTP_GET, sendDimColour);
+  postRoute("/api/dim-colour", []() {  // search/guard/restore 0|1, brightness, extra, limit, floor (0-200, the calibrated lowest panel brightness), wg wb gg gb og ob bg bb; save=0 only applies until a restart; reset=1 restores the defaults
+    if (server.arg("reset").toInt()) { const uint8_t keep = dimColour.floorB, night = dimColour.nightB; dimColour = kDimDefault; dimColour.floorB = keep; dimColour.nightB = night; }  // the calibrated floor and night level survive a reset; floor=0 / night=0 clear them
+    if (server.hasArg("night")) { const long v = server.arg("night").toInt(); if (v >= 0 && v <= 255) dimColour.nightB = (uint8_t)v; }  // the panel brightness in night mode (0 = follow the Minimum slider)
+    if (server.hasArg("floor")) { const long v = server.arg("floor").toInt(); if (v >= 0 && v <= 200) dimColour.floorB = (uint8_t)v; }
+    auto flag = [](const char *name, uint8_t &value) { if (server.hasArg(name)) value = server.arg(name).toInt() != 0; };
+    flag("search", dimColour.search); flag("guard", dimColour.guard); flag("restore", dimColour.restore);
+    if (server.hasArg("brightness")) { const float v = server.arg("brightness").toFloat(); if (v > 0.f && v < 10.f) dimColour.brightness = v; }
+    if (server.hasArg("extra")) { const long v = server.arg("extra").toInt(); if (v >= 1 && v <= 8) dimColour.kx = (uint8_t)v; }
+    if (server.hasArg("guardMin")) { const float v = server.arg("guardMin").toFloat(); if (v >= 0.f && v <= 3.9f) dimColour.guardMin = (uint8_t)(v * 64.f + 0.5f); }
+    if (server.hasArg("limit")) { const long v = server.arg("limit").toInt(); if (v >= 4 && v <= 40) dimColour.limit = (uint8_t)v; }
+    for (int i = 0; i < 8; i++)
+      if (server.hasArg(kDimNames[i])) { const float v = server.arg(kDimNames[i]).toFloat(); if (v >= 0.1f && v <= 5.f) dimColour.w[i] = v; }
+    applyDimColour();
+    if (!server.hasArg("save") || server.arg("save").toInt()) saveDimColour();
+    nightClock.reset(); if (face) face->invalidate();
+    sendDimColour();
+  });
+  postRoute("/api/hue-test", []() {
+    const int b = server.arg("b").toInt(), secs = server.arg("secs").toInt();
+    hueTest.brightness = (uint8_t)std::min(255, std::max(0, b));
+    hueTest.deep = server.arg("deep").toInt() != 0;
+    hueTest.wide = server.arg("wide").toInt() != 0;  // 16 hues of 4 px instead of 8 of 8 px
+    hueTest.ramp = (uint8_t)std::min(255, std::max(0, (int)server.arg("ramp").toInt()));  // 0 = the usual 100..8 %; else the last column is this many of 255 and each column before is 1.3x brighter
+    if (server.hasArg("gd")) { display->setHueGuardDrop(server.arg("gd").toFloat()); nightClock.reset(); if (face) face->invalidate(); }  // share of the strongest channel below which a channel at the lowest level drops to 0 (0 = off)
+    if (server.hasArg("gc")) { display->setHueGuardCarry(server.arg("gc").toFloat()); nightClock.reset(); if (face) face->invalidate(); }  // share of the strongest channel a channel at 0 must carry to be lifted (default 0.5)
+    if (server.hasArg("gm")) { display->setHueGuardMin(server.arg("gm").toFloat()); nightClock.reset(); if (face) face->invalidate(); }  // the lowest light, in plane weights, the hue guard still lifts
+    if (server.hasArg("off")) {  // bits: 1 = no dim-colour search, 2 = no hue guard, 4 = no brightness restore (7 = plain gain table)
+      display->setLowLightSkip((uint8_t)server.arg("off").toInt());
+      nightClock.reset(); if (face) face->invalidate();
+    }
+    if (server.hasArg("lb") || server.hasArg("kx") || server.hasArg("ll")) {  // the search: brightness error weight, extra weights allowed, plane weights of the brightest channel it runs up to
+      display->setLowLightSearch(server.arg("lb").toFloat(), (uint8_t)server.arg("kx").toInt(), (uint8_t)server.arg("ll").toInt());
+      nightClock.reset(); if (face) face->invalidate();
+    }
+    if (server.hasArg("wg") || server.hasArg("wb") || server.hasArg("gg") || server.hasArg("gb") || server.hasArg("og") || server.hasArg("ob") || server.hasArg("bg") || server.hasArg("bb")) {  // plane weights per red weight for green and blue in the dim colours (0 = default); the face repaints
+      display->setLowLightWeights(server.arg("wg").toFloat(), server.arg("wb").toFloat(), server.arg("gg").toFloat(), server.arg("gb").toFloat(), server.arg("og").toFloat(), server.arg("ob").toFloat(), server.arg("bg").toFloat(), server.arg("bb").toFloat());
+      nightClock.reset(); if (face) face->invalidate();
+    }
+    if (server.hasArg("fl")) { display->setDimFloor(server.arg("fl").toInt() != 0); nightClock.reset(); if (face) face->invalidate(); }  // 1 = pixels dimmer than the dimmest visible level are scaled up to it instead of going black
+    if (server.hasArg("gamma")) {  // power-law curve instead of CIE in the dim range (0 = CIE); the gain table is rebuilt, then the face repaints
+      display->setLumGamma(server.arg("gamma").toFloat());
+      display->setBrightness8(appliedBrightness);
+      nightClock.reset(); if (face) face->invalidate();
+    }
+    if (server.hasArg("minb")) {  // the brightness floor; the gain table is rebuilt, then the face repaints
+      display->setMinBrightness((uint8_t)server.arg("minb").toInt());
+      display->setBrightness8(appliedBrightness);
+      nightClock.reset(); if (face) face->invalidate();
+    }
+    hueTest.until = b > 0 && secs > 0 ? millis() + std::min(600, secs) * 1000u : 0;
+    server.send(204);
+  });
+  postRoute("/api/night-test", []() {  // b = the red night clock's panel brightness (1-255, 0 stops), secs = how long (default 90, at most 600); the clock then shows its night clock at that level
+    const int b = server.arg("b").toInt(), secs = server.arg("secs").toInt();
+    nightTest.brightness = (uint8_t)std::min(255, std::max(0, b));
+    nightTest.until = b > 0 ? millis() + std::min(600, secs > 0 ? secs : 90) * 1000u : 0;
+    nightClock.reset(); if (face) face->invalidate();
+    server.send(204);
+  });
   server.on("/api/settings", HTTP_GET, settingsState);
   postRoute("/api/settings", saveSettings);
 #ifdef UM_NFL
@@ -2394,7 +2471,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/storage/clear", storageClear);
   postRoute("/api/storage/reformat", storageReformat);
   server.on("/api/display", HTTP_GET, displayStatus);
-  postRoute("/api/display", displaySave);
+  server.on("/api/nvs", HTTP_GET, []() { StreamString out; telnetCommand("nvs", out); server.send(200, "text/plain", String(out.c_str())); });  // the telnet nvs listing (entries used, size of each key), for when settings will not save
   server.on("/api/mqtt", HTTP_GET, mqttState);
   postRoute("/api/mqtt", mqttSave);
 #ifdef UM_WLED_OVERLAY
@@ -2470,9 +2547,17 @@ void loop() {
   if ((int32_t)(now - nextFrame) >= 0) {
     uint8_t brightness = displayControl.update(*Settings::getInstance(), now, ultime::timeStatus() == timeSet,
         clockTime.getHour24() * 60 + clockTime.getMinute(), !bootDone || portalActive, face && face->handlesNight());
+    const bool nightTesting = nightTest.until && (int32_t)(nightTest.until - now) > 0;
+    if (nightTest.until && !nightTesting) nightTest.until = 0;
+    const bool nightMode = nightTesting || displayControl.nightDimmed(face && face->handlesNight());  // the night schedule or a dark room: the red night clock, or the face when the night clock is off
+    if (nightTesting) brightness = nightTest.brightness;
+    else if (nightMode && dimColour.nightB) brightness = dimColour.nightB;  // the tuned night mode level; without it night mode follows the Minimum slider
     if ((face && face->alertFullBrightness()) || notice::fullBrightness(now)) brightness = 255;  // a popup that asked for full brightness
-    uint8_t panel = panelBrightness(brightness);
-    const bool deepDim = displayControl.nightDimmed(face && face->handlesNight());  // the red night clock may dim past the safe window width
+    const bool hueTesting = hueTest.until && (int32_t)(hueTest.until - now) > 0;
+    if (hueTest.until && !hueTesting) hueTest.until = 0;
+    if (hueTesting) brightness = hueTest.brightness;
+    const bool deepDim = nightTesting || (hueTesting ? hueTest.deep : displayControl.nightDimmed(face && face->handlesNight()));  // the red night clock may dim past the safe window width
+    uint8_t panel = panelBrightness(brightness, nightMode || hueTesting);  // night mode (an explicit level) and the test grid are not stretched over the calibrated floor
     if (panel != appliedBrightness || deepDim != appliedDeepDim) {
       const uint8_t dimFloor = display->brightnessFloor();
       display->setDeepDim(deepDim);
@@ -2509,11 +2594,26 @@ void loop() {
       if (mqttPixelsShown && !Mqtt::instance().pixelsActive()) { nightClock.reset(); face->invalidate(); }
       mqttPixelsShown = Mqtt::instance().pixelsActive();
       const bool popup = face->alertOverridesNight();  // an alert that must show through the night clock and the birthday screen
-      const bool night = displayControl.nightClockShown(face->handlesNight()) && !popup;
+      const bool night = (nightTesting || displayControl.nightClockShown(face->handlesNight())) && !popup;
       if (!btMode() && !playing(now) && notice::active(now, displayControl.nightDimmed(face->handlesNight()) && !popup)) {  // a message sent from Home Assistant takes the panel, whatever the face; a normal one waits out the night
         mqttDisplayMode = "notification";
         notice::draw(*display, now);
         noticeShown = true;
+      } else if (hueTesting) {
+        static const uint8_t kHue[8][3] = {{255, 0, 0}, {255, 120, 0}, {255, 193, 7}, {255, 255, 0}, {0, 255, 0}, {0, 255, 255}, {0, 0, 255}, {255, 105, 180}};
+        // the wide grid: red, vermilion, orange, amber, yellow, lime, green, spring, cyan, sky, blue, violet, magenta, pink, white, warm white
+        static const uint8_t kWide[16][3] = {{255, 0, 0}, {255, 64, 0}, {255, 120, 0}, {255, 193, 7}, {255, 255, 0}, {128, 255, 0}, {0, 255, 0}, {0, 255, 128}, {0, 255, 255}, {0, 128, 255}, {0, 0, 255}, {128, 0, 255}, {255, 0, 255}, {255, 105, 180}, {255, 255, 255}, {255, 214, 170}};
+        static const uint8_t kSteps[8] = {100, 70, 50, 35, 25, 18, 12, 8};
+        const int rows = hueTest.wide ? 16 : 8, rowH = 64 / rows;
+        for (int row = 0; row < rows; row++)
+          for (int col = 0; col < 8; col++) {
+            const uint8_t *hue = hueTest.wide ? kWide[row] : kHue[row];
+            float v = hueTest.ramp ? std::min(255.f, hueTest.ramp * powf(1.3f, 7 - col)) / 255.f : kSteps[col] / 100.f;
+            display->fillRect(col * 8, row * rowH, 8, rowH, display->color565((uint8_t)(hue[0] * v + .5f), (uint8_t)(hue[1] * v + .5f), (uint8_t)(hue[2] * v + .5f)));
+          }
+        display->flipDMABuffer();
+        mqttDisplayMode = "test";
+        hueTest.shown = true;
       } else if (Mqtt::instance().drawPixels(*display)) {
         mqttDisplayMode = "pixels";
       } else if (night) {
@@ -2539,12 +2639,12 @@ void loop() {
         display->flipDMABuffer();
         birthdayShown = true;
       } else {
-        if (nightShown || birthdayShown || noticeShown || dlnaShown
+        if (nightShown || birthdayShown || noticeShown || dlnaShown || hueTest.shown
 #ifdef UM_WLED_OVERLAY
             || wledShown
 #endif
         ) {
-          nightShown = birthdayShown = noticeShown = dlnaShown = false;
+          nightShown = birthdayShown = noticeShown = dlnaShown = hueTest.shown = false;
 #ifdef UM_WLED_OVERLAY
           wledShown = false;
 #endif

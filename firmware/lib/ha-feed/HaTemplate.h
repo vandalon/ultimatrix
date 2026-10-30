@@ -37,12 +37,23 @@ bool parseResult(const char *text, size_t length, Snapshot &out);
 bool parseEnergyPrefs(const char *json, char (&ids)[E_COUNT][kEntity], char (&gridTo)[kEntity], char *price = nullptr);
 // The Energy dashboard's tariff for price tiles on Auto (empty: none found)
 void setAutoPrice(const char *price);
+const char *autoPriceEntity();  // the same, only when it is an entity (not a fixed number); else ""
 // Today's change of each statistic in a recorder/statistics_during_period answer: values[i] for ids[i]; the bit is set when it has one
 uint8_t parseStatistics(const char *json, const char (*ids)[kEntity], int count, float *values);
 
 constexpr int kHistoryBars = 24;
 // Hourly means (kW) of one statistic in a recorder answer: out[kHistoryBars - 1] is the hour that starts at lastHourStart (seconds),
 // the one before it comes first. Bit i of the result is set when out[i] has a value.
-uint32_t parseHourly(const char *json, const char *id, uint32_t lastHourStart, float *out);
+uint32_t parseHourly(const char *json, const char *id, uint32_t lastHourStart, float *out, const char *key = "mean");  // key: "mean" (power) or "change" (an energy meter's kWh in the hour)
+
+// Daily means (kW) of one statistic (period day): out[i] is set for the day that starts i days after firstStart (seconds, UTC midnight); other entries are left alone
+void parseDaily(const char *json, const char *id, uint32_t firstStart, int count, float *out);
+
+// The solar forecast of a recorder-less energy/solar_forecast answer for one date ("YYYY-MM-DD"): kW per hour of that day, summed over
+// the forecasts in the answer; the answer may be cut short. Bit h of the result is set when hour h has a value.
+uint32_t parseSolarForecast(const char *json, const char *date, float *kw);
+
+// The highest "max" in a recorder answer for one statistic (period month): its peak over those months; 0 when there is none
+float parseMaximum(const char *json, const char *id);
 
 }  // namespace ha

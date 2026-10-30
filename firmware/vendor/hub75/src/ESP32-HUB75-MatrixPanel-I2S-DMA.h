@@ -709,6 +709,16 @@ public:
   void setDeepDim(bool on) { m_deepDim = on; }
   /** true: ordered dithering of the dimmed pixel values (below brightnessFloor()); takes effect on the next setBrightness8 */
   void setDither(bool on) { m_dither = on; }
+  // Plane weights one LED needs to show the light of one red weight, for dim pixels (green 1.6: the green LED gives less light per weight, so amber needs more green); 0 restores the defaults
+  void setDimFloor(bool on);  // below the gain-table floor a pixel dimmer than the dimmest visible level is scaled up to it (channel ratios kept) instead of going black; off by default
+  void setLumGamma(float gamma);  // below the gain-table floor use a power-law curve (1.4-3.5) instead of CIE; 0 = CIE (default). Call setBrightness8() again to rebuild the tables
+  void setHueGuardDrop(float share);  // at the lowest level the hue guard sets a channel back to 0 when it carries less than this share (0.1-1) of the strongest channel's light (0 = off, the default)
+  void setHueGuardCarry(float share);  // the hue guard lifts a channel left at 0 when it carries at least this share (0.1-1) of the strongest channel's light (default 0.5)
+  void setHueGuardMin(float weights);  // the hue guard leaves a pixel black when its brightest channel shows less than this many plane weights (0 = lift everything, the default)
+  void setLowLightSkip(uint8_t skip);  // test switches, bits: 1 skips the dim-colour search, 2 the hue guard, 4 the brightness restore after the weights; default 1 (hue guard only), 0 = everything on
+  void setLowLightSearch(float brightness, uint8_t extra, uint8_t limit = 0);  // the dim-colour search: weight of the brightness error (default 0.06), how many weights above the asked one it may use (default 2) and the plane weights of the brightest channel up to which it runs (default 8); outside the range restores the default
+  void setLowLightWeights(float green, float blue, float greyGreen = 0, float greyBlue = 0, float offGreen = 0, float offBlue = 0, float blueGreen = 0, float blueBlue = 0);
+  void setMinBrightness(uint8_t minimum);  // the panel never gets dimmer than this (default 0 = off; 23 keeps hues on the 8-bit tiers; the red night clock excepted); applies at the next setBrightness8()
 
   void setBrightness8(const uint8_t b)
   {

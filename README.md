@@ -315,7 +315,7 @@ The [release workflow](.github/workflows/release.yml) builds all eleven faces wh
 
 ## Display quality
 
-The panel runs at one of four colour quality levels (8 bit/20 MHz at 72 Hz, 8 bit/20 MHz, 8 bit/8 MHz, 7 bit/8 MHz): the better the level, the more memory its display buffers use. The clock starts at the best level. If memory runs short and shedding telnet and mDNS does not help, it restarts one level lower, and the settings page shows a warning. A drop caused by live data (a busy match day) is tried again at 11:00 the next quiet moment; a drop at a quiet time stays until you press **Try the best quality again** under **Advanced > Display quality**. The same selector can lock one level.
+The panel runs at 8 bit per channel with a 20 MHz clock and at least 100 Hz refresh. There is one level; the clock does not lower it when memory runs short (it still stops telnet and mDNS first).
 
 ## Remote console
 
@@ -357,7 +357,7 @@ As of 26 October 2026 (v0.8.1), the firmware builds with ESP-IDF and Arduino as 
 
 The release workflow builds all eleven faces, and the v0.8.0 release built successfully. A build does not mean every face has been checked on a panel after every change. The recent Words transitions have been checked in native previews and browser mocks. Pac-Man is now the former Pac-Man Classic (the older random-maze Pac-Man is gone) and has been flashed and run on a panel. Space Invaders and Pong have been flashed and played on a panel during development; the Invaders update after the last changes (fonts, date backdrop, ship icons) has been flashed but not played through.
 
-Football and Home have had device checks, including feeds, saved settings, telnet, picture notifications, GIF search, the display quality levels and the Storage page. A clock has updated itself over Wi-Fi from a GitHub release. F1 has had a short device check of memory use, update checking and its cache.
+Football and Home have had device checks, including feeds, saved settings, telnet, picture notifications, GIF search, the Storage page. A clock has updated itself over Wi-Fi from a GitHub release. F1 has had a short device check of memory use, update checking and its cache.
 
 Still open: several clocks on one network (discovery and renaming), the DLNA renderer, setup QR reliability across phones, the WLED app on a phone, busy live matches, longer memory runs, update failure recovery, and the browser installer on a fresh board.
 

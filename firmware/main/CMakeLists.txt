@@ -96,6 +96,7 @@ elseif(ULTIMATRIX_MODE STREQUAL "home")
         "${root}/lib/${sport}/HaQuery.cpp"
         "${root}/lib/${sport}/HaMedia.cpp"
         "${root}/lib/${sport}/HaDevices.cpp"
+        "${root}/lib/${sport}/HaPrices.cpp"
         "${root}/clockfaces/home/HomeRenderer.cpp")
     set(mode_definitions UM_SIMPLE_FACE UM_HOME UM_MODE_NAME="Home")
 elseif(ULTIMATRIX_MODE STREQUAL "scanner")

@@ -288,13 +288,102 @@ void IRAM_ATTR ringEof(void *, uint32_t descIndex)
    * (every nonzero input shows at least level 1, per channel) turned it grey, because the small channels of a green or blue came up to 1 as
    * well. Instead only the channels that carry at least half of the strongest one's light get level 1: a dim green stays green, a dim grey
    * stays grey. */
+  static uint16_t *g_lumPower = nullptr;  // heap: 12-bit power-law curve while setLumGamma() is on (keeps a colour's channel ratios at every brightness, which the CIE curve does not)
+  static bool g_lumOn = false;
+  static inline unsigned lumOf(unsigned v) { return g_lumOn ? g_lumPower[v] : lumConvTab_12bit[v]; }  // light of an input value (12 bit) while the gain table is active
+  static bool g_floorOn = false;  // setDimFloor(): a pixel dimmer than the dimmest visible level is scaled up to it, channel ratios kept
+  static uint8_t g_floorV = 0;    // the lowest input value that shows light at the current gain (0 when the gain table is off)
+  static unsigned g_guardCarry = 128;  // 1/256: a channel at 0 is lifted when its light is at least this share of the strongest channel's (128 = half); changeable with setHueGuardCarry()
+  static unsigned g_guardDrop = 0;  // 1/256: at the lowest level a channel whose light is below this share of the strongest channel's goes back to 0 (0 = off); changeable with setHueGuardDrop()
+  static unsigned g_guardMin = 0;  // 8.8 plane weights: a pixel whose brightest channel carries less light than this stays black instead of being lifted; changeable with setHueGuardMin()
+  struct LowTables;
+  static unsigned guardLight(uint8_t red, uint8_t green, uint8_t blue);
   static inline void keepHue(uint8_t red, uint8_t green, uint8_t blue, uint8_t &red_val, uint8_t &green_val, uint8_t &blue_val)
   {
-    const unsigned r = lumConvTab_12bit[red], g = lumConvTab_12bit[green], b = lumConvTab_12bit[blue];
+    if (g_guardMin && guardLight(red, green, blue) < g_guardMin) return;
+    const unsigned r = lumOf(red), g = lumOf(green), b = lumOf(blue);
     const unsigned top = r > g ? (r > b ? r : b) : (g > b ? g : b);
-    red_val = r * 2 >= top && r ? 1 : 0;
-    green_val = g * 2 >= top && g ? 1 : 0;
-    blue_val = b * 2 >= top && b ? 1 : 0;
+    if (!(red_val | green_val | blue_val) || (red_val | green_val | blue_val) == 1) {  // all black, or the lowest level somewhere: a channel left at 0 that carries half the light (a dim yellow's green next to its red) is lifted too
+      if (!red_val) red_val = r * 256 >= top * g_guardCarry && r ? 1 : 0;
+      if (!green_val) green_val = g * 256 >= top * g_guardCarry && g ? 1 : 0;
+      if (!blue_val) blue_val = b * 256 >= top * g_guardCarry && b ? 1 : 0;
+    }
+    if (g_guardDrop && (red_val | green_val | blue_val) == 1) {  // the table rounds a channel with half of the light up to the same step as the strongest (amber turns yellow): drop it again
+      if (red_val && r * 256 < top * g_guardDrop) red_val = 0;
+      if (green_val && g * 256 < top * g_guardDrop) green_val = 0;
+      if (blue_val && b * 256 < top * g_guardDrop) blue_val = 0;
+    }
+  }
+
+  /* Dim pixels while the gain table is active: the light of a channel is a whole number of plane weights, and with a few of them (levels 1 and 2 show the
+   * same light) rounding each channel alone moves the hue (amber turns red). Instead the three weights are chosen together: the achievable triple, with the
+   * strongest channel one step or so brighter or dimmer than asked, whose colour is nearest to the wanted one (the chroma error counts much more than the
+   * brightness error). The same colour always gives the same levels, so a solid area stays uniform; a small direct-mapped cache keeps the search off the
+   * common path. Only when every channel is below g_lowLimit (8 plane weights by default); brighter pixels keep the plain table. */
+  static unsigned g_lowLimit = 8u << 8;  // in 8.8 plane weights; changeable with setLowLightSearch()
+  static float g_lowBrightness = 0.06f;  // weight of the brightness error against the chroma error; changeable with setLowLightSearch()
+  static unsigned g_lowExtra = 2;        // how many weights above the asked brightness the search may go
+  struct LowEntry { uint32_t key; uint8_t level[3]; };
+  struct LowTables {
+    uint16_t light[256];  // 8.8 plane weights of each input value at the current gain
+    uint8_t level[256];   // the lowest level that shows a whole number of plane weights
+    LowEntry cache[128];
+  };
+  static float g_lowOffGreen = 1.0f, g_lowOffBlue = 1.0f;  // the weights when green leads (green, teal and their pastels); changeable with setLowLightWeights()
+  static float g_lowBlueGreen = 1.0f, g_lowBlueBlue = 1.0f;  // the same when blue leads (blue, cyan and their pastels): a pale green wants more blue, a blue wants less violet
+  static float g_lowGreyGreen = 1.0f, g_lowGreyBlue = 1.0f;  // the same for a grey or white (no saturation): the weights blend from these to the ones below as the colour gets more saturated
+  static float g_lowMultGreen = 1.0f, g_lowMultBlue = 1.0f;  // plane weights per red weight for the same light (the LEDs differ); changeable with setLowLightWeights()
+  static LowTables *g_low = nullptr;  // allocated on first use (heap, not static RAM)
+  static bool g_lowOn = false;
+  static unsigned guardLight(uint8_t red, uint8_t green, uint8_t blue)
+  {
+    if (!g_low) return 0xFFFF;
+    const unsigned r = g_low->light[red], g = g_low->light[green], b = g_low->light[blue];
+    return r > g ? (r > b ? r : b) : (g > b ? g : b);
+  }
+  static uint8_t g_lowSkip = 7;  // bits: 1 = no lowLight() search, 2 = no keepHue() guard (both off by default: the plain table keeps every channel ratio; a calibrated minimum brightness is the fix for dim colours), 4 = no brightness restore after the weights (7 = the plain gain table); changeable with setLowLightSkip()
+
+  static bool IRAM_ATTR lowLight(uint8_t red, uint8_t green, uint8_t blue, uint8_t &red_val, uint8_t &green_val, uint8_t &blue_val)
+  {
+    const unsigned lr = g_low->light[red], lg = g_low->light[green], lb = g_low->light[blue];
+    const unsigned hi = lr > lg ? (lr > lb ? lr : lb) : (lg > lb ? lg : lb), lo = lr < lg ? (lr < lb ? lr : lb) : (lg < lb ? lg : lb);
+    const float sat = hi ? (float)(hi - lo) / hi : 0.f;
+    // The weights of a grey fade in over the upper half of the range, so there is no step where the plain table hands over to this search (full below g_lowLimit / 2, none at g_lowLimit)
+    float fade = hi >= g_lowLimit ? 0.f : hi <= g_lowLimit / 2 ? 1.f : (float)(g_lowLimit - hi) / (g_lowLimit / 2);
+    fade += (1.f - fade) * sat;  // a saturated colour keeps its full weights: only the greys need the gentle hand-over
+    // The weights above were found on amber and orange, where the red LED looks too strong; when green or blue leads they give way to g_lowOff* / g_lowBlue*, so the red and blue of a pastel green or blue is not thinned out
+    const float redLead = hi ? (float)lr / hi : 0.f;
+    const float satGreen = 1.f + (g_lowGreyGreen + (g_lowMultGreen - g_lowGreyGreen) * sat - 1.f) * fade, satBlue = 1.f + (g_lowGreyBlue + (g_lowMultBlue - g_lowGreyBlue) * sat - 1.f) * fade;
+    const float offGreen = lb > lg ? g_lowBlueGreen : g_lowOffGreen, offBlue = lb > lg ? g_lowBlueBlue : g_lowOffBlue;
+    const float mg = offGreen + (satGreen - offGreen) * redLead, mb = offBlue + (satBlue - offBlue) * redLead;  // red leads: the weights above; green or blue leads: g_lowOff* or g_lowBlue*
+    unsigned f[3] = {lr, (unsigned)(lg * mg), (unsigned)(lb * mb)};  // in the weights each LED needs
+    unsigned top = f[0] > f[1] ? (f[0] > f[2] ? f[0] : f[2]) : (f[1] > f[2] ? f[1] : f[2]);
+    // Weights below 1 only change the colour, not how bright it is asked to be: scale back up to the light the brightest channel had
+    if (top && top < hi && !(g_lowSkip & 4)) { for (int c = 0; c < 3; c++) f[c] = (unsigned)((uint64_t)f[c] * hi / top); top = hi; }
+    if (!top || top >= g_lowLimit) return false;
+    const uint32_t key = 0x1000000u | (uint32_t)red << 16 | (uint32_t)green << 8 | blue;
+    LowEntry &entry = g_low->cache[(red * 31u ^ green * 17u ^ blue * 7u) & 127];
+    if (entry.key != key)
+    {
+      float best = 1e9f;
+      unsigned bw[3] = {0, 0, 0};
+      for (unsigned k = (top >> 8) ? (top >> 8) : 1; k <= (top >> 8) + g_lowExtra; k++)
+      {
+        unsigned w[3], mw = 0;
+        for (int c = 0; c < 3; c++) { w[c] = (f[c] * k + top / 2) / top; if (w[c] > mw) mw = w[c]; }
+        if (!mw) continue;
+        float hue = 0;
+        for (int c = 0; c < 3; c++) { const float d = (float)w[c] / mw - (float)f[c] / top; hue += d * d; }
+        const float bri = ((float)mw * 256.f - top) / top;
+        const float cost = hue + g_lowBrightness * bri * bri;
+        if (cost < best) { best = cost; bw[0] = w[0]; bw[1] = w[1]; bw[2] = w[2]; }
+      }
+      if (best >= 1e9f) return false;
+      entry.key = key;
+      for (int c = 0; c < 3; c++) entry.level[c] = g_low->level[bw[c]];
+    }
+    red_val = entry.level[0]; green_val = entry.level[1]; blue_val = entry.level[2];
+    return true;
   }
 
   /* Bit planes up to the transition bit are each shown for one slot, the higher ones for twice as long as the one below (the descriptor
@@ -373,10 +462,15 @@ void IRAM_ATTR ringEof(void *, uint32_t descIndex)
     // Optimized path: LUT maps 8-bit input (0-255) directly to target bit depth output
     #define DO_BRIGHTNESS_COMPENSATION()                                                              \
       const uint8_t *lut_ = g_gainLut ? g_gainLut : baseLut(m_cfg.getPixelColorDepthBits());          \
+      if (g_floorOn && g_gainLut && g_floorV) {                                                       \
+        const unsigned hi_ = red > green ? (red > blue ? red : blue) : (green > blue ? green : blue);   \
+        if (hi_ && hi_ < g_floorV) { red = (red * g_floorV + hi_ / 2) / hi_; green = (green * g_floorV + hi_ / 2) / hi_; blue = (blue * g_floorV + hi_ / 2) / hi_; } \
+      }                                                                                               \
       auto red_val   = lut_[red];                                                                     \
       auto green_val = lut_[green];                                                                   \
       auto blue_val  = lut_[blue];                                                                    \
-      if (g_gainLut && !(red_val | green_val | blue_val) && (red | green | blue)) keepHue(red, green, blue, red_val, green_val, blue_val); \
+      if (!(g_lowSkip & 1) && g_lowOn && lowLight(red, green, blue, red_val, green_val, blue_val)) {}  \
+      else if (!(g_lowSkip & 2) && g_gainLut && (red_val | green_val | blue_val) <= 1 && (red | green | blue)) keepHue(red, green, blue, red_val, green_val, blue_val); \
 
 
   #else
@@ -1132,11 +1226,76 @@ uint8_t MatrixPanel_I2S_DMA::oeFloor() const
   return (uint8_t)std::min(255, (kMinWindow * 256 + narrowest - 1) / narrowest);
 }
 
+void MatrixPanel_I2S_DMA::setHueGuardMin(float weights)
+{
+  g_guardMin = weights > 0.f && weights <= 8.f ? (unsigned)(weights * 256.f) : 0;
+}
+
+void MatrixPanel_I2S_DMA::setHueGuardCarry(float share)
+{
+  g_guardCarry = share >= 0.1f && share <= 1.f ? (unsigned)(share * 256.f + 0.5f) : 128;
+}
+
+void MatrixPanel_I2S_DMA::setHueGuardDrop(float share)
+{
+  g_guardDrop = share >= 0.1f && share <= 1.f ? (unsigned)(share * 256.f + 0.5f) : 0;
+}
+
+void MatrixPanel_I2S_DMA::setLumGamma(float gamma)
+{
+  if (!(gamma >= 1.4f && gamma <= 3.5f)) { g_lumOn = false; return; }
+  if (!g_lumPower) g_lumPower = (uint16_t *)heap_caps_malloc(256 * sizeof(uint16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (!g_lumPower) { g_lumOn = false; return; }
+  for (int v = 0; v < 256; v++) g_lumPower[v] = (uint16_t)(4095.f * powf(v / 255.f, gamma) + 0.5f);
+  g_lumOn = true;
+}
+
+void MatrixPanel_I2S_DMA::setDimFloor(bool on)
+{
+  g_floorOn = on;
+}
+
+void MatrixPanel_I2S_DMA::setLowLightSkip(uint8_t skip)
+{
+  g_lowSkip = skip & 7;
+}
+
+void MatrixPanel_I2S_DMA::setLowLightSearch(float brightness, uint8_t extra, uint8_t limit)
+{
+  g_lowLimit = (limit >= 4 && limit <= 40 ? limit : 8u) << 8;
+  g_lowBrightness = brightness > 0.f && brightness < 10.f ? brightness : 0.06f;
+  g_lowExtra = extra >= 1 && extra <= 8 ? extra : 2;
+  if (g_low) memset(g_low->cache, 0, sizeof(g_low->cache));
+}
+
+void MatrixPanel_I2S_DMA::setLowLightWeights(float green, float blue, float greyGreen, float greyBlue, float offGreen, float offBlue, float blueGreen, float blueBlue)
+{
+  g_lowMultGreen = green > 0.2f && green < 5.f ? green : 1.0f;
+  g_lowMultBlue = blue > 0.2f && blue < 5.f ? blue : 1.0f;
+  g_lowGreyGreen = greyGreen > 0.2f && greyGreen < 5.f ? greyGreen : 1.0f;
+  g_lowGreyBlue = greyBlue > 0.2f && greyBlue < 5.f ? greyBlue : 1.0f;
+  g_lowOffGreen = offGreen > 0.1f && offGreen < 5.f ? offGreen : 1.0f;
+  g_lowOffBlue = offBlue > 0.1f && offBlue < 5.f ? offBlue : 1.0f;
+  g_lowBlueGreen = blueGreen > 0.1f && blueGreen < 5.f ? blueGreen : 1.0f;
+  g_lowBlueBlue = blueBlue > 0.1f && blueBlue < 5.f ? blueBlue : 1.0f;
+  if (g_low) memset(g_low->cache, 0, sizeof(g_low->cache));
+}
+
+static uint8_t g_minBrightness = 0;  // lowest panel brightness that keeps hues (23 on the 8-bit tiers: below it amber turns red, yellow green); 0 = no floor
+
+void MatrixPanel_I2S_DMA::setMinBrightness(uint8_t minimum)
+{
+  g_minBrightness = minimum;
+}
+
 uint8_t MatrixPanel_I2S_DMA::applyGain(uint8_t brt)
 {
+  // Below this the whole-weight light levels cannot hold a colour (amber turns red, yellow green): the panel does not go dimmer, except for the red night clock.
+  if (brt && brt < g_minBrightness && !m_deepDim) brt = g_minBrightness;
   const uint8_t floor_ = oeFloor();
   if (brt == 0 || brt >= floor_) {
     g_gainLut = nullptr;
+    g_lowOn = false;
 #ifdef HUB75_DITHER
     g_dither = false;
 #endif
@@ -1153,18 +1312,35 @@ uint8_t MatrixPanel_I2S_DMA::applyGain(uint8_t brt)
   const int shift = 12 - depth + 8;
   const unsigned max_val = (1u << depth) - 1;
   for (int v = 0; v < 256; v++) {
-    unsigned out = (lumConvTab_12bit[v] * gain + (1u << (shift - 1))) >> shift;
+    unsigned out = (lumOf(v) * gain + (1u << (shift - 1))) >> shift;
     // a value may round to 0 here: a pixel that rounds to black in all channels is lifted by keepHue where it is drawn
     g_gainTable[v] = out > max_val ? max_val : out;
   }
   bcmMonotonic(g_gainTable, depth, lsbMsbTransitionBit);
   g_gainLut = g_gainTable;
+  g_floorV = 0;
+  for (int v = 1; v < 256 && !g_floorV; v++) if (g_gainTable[v]) g_floorV = (uint8_t)v;
+  {  // the tables for lowLight(): light of every input value in plane weights, and the level that shows each whole weight
+    if (!g_low) g_low = (LowTables *)heap_caps_malloc(sizeof(LowTables), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    g_lowOn = false;
+    if (g_low) {
+      const unsigned wmax = bcmWeight(max_val, depth, lsbMsbTransitionBit);
+      for (int v = 0; v < 256; v++) {
+        const unsigned f = ((lumOf(v) * gain) >> (12 - depth)) * wmax / max_val;
+        g_low->light[v] = f > 0xFFFF ? 0xFFFF : f;
+      }
+      for (unsigned i = 0; i < 256; i++) g_low->level[i] = max_val;
+      for (int v = (int)max_val; v >= 0; v--) g_low->level[bcmWeight(v, depth, lsbMsbTransitionBit)] = (uint8_t)v;
+      memset(g_low->cache, 0, sizeof(g_low->cache));
+      g_lowOn = true;
+    }
+  }
 #ifdef HUB75_DITHER
   if (m_dither && depth <= 8 && !g_dt) g_dt = (DitherTables *)heap_caps_malloc(sizeof(DitherTables), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   g_dither = m_dither && depth <= 8 && g_dt;
   if (g_dither) {
     for (int v = 0; v < 256; v++) {
-      const unsigned f = (lumConvTab_12bit[v] * gain) >> (12 - depth);  // 8.8 fixed point of the output level
+      const unsigned f = (lumOf(v) * gain) >> (12 - depth);  // 8.8 fixed point of the output level
       g_dt->frac[v] = f > 0xFFFF ? 0xFFFF : f;
     }
     g_ditherMax = max_val;

@@ -2,6 +2,8 @@
 // Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #include "HaClient.h"
+#include "HaPrices.h"
+#include <algorithm>
 #include <math.h>
 #include <time.h>
 
@@ -166,6 +168,17 @@ bool HaClient::energyIds(char (*out)[ha::kEntity]) {
   return true;
 }
 
+int HaClient::dayKey(time_t when) {
+  struct tm local;
+  localtime_r(&when, &local);
+  return (local.tm_year + 1900) * 400 + local.tm_yday;
+}
+
+void HaClient::outlook(Outlook &out) {
+  std::lock_guard<std::mutex> guard(_lock);
+  out = _outlook;
+}
+
 void HaClient::history(History &out) {
   std::lock_guard<std::mutex> guard(_lock);
   out = _history;
@@ -299,15 +312,80 @@ bool HaClient::session(uint32_t version) {
   uint32_t lastPing = millis();
   uint32_t lastId = 100, prefsId = 0, statsId = 0, histFirst = 0, lastStatistics = 0, lastHistory = 0;
   constexpr int kHistoryAsks = 8;
+  constexpr uint8_t kGridOutField = 100;  // a history slot that holds a grid export meter (kWh per hour), not one of the power sensors
   struct HistorySlot { char id[ha::kEntity]; uint8_t field; uint32_t mask; float v[ha::kHistoryBars]; };
   struct HistoryAsk { HistorySlot slot[kHistoryAsks]; int count; uint32_t hour; };
   std::unique_ptr<HistoryAsk> hist;  // the statistics asked for, one request each, until all have answered
   int histCount = 0, histGot = 0;
+  // The expected usage: the hourly means of the same weekday in each of the last weeks, one week at a time
+  constexpr int kMaxWeeks = 26;
+  struct WeekAsk { HistorySlot slot[kHistoryAsks]; int count, week, weeks, good, got, shift; uint32_t first, last; int day; float use[kMaxWeeks][ha::kHistoryBars], out[kMaxWeeks][ha::kHistoryBars]; uint32_t mask[kMaxWeeks], outMask[kMaxWeeks]; int age[kMaxWeeks]; };
+  std::unique_ptr<WeekAsk> weekAsk;
+  int predictedDay = -1, predictedNextDay = -1, forecastDay = -1;
+  uint32_t lastPredict = 0, lastForecast = 0, forecastId = 0, lastPeak = 0, peakId = 0;
+  int peakDay = -1;
+  // Last year's daily usage, to see how the usage moves from the last weeks to the coming ones at this time of year
+  uint32_t yearId = 0, yearFirst = 0;
+  bool yearDue = false;
+  int yearDay = -1, yearCount = 0;
+  char yearIds[kHistoryAsks][ha::kEntity] = {};
+  char peakIds[kHistoryAsks][ha::kEntity] = {};
+  int peakCount = 0;
+  // All meters of a field added up: use (the house, or what grid, solar and battery deliver together) and solar
+  auto combine = [&](const HistorySlot *slots, int count, float *use, float *solar, float *battery, float *grid, uint32_t &useMask, uint32_t &solarMask, uint32_t &batteryMask, uint32_t &gridMask) {
+    const int gridSign = config->gridImportPositive ? 1 : -1, batterySign = config->batteryDischargePositive ? 1 : -1;
+    auto add = [&](int entity, float sign, float *into, uint32_t &mask) {  // all meters of a field, added up
+      for (int k = 0; k < count; k++) {
+        const HistorySlot &one = slots[k];
+        if (one.field != entity) continue;
+        for (int i = 0; i < ha::kHistoryBars; i++) if (one.mask >> i & 1) { into[i] += sign * one.v[i]; mask |= 1u << i; }
+      }
+    };
+    add(ha::E_SOLAR, 1, solar, solarMask);
+    add(ha::E_BATTERY, batterySign, battery, batteryMask);  // positive: the battery delivers
+    add(ha::E_GRID, gridSign, grid, gridMask);  // positive: importing
+    if (config->energy[ha::E_USAGE][0]) add(ha::E_USAGE, 1, use, useMask);
+    else {  // no house sensor: what the grid, the solar panels and the battery deliver together
+      for (int i = 0; i < ha::kHistoryBars; i++) {
+        if (!(gridMask >> i & 1)) continue;
+        use[i] = fmaxf(0, grid[i] + (solarMask >> i & 1 ? fmaxf(0, solar[i]) : 0) + (batteryMask >> i & 1 ? battery[i] : 0));
+        useMask |= 1u << i;
+      }
+    }
+  };
+  // Asks for the hourly power means of one earlier day (the same weekday, week + 1 weeks back), every statistic separately
+  auto askWeek = [&](WeekAsk &w) {
+    const time_t now = time(nullptr);
+    struct tm t;
+    localtime_r(&now, &t);
+    t.tm_mday -= 7 * (w.week + 1) - w.shift;  // shift 1: the weekday after it, which is tomorrow's weekday
+    t.tm_hour = t.tm_min = t.tm_sec = 0;
+    t.tm_isdst = -1;
+    const time_t from = mktime(&t);
+    struct tm next = t;
+    next.tm_mday += 1;
+    next.tm_isdst = -1;
+    const time_t to = mktime(&next);
+    struct tm a, b;
+    gmtime_r(&from, &a);
+    gmtime_r(&to, &b);
+    w.last = (uint32_t)(to - 3600);
+    w.got = 0;
+    w.first = lastId + 1;
+    std::unique_ptr<char[]> text(new (std::nothrow) char[420]);
+    if (!text) return;
+    for (int k = 0; k < w.count; k++) {
+      const bool meter = w.slot[k].field == kGridOutField;  // the to-grid meter: its kWh per hour, not a power mean
+      snprintf(text.get(), 420, "{\"id\":%u,\"type\":\"recorder/statistics_during_period\",\"start_time\":\"%04d-%02d-%02dT%02d:%02d:00+00:00\",\"end_time\":\"%04d-%02d-%02dT%02d:%02d:00+00:00\",\"period\":\"hour\",\"types\":[\"%s\"],\"units\":{\"%s\":\"%s\"},\"statistic_ids\":[\"%s\"]}",
+               (unsigned)++lastId, a.tm_year + 1900, a.tm_mon + 1, a.tm_mday, a.tm_hour, a.tm_min, b.tm_year + 1900, b.tm_mon + 1, b.tm_mday, b.tm_hour, b.tm_min, meter ? "change" : "mean", meter ? "energy" : "power", meter ? "kWh" : "kW", w.slot[k].id);
+      socket.text(text.get());
+    }
+  };
   bool historyAsked = false;  // Home Assistant wants every id higher than the one before
   bool statisticsAsked = false;
   char statisticsMidnight[sizeof(ha::Snapshot::midnight)] = "";
   bool resolving = false;
-  uint32_t templateId = 0, mediaId = 0, devicesId = 0;
+  uint32_t templateId = 0, mediaId = 0, devicesId = 0, pricesId = 0;
   char gridTo[ha::kEntity] = "";  // meters to subtract from the grid's kWh
   auto subscribe = [&]() -> bool {
     set(SUBSCRIBING, "Subscribing");
@@ -347,6 +425,18 @@ bool HaClient::session(uint32_t version) {
       if (built) { at += built; memcpy(body.get() + at, "\"}", 3); socket.text(body.get(), at + 2); }
       else devicesId = 0;
     }
+    // The tariff of the Energy dashboard: its hourly prices are in the sensor's attributes
+    pricesId = 0;
+    const char *priceEntity = ha::autoPriceEntity();
+    if ((config->pages & ha::PAGE_ENERGY) && priceEntity[0]) {
+      pricesId = ++lastId;
+      at = snprintf(head, sizeof(head), "{\"id\":%u,\"type\":\"render_template\",\"template\":\"", (unsigned)pricesId);
+      memcpy(body.get(), head, at);
+      built = ha::prices::buildTemplate(priceEntity, body.get() + at, kTemplateMax);
+      if (built) { at += built; memcpy(body.get() + at, "\"}", 3); socket.text(body.get(), at + 2); }
+      else pricesId = 0;
+    }
+    if (!pricesId) ha::prices::clear();
     return true;
   };
   set(AUTHENTICATING, "Signing in");
@@ -414,11 +504,99 @@ bool HaClient::session(uint32_t version) {
               socket.text(ask.get());
             }
           }
+          // What was sent to the grid, from the Energy dashboard's own meters: an hour of both exporting and importing does not cancel out there
+          char id[ha::kEntity];
+          for (const char *list = gridTo; ha::nextListed(list, id, sizeof(id)) && next->count < kHistoryAsks;) {
+            HistorySlot &slot = next->slot[next->count++];
+            strlcpy(slot.id, id, sizeof(slot.id));
+            slot.field = kGridOutField;
+            snprintf(ask.get(), 360, "{\"id\":%u,\"type\":\"recorder/statistics_during_period\",\"start_time\":\"%04d-%02d-%02dT%02d:00:00+00:00\",\"period\":\"hour\",\"types\":[\"change\"],\"units\":{\"energy\":\"kWh\"},\"statistic_ids\":[\"%s\"]}",
+                     (unsigned)++lastId, utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, id);
+            socket.text(ask.get());
+          }
           histCount = next->count;
           if (histCount) hist = std::move(next);
         }
         historyAsked = true;
         lastHistory = millis();
+      }
+      // The expected usage of today: the same weekday of the last weeks, once a day, one week at a time
+      if (live && !hist && !weekAsk && time(nullptr) > 1700000000 && (!lastPredict || millis() - lastPredict >= 600000) &&
+          (config->energy[ha::E_USAGE][0] || config->energy[ha::E_GRID][0]) && (predictedDay != dayKey(time(nullptr)) || predictedNextDay != dayKey(time(nullptr)))) {
+        lastPredict = millis();
+        std::unique_ptr<WeekAsk> next(new (std::nothrow) WeekAsk{});
+        if (next) {
+          next->weeks = std::min(ha::predictWeeks(), kMaxWeeks);
+          next->day = dayKey(time(nullptr));
+          next->shift = predictedDay == next->day ? 1 : 0;  // today first, then tomorrow
+          const int power[4] = {ha::E_USAGE, ha::E_SOLAR, ha::E_GRID, ha::E_BATTERY};
+          for (int e : power) {
+            char id[ha::kEntity];
+            for (const char *list = config->energy[e]; ha::nextListed(list, id, sizeof(id)) && next->count < kHistoryAsks;) {
+              strlcpy(next->slot[next->count].id, id, sizeof(id));
+              next->slot[next->count++].field = (uint8_t)e;
+            }
+          }
+          char meterId[ha::kEntity];
+          for (const char *list = gridTo; ha::nextListed(list, meterId, sizeof(meterId)) && next->count < kHistoryAsks;) {  // what was sent to the grid, as the Energy dashboard counts it
+            strlcpy(next->slot[next->count].id, meterId, sizeof(meterId));
+            next->slot[next->count++].field = kGridOutField;
+          }
+          if (next->count && next->weeks > 0) { weekAsk = std::move(next); askWeek(*weekAsk); }
+        }
+      }
+      // The highest usage of the last month or so, for the colour of the house row: the recorder's monthly maximum of the house sensor
+      if (live && !peakId && time(nullptr) > 1700000000 && config->energy[ha::E_USAGE][0] && peakDay != dayKey(time(nullptr)) && (!lastPeak || millis() - lastPeak >= 600000)) {
+        lastPeak = millis();
+        std::unique_ptr<char[]> ask(new (std::nothrow) char[900]);
+        if (ask) {
+          const time_t from = time(nullptr) - 31 * 86400;
+          struct tm utc;
+          gmtime_r(&from, &utc);
+          int at = snprintf(ask.get(), 900, "{\"id\":%u,\"type\":\"recorder/statistics_during_period\",\"start_time\":\"%04d-%02d-%02dT00:00:00+00:00\",\"period\":\"month\",\"types\":[\"max\"],\"units\":{\"power\":\"kW\"},\"statistic_ids\":[",
+                            (unsigned)(peakId = ++lastId), utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday);
+          peakCount = 0;
+          char id[ha::kEntity];
+          for (const char *list = config->energy[ha::E_USAGE]; ha::nextListed(list, id, sizeof(id)) && peakCount < kHistoryAsks && at < 800;) {
+            strlcpy(peakIds[peakCount], id, ha::kEntity);
+            at += snprintf(ask.get() + at, 900 - at, "%s\"%s\"", peakCount++ ? "," : "", id);
+          }
+          snprintf(ask.get() + at, 900 - at, "]}");
+          if (peakCount) socket.text(ask.get()); else peakId = 0;
+        } else {
+          peakId = 0;
+        }
+      }
+      // Last year's daily usage from 4 weeks before this day to 2 weeks after it, once the prediction is in
+      if (live && yearDue && !yearId && !weekAsk) {
+        yearDue = false;
+        std::unique_ptr<char[]> ask(new (std::nothrow) char[900]);
+        if (ask) {
+          const time_t from = time(nullptr) - (365 + 28) * 86400, to = from + 42 * 86400;
+          struct tm a, b;
+          gmtime_r(&from, &a);
+          gmtime_r(&to, &b);
+          yearFirst = (uint32_t)(from / 86400 * 86400);
+          yearDay = dayKey(time(nullptr));
+          int at = snprintf(ask.get(), 900, "{\"id\":%u,\"type\":\"recorder/statistics_during_period\",\"start_time\":\"%04d-%02d-%02dT00:00:00+00:00\",\"end_time\":\"%04d-%02d-%02dT00:00:00+00:00\",\"period\":\"day\",\"types\":[\"mean\"],\"units\":{\"power\":\"kW\"},\"statistic_ids\":[",
+                            (unsigned)(yearId = ++lastId), a.tm_year + 1900, a.tm_mon + 1, a.tm_mday, b.tm_year + 1900, b.tm_mon + 1, b.tm_mday);
+          yearCount = 0;
+          char id[ha::kEntity];
+          for (const char *list = config->energy[ha::E_USAGE]; ha::nextListed(list, id, sizeof(id)) && yearCount < kHistoryAsks && at < 800;) {
+            strlcpy(yearIds[yearCount], id, ha::kEntity);
+            at += snprintf(ask.get() + at, 900 - at, "%s\"%s\"", yearCount++ ? "," : "", id);
+          }
+          snprintf(ask.get() + at, 900 - at, "]}");
+          if (yearCount) socket.text(ask.get()); else yearId = 0;
+        }
+      }
+      // The solar forecast of the Energy dashboard, when there are solar panels
+      if (live && config->energy[ha::E_SOLAR][0] && time(nullptr) > 1700000000 && (!lastForecast || millis() - lastForecast >= 1800000) &&
+          (forecastDay != dayKey(time(nullptr)) || millis() - lastForecast >= 10800000)) {
+        char ask[64];
+        snprintf(ask, sizeof(ask), "{\"id\":%u,\"type\":\"energy/solar_forecast\"}", (unsigned)(forecastId = ++lastId));
+        socket.text(ask);
+        lastForecast = millis();
       }
       if (millis() - lastPing >= kPingEveryMs && live) {
         char ping[48];
@@ -476,40 +654,167 @@ bool HaClient::session(uint32_t version) {
       }
     } else if (hist && (uint32_t)idOf(text) >= histFirst && (uint32_t)idOf(text) < histFirst + (uint32_t)histCount) {  // hourly power means of one statistic
       HistorySlot &slot = hist->slot[(uint32_t)idOf(text) - histFirst];
-      slot.mask = strstr(text, "\"success\":false") ? 0 : ha::parseHourly(text, slot.id, hist->hour, slot.v);
+      slot.mask = strstr(text, "\"success\":false") ? 0 : ha::parseHourly(text, slot.id, hist->hour, slot.v, slot.field == kGridOutField ? "change" : "mean");
       if (++histGot >= histCount) {
         const uint32_t hour = hist->hour;
-        float use[ha::kHistoryBars] = {}, solar[ha::kHistoryBars] = {};
-        uint32_t useMask = 0, solarMask = 0;
-        const int gridSign = config->gridImportPositive ? 1 : -1, batterySign = config->batteryDischargePositive ? 1 : -1;
-        auto add = [&](int entity, float sign, float *into, uint32_t &mask) {  // all meters of a field, added up
-          for (int k = 0; k < hist->count; k++) {
-            const HistorySlot &one = hist->slot[k];
-            if (one.field != entity) continue;
-            for (int i = 0; i < ha::kHistoryBars; i++) if (one.mask >> i & 1) { into[i] += sign * one.v[i]; mask |= 1u << i; }
-          }
-        };
-        add(ha::E_SOLAR, 1, solar, solarMask);
-        if (config->energy[ha::E_USAGE][0]) add(ha::E_USAGE, 1, use, useMask);
-        else {  // no house sensor: what the grid, the solar panels and the battery deliver together
-          uint32_t gridMask = 0, batteryMask = 0;
-          float grid[ha::kHistoryBars] = {}, battery[ha::kHistoryBars] = {};
-          add(ha::E_GRID, gridSign, grid, gridMask);
-          add(ha::E_BATTERY, batterySign, battery, batteryMask);
-          for (int i = 0; i < ha::kHistoryBars; i++) {
-            if (!(gridMask >> i & 1)) continue;
-            use[i] = fmaxf(0, grid[i] + (solarMask >> i & 1 ? fmaxf(0, solar[i]) : 0) + (batteryMask >> i & 1 ? battery[i] : 0));
-            useMask |= 1u << i;
-          }
+        float use[ha::kHistoryBars] = {}, solar[ha::kHistoryBars] = {}, battery[ha::kHistoryBars] = {}, grid[ha::kHistoryBars] = {};
+        uint32_t useMask = 0, solarMask = 0, batteryMask = 0, gridMask = 0;
+        combine(hist->slot, hist->count, use, solar, battery, grid, useMask, solarMask, batteryMask, gridMask);
+        float gridOut[ha::kHistoryBars] = {};
+        uint32_t gridOutMask = 0;
+        for (int k = 0; k < hist->count; k++) {
+          if (hist->slot[k].field != kGridOutField) continue;
+          for (int i = 0; i < ha::kHistoryBars; i++) if (hist->slot[k].mask >> i & 1) { gridOut[i] += fmaxf(0, hist->slot[k].v[i]); gridOutMask |= 1u << i; }
         }
         hist.reset();
         histCount = histGot = 0;
         std::lock_guard<std::mutex> guard(_lock);
         memcpy(_history.use, use, sizeof(use));
         memcpy(_history.solar, solar, sizeof(solar));
-        _history.useMask = useMask; _history.solarMask = solarMask; _history.hour = hour;
+        memcpy(_history.battery, battery, sizeof(battery));
+        memcpy(_history.grid, grid, sizeof(grid));
+        memcpy(_history.gridOut, gridOut, sizeof(gridOut));
+        _history.gridOutMask = gridOutMask;
+        _history.useMask = useMask; _history.solarMask = solarMask; _history.batteryMask = batteryMask; _history.gridMask = gridMask; _history.hour = hour;
         _history.version++;
         _historyVersion = _history.version;
+      }
+    } else if (weekAsk && (uint32_t)idOf(text) >= weekAsk->first && (uint32_t)idOf(text) < weekAsk->first + (uint32_t)weekAsk->count) {  // one earlier day
+      WeekAsk &w = *weekAsk;
+      HistorySlot &slot = w.slot[(uint32_t)idOf(text) - w.first];
+      slot.mask = strstr(text, "\"success\":false") ? 0 : ha::parseHourly(text, slot.id, w.last, slot.v, slot.field == kGridOutField ? "change" : "mean");
+      if (++w.got >= w.count) {
+        float use[ha::kHistoryBars] = {}, solar[ha::kHistoryBars] = {}, battery[ha::kHistoryBars] = {}, grid[ha::kHistoryBars] = {};
+        uint32_t useMask = 0, solarMask = 0, batteryMask = 0, gridMask = 0;
+        combine(w.slot, w.count, use, solar, battery, grid, useMask, solarMask, batteryMask, gridMask);
+        // A day away from home has a steady power (little difference between its highest and lowest hour): it is skipped and the next week back is taken
+        bool away = __builtin_popcount(useMask) < 20;
+        if (!away) {
+          float lo = 1e9f, hi = 0, sum = 0;
+          int hours = 0;
+          for (int i = 0; i < ha::kHistoryBars; i++) if (useMask >> i & 1) { lo = fminf(lo, use[i]); hi = fmaxf(hi, use[i]); sum += use[i]; hours++; }
+          away = sum <= 0 || hi - lo < 0.7f * sum / hours;
+        }
+        consoleLog("[HA] prediction week %d: %d hours%s\n", w.week + 1, __builtin_popcount(useMask), away ? ", skipped (away or no data)" : "");
+        if (!away) {
+          memcpy(w.use[w.good], use, sizeof(use));
+          w.mask[w.good] = useMask;
+          memset(w.out[w.good], 0, sizeof(w.out[0]));
+          w.outMask[w.good] = 0;
+          for (int k = 0; k < w.count; k++) {
+            if (w.slot[k].field != kGridOutField) continue;
+            for (int i = 0; i < ha::kHistoryBars; i++) if (w.slot[k].mask >> i & 1) { w.out[w.good][i] += fmaxf(0, w.slot[k].v[i]); w.outMask[w.good] |= 1u << i; }
+          }
+          w.age[w.good++] = w.week;
+        }
+        if (++w.week < kMaxWeeks && w.good < w.weeks) {
+          askWeek(w);
+        } else {
+          // Days with very low usage are left out as well: below 60% of what the busier half of the days used
+          float total[kMaxWeeks];
+          int days = w.good;
+          for (int k = 0; k < days; k++) {
+            float sum = 0;
+            for (int i = 0; i < ha::kHistoryBars; i++) if (w.mask[k] >> i & 1) sum += w.use[k][i];
+            total[k] = sum;
+          }
+          float sorted[kMaxWeeks];
+          memcpy(sorted, total, sizeof(float) * days);
+          std::sort(sorted, sorted + days, [](float x, float y) { return x > y; });
+          float busy = 0;
+          const int half = (days + 1) / 2;
+          for (int k = 0; k < half; k++) busy += sorted[k];
+          if (half) busy /= half;
+          // The recent weeks count most: a week's weight halves every 3 weeks back, so the seasons move the prediction along
+          float mean[ha::kHistoryBars] = {}, weight[ha::kHistoryBars] = {}, sent[ha::kHistoryBars] = {}, sentWeight[ha::kHistoryBars] = {};
+          int kept = 0;
+          for (int k = 0; k < days; k++) {
+            if (total[k] < 0.6f * busy) continue;
+            kept++;
+            const float wt = powf(0.5f, w.age[k] / 3.0f);
+            for (int i = 0; i < ha::kHistoryBars; i++) if (w.mask[k] >> i & 1) { mean[i] += wt * w.use[k][i]; weight[i] += wt; }
+            for (int i = 0; i < ha::kHistoryBars; i++) if (w.outMask[k] >> i & 1) { sent[i] += wt * w.out[k][i]; sentWeight[i] += wt; }
+          }
+          uint32_t sentMask = 0;
+          for (int i = 0; i < ha::kHistoryBars; i++) if (sentWeight[i] > 0 && kept >= 2) { sent[i] /= sentWeight[i]; sentMask |= 1u << i; }
+          uint32_t mask = 0;
+          if (kept >= 2) for (int i = 0; i < ha::kHistoryBars; i++) if (weight[i] > 0) { mean[i] /= weight[i]; mask |= 1u << i; }
+          consoleLog("[HA] prediction: %d usable days, %d kept, %s\n", days, kept, mask ? "ready" : "not enough");
+          const int forDay = w.day;
+          const bool tomorrow = w.shift != 0;
+          weekAsk.reset();
+          std::lock_guard<std::mutex> guard(_lock);
+          if (tomorrow) {  // the coming day: no level correction or yearly trend, just the usual weekday
+            predictedNextDay = forDay;
+            memcpy(_outlook.nextUse, mean, sizeof(mean));
+            memcpy(_outlook.nextOut, sent, sizeof(sent));
+            _outlook.nextOutMask = sentMask;
+            _outlook.nextUseMask = mask; _outlook.nextDay = forDay;
+            _outlookVersion++;
+            lastPredict = 0;
+          } else {
+            predictedDay = forDay;
+            lastPredict = 0;  // tomorrow follows at once
+            memcpy(_outlook.use, mean, sizeof(mean));
+            memcpy(_outlook.out, sent, sizeof(sent));
+            _outlook.outMask = sentMask;
+            _outlook.useMask = mask; _outlook.useDay = forDay; _outlook.useDays = (uint32_t)kept;
+            _outlookVersion++;
+            yearDue = mask != 0;  // then last year's trend
+          }
+        }
+      }
+    } else if (yearId && (uint32_t)idOf(text) == yearId) {  // last year's daily usage: how much the usage moves from the last 4 weeks to the coming 2
+      yearId = 0;
+      if (!strstr(text, "\"success\":false")) {
+        float sum[42] = {};
+        int have[42] = {};
+        for (int k = 0; k < yearCount; k++) {
+          float one[42];
+          for (float &v : one) v = -1.f;
+          ha::parseDaily(text, yearIds[k], yearFirst, 42, one);
+          for (int i = 0; i < 42; i++) if (one[i] >= 0) { sum[i] += one[i]; have[i]++; }
+        }
+        float before = 0, after = 0;
+        int nb = 0, na = 0;
+        for (int i = 0; i < 28; i++) if (have[i]) { before += sum[i]; nb++; }
+        for (int i = 28; i < 42; i++) if (have[i]) { after += sum[i]; na++; }
+        if (nb >= 14 && na >= 7 && before > 0) {
+          const float ratio = fminf(1.25f, fmaxf(0.8f, (after / na) / (before / nb)));
+          std::lock_guard<std::mutex> guard(_lock);
+          if (_outlook.useDay == yearDay) {
+            for (int i = 0; i < ha::kHistoryBars; i++) _outlook.use[i] *= ratio;
+            _outlookVersion++;
+          }
+        }
+      }
+    } else if (peakId && (uint32_t)idOf(text) == peakId) {  // the monthly maxima of the house sensor(s)
+      peakId = 0;
+      float peak = 0;
+      if (!strstr(text, "\"success\":false")) for (int k = 0; k < peakCount; k++) peak += ha::parseMaximum(text, peakIds[k]);
+      if (peak > 0.2f) {
+        peakDay = dayKey(time(nullptr));
+        std::lock_guard<std::mutex> guard(_lock);
+        _outlook.peak = peak; _outlook.peakDay = peakDay;
+        _outlookVersion++;
+      }
+    } else if (forecastId && (uint32_t)idOf(text) == forecastId) {  // energy/solar_forecast
+      forecastId = 0;
+      if (!strstr(text, "\"success\":false")) {
+        const time_t now = time(nullptr);
+        struct tm local;
+        localtime_r(&now, &local);
+        char date[40];
+        snprintf(date, sizeof(date), "%04d-%02d-%02d", local.tm_year + 1900, local.tm_mon + 1, local.tm_mday);
+        float kw[24] = {};
+        const uint32_t mask = ha::parseSolarForecast(text, date, kw);
+        if (mask) {
+          forecastDay = dayKey(now);
+          std::lock_guard<std::mutex> guard(_lock);
+          memcpy(_outlook.solar, kw, sizeof(kw));
+          _outlook.solarMask = mask; _outlook.solarDay = forecastDay;
+          _outlookVersion++;
+        }
       }
     } else if (statsId && (uint32_t)idOf(text) == statsId) {  // recorder/statistics_during_period
       float values[4] = {};
@@ -560,6 +865,15 @@ bool HaClient::session(uint32_t version) {
           ha::media::parseResult(line.get(), *found);
           ha::media::publish(*found);
         }
+      }
+    } else if (pricesId && (uint32_t)idOf(text) == pricesId) {
+      const char *result = strstr(text, "\"result\":\"");
+      if (result && typeIs(text, "event")) {
+        char line[640];
+        ha::media::unescape(result + 10, line, sizeof(line));
+        ha::prices::Snapshot found;
+        ha::prices::parseResult(line, found);
+        ha::prices::publish(found);
       }
     } else if (devicesId && (uint32_t)idOf(text) == devicesId) {
       const char *result = strstr(text, "\"result\":\"");

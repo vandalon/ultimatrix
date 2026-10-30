@@ -18,7 +18,7 @@ enum TileType : uint8_t { TILE_TEMP, TILE_HUMIDITY, TILE_PEOPLE, TILE_POWER, TIL
 enum IconType : uint8_t { ICON_DOOR, ICON_WINDOW, ICON_GARAGE, ICON_WASHER, ICON_DRYER, ICON_LIGHTS, ICON_LOCK, ICON_CHARGER, ICON_NONE, ICON_PRESENCE, ICON_LOW_BATTERY, ICON_OFFLINE, ICON_LEAK, ICON_BLINDS, ICON_MEDIA, ICON_HEATING, ICON_TYPES };
 // The energy page's entities, in the order of the template result
 enum EnergyEntity : uint8_t { E_USAGE, E_SOLAR, E_BATTERY, E_SOC, E_GRID, E_USAGE_KWH, E_SOLAR_KWH, E_BATTERY_KWH, E_GRID_KWH, E_COUNT };
-enum Page : uint8_t { PAGE_HOME = 1, PAGE_ENERGY = 2, PAGE_MEDIA = 4, PAGE_DEVICES = 8, PAGE_ART_BACKDROP = 16, PAGE_ART_ONLINE = 32, PAGE_STATION_LOGO = 64 };  // the last two are no pages: the cover of what plays is the dimmed background of every page; with the second, covers Home Assistant has none for are fetched or looked up online; with the third, a radio station's logo stands in for a cover that is missing
+enum Page : uint8_t { PAGE_HOME = 1, PAGE_ENERGY = 2, PAGE_MEDIA = 4, PAGE_DEVICES = 8, PAGE_ART_BACKDROP = 16, PAGE_ART_ONLINE = 32, PAGE_STATION_LOGO = 64, PAGE_DEVICES_OFFLINE = 128 };  // the last two are no pages: the cover of what plays is the dimmed background of every page; with the second, covers Home Assistant has none for are fetched or looked up online; with the third, a radio station's logo stands in for a cover that is missing; the last is no page either: the devices page then shows only while a device is offline (low batteries alone do not bring it up)
 constexpr int kRooms = 4;  // media players the Now playing page can show
 // Per popup (alarm, doorbell, every icon that can raise one): break through the night clock, light the panel fully, flash the whole panel
 enum AlertFlag : uint8_t { AF_NIGHT = 1, AF_BRIGHT = 2, AF_FLASH = 4 };
@@ -54,6 +54,11 @@ Config &config();
 char (&weatherEntity())[kEntity];
 // The order the pages rotate in: the letters E(nergy) H(ome) M(edia) D(evices), each once; separate NVS key haOrder
 char (&pageOrder())[8];
+bool &thinClock();  // the time and date at the top in 1 px strokes instead of the fat 2 px ones; separate NVS key haThin
+bool &exportGraph();  // Energy page: three rows (the source of the moment in the middle) and a graph that also shows the power sent out; else four rows; separate NVS key haExport
+int &predictWeeks();  // Energy graph: weeks of history behind the expected usage (1..26, default 13); separate NVS key haWeeks
+bool &hideBareMedia();  // Now playing: a player with no title, artist or station (only a source) is left out; separate NVS key haNoInfo
+bool &lineInAsPhono();  // Now playing: a player whose source is Line-in shows the record player icon; separate NVS key haPhono
 Slot &extraTile(int index);  // tiles kTiles..kHomeTiles-1
 const Slot &tileSlot(const Config &c, int index);
 // The entity lists of the state icons (doors, windows, motion... can be many): heap strings of their own length, up to kIconEntity - 1,

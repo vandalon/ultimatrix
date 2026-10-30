@@ -631,7 +631,7 @@ size_t buildTemplate(const Config &config, char *out, size_t capacity) {
       "{% set ns.r = ns.r + [(state_attr(e,'friendly_name') or e)|string|replace('|',' ')|replace(';',' ')|truncate(15,true,'') ~ '|'"
       " ~ (state_attr(e,'media_title') or '')|string|replace('|',' ')|replace(';',' ')|truncate(47,true,'') ~ '|'"
       " ~ (state_attr(e,'media_artist') or '')|string|replace('|',' ')|replace(';',' ')|truncate(47,true,'') ~ '|'"
-      " ~ (pic if pic|length < 256 else '!' ~ pic|length)|replace(';','')|replace('|','') ~ '|' ~ pos ~ '|' ~ dur ~ '|' ~ station|string|replace('|',' ')|replace(';',' ')|truncate(47,true,'') ~ '|' ~ (cid|replace('x-rincon-mp3radio://','') if cid.startswith('x-rincon-mp3radio://http://') else '')|replace('|','')|replace(';','')] %}{% endif %}{% endfor %}{{ ns.r|join(';') }}");
+      " ~ (pic if pic|length < 256 else '!' ~ pic|length)|replace(';','')|replace('|','') ~ '|' ~ pos ~ '|' ~ dur ~ '|' ~ station|string|replace('|',' ')|replace(';',' ')|truncate(47,true,'') ~ '|' ~ (cid|replace('x-rincon-mp3radio://','') if cid.startswith('x-rincon-mp3radio://http://') else '')|replace('|','')|replace(';','') ~ '|' ~ (state_attr(e,'source') or '')|string|replace('|',' ')|replace(';',' ')|truncate(15,true,'')] %}{% endif %}{% endfor %}{{ ns.r|join(';') }}");
   if (at >= capacity) return 0;
   out[at] = 0;
   return at;
@@ -643,16 +643,16 @@ void parseResult(const char *text, Snapshot &out) {
   while (*at && out.count < kRooms) {
     const char *end = strchr(at, ';');
     if (!end) end = at + strlen(at);
-    const char *part[8] = {at, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
-    size_t length[8] = {};
+    const char *part[9] = {at, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+    size_t length[9] = {};
     int field = 0;
-    for (const char *c = at; c <= end && field < 8; c++) {
+    for (const char *c = at; c <= end && field < 9; c++) {
       if (c == end || *c == '|') {
         length[field] = c - part[field];
-        if (++field < 8) part[field] = c + 1;
+        if (++field < 9) part[field] = c + 1;
       }
     }
-    if (field >= 6) {  // the station and the stream address are optional
+    if (field >= 6) {  // the station, the stream address and the source are optional
       Player &p = out.player[out.count++];
       copyField(p.room, sizeof(p.room), part[0], length[0]);
       copyField(p.title, sizeof(p.title), part[1], length[1]);
@@ -661,6 +661,7 @@ void parseResult(const char *text, Snapshot &out) {
       p.position = strtoul(part[4], nullptr, 10);
       p.duration = strtoul(part[5], nullptr, 10);
       if (field >= 7 && length[6]) copyField(p.station, sizeof(p.station), part[6], length[6]);
+      if (field >= 9 && length[8]) copyField(p.source, sizeof(p.source), part[8], length[8]);
       // A radio stream without a station name from Home Assistant: its address, for the clock to ask the stream itself (plain http only)
       if (field >= 8 && length[7] && !p.station[0] && !out.stream[0] && length[7] < sizeof(out.stream) && !strncmp(part[7], "http://", 7)) {
         copyField(out.stream, sizeof(out.stream), part[7], length[7]);
