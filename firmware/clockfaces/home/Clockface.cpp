@@ -459,8 +459,6 @@ void Clockface::fillEnergy(Frame &frame) const {
   const int first = _hour24 - kBars / 2;  // the current hour always in the middle; hours before 0:00 and after 23:00 stay empty
   frame.nowCol = (int8_t)(kBars / 2);
   frame.narrowStart = _hour24 >= 21;
-  frame.hourFrom = (int8_t)first;
-  frame.hourTo = (int8_t)((first + kBars) % 24);
   const int today = HaClient::dayKey(time(nullptr));
   const bool expectOk = _outlook.useDay == today, forecastOk = solarOn && _outlook.solarDay == today, nextOk = _outlook.nextDay == today;
   // The prediction of hour h: today's, or (h > 23) tomorrow's usual weekday, which has no solar forecast
@@ -586,10 +584,14 @@ void Clockface::fillEnergy(Frame &frame) const {
         const int below = solar > 0 ? bar(solar) : 0, upTo = bar(solar + battery);
         frame.batteryBars[i] = (uint8_t)std::max(1, upTo - below);
       }
-      if (solarOn && !frame.batteryBars[i] && solarAt(h) > 0 && frame.useBars[i] > 0) {  // the row where solar turns into grid: half green, half amber when the boundary is in the middle of it, never in the top row
-        const float px = (hang && useAt(h) > 0 ? fminf(usedSolar, useAt(h)) : solarAt(h)) * pixelsPerKw;
-        const int whole = (int)floorf(px);
-        if (px - whole >= 0.25f && px - whole < 0.75f && whole + 1 < frame.useBars[i]) {
+      if (solarOn && !frame.batteryBars[i] && solarAt(h) > 0 && frame.useBars[i] > 0) {  // the row where solar turns into grid
+        const float solar = hang && useAt(h) > 0 ? fminf(usedSolar, useAt(h)) : solarAt(h);
+        const bool grid = useAt(h) - solar > 0.02f;
+        const int whole = (int)floorf(solar * pixelsPerKw), top = frame.useBars[i];
+        if (grid && frame.solarBars[i] >= top && top > 1) frame.solarBars[i] = (uint8_t)(top - 1);  // some grid was used: keep at least one amber row
+        // half green, half amber when the boundary is in the middle of a row; never in the top row, never in a bar of 2 rows or less
+        const float part = solar * pixelsPerKw - whole;
+        if (top > 2 && part >= 0.25f && part < 0.75f && whole + 1 < top) {
           frame.solarBars[i] = (uint8_t)whole;
           frame.halfRow[i] = (uint8_t)(whole + 1);
         }

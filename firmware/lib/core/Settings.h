@@ -21,7 +21,7 @@ struct Settings {
   bool autoBrightness = false;
   uint8_t ldrPin = 35;
   uint16_t ldrDark = 50, ldrLight = 2500;
-  uint8_t minimumBrightness = 31;  // 12 % of 255
+  uint8_t minimumBrightness = 1;  // the lowest the slider allows; 0 would switch the panel off
   bool nightEnabled = false;
   uint16_t nightStart = 22 * 60, nightEnd = 7 * 60;
   uint8_t nightBrightness = 3;
@@ -63,8 +63,10 @@ struct Settings {
   bool ballRoll = true;
   bool showRankings = true;
   bool f1Flags = false;
+  bool f1Chequers = true;  // F1/MotoGP: the chequered flag squares behind the lists; own NVS key f1Chequers, outside the record
+  bool hiddenWifi = false;  // the saved Wi-Fi network is hidden: a scan cannot find it, so it is tried a few times instead
   bool autoUpdate = true;  // check once a day and install a newer signed image by itself
-  bool nightClock = true;  // off: the dim red night clock never replaces the face (not by schedule, not in a dark room); own NVS key
+  bool nightClock = false;  // off: the dim red night clock never replaces the face (not by schedule, not in a dark room); own NVS key
   bool dither = false;  // smoother dark colours at low brightness (HUB75 ordered dithering); own NVS key
   bool telnet = false;  // LAN console on port 23, unauthenticated: off unless switched on
   String f1Drivers;

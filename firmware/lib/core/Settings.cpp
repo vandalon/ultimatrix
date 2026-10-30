@@ -61,8 +61,10 @@ void Settings::load() {
   if (accessScope > 2) accessScope = 1;
   clockName = p.getString("clockName", "Ultimatrix");
   if (!validClockName(clockName)) clockName = "Ultimatrix";
+  hiddenWifi = p.getBool("wifiHidden", false);
+  f1Chequers = p.getBool("f1Chequers", true);
   autoUpdate = p.getBool("autoUpdate", true);
-  nightClock = p.getBool("nightClock", true);
+  nightClock = p.getBool("nightClock", false);
   dither = p.getBool("dither", false);
   birthdays = p.getString("birthdays", "");
   if (birthdays.length() > 260) birthdays = "";
@@ -156,7 +158,7 @@ void Settings::load() {
     // No valid record (a fresh or factory-reset clock; the keys of firmware before version 2 are erased at every start): the defaults
     rotation = 0; matchSecs = 8; resultMins = 120; timeStyle = 2; numberFont = 1;
     autoBrightness = lightSensorReadable(ldrPin);  // auto brightness on when a light sensor answers
-    minimumBrightness = 31;  // 12 %: dimmer than this the colours lose their shades
+    minimumBrightness = 1;  // the lowest the slider allows
     brightness = autoBrightness ? 255 : 128;  // full with auto brightness, otherwise half
     swapBlueGreen = false; ballRoll = true; showRankings = true; f1Flags = false; telnet = false;
     f1Drivers = "";
@@ -209,6 +211,8 @@ bool Settings::save() {
   if (saved) p.putUChar("accessScope", accessScope);
   if (saved) p.putBool("dither", dither);
   if (saved) p.putBool("nightClock", nightClock);  // own key too: the record stays as it is
+  if (saved) p.putBool("f1Chequers", f1Chequers);
+  if (saved) p.putBool("wifiHidden", hiddenWifi);  // own key: the boot reads it before the settings record
   if (saved) p.putBool("autoUpdate", autoUpdate);  // own key, so records saved before this setting keep it on
   if (saved) p.putString("birthdays", birthdays);  // own key as well: the record stays as it is
   if (saved) {

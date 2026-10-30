@@ -60,7 +60,6 @@ struct Frame {
   uint16_t whPerPx;  // the energy one pixel of bar height stands for (0: do not show the scale)
   uint8_t exportSolar[kBars], exportBattery[kBars], exportExpect[kBars];
   uint8_t narrowStart;      // 1: the 1 px bar is the first one (the last three hours of the day), else the last one
-  int8_t hourFrom, hourTo;  // the hours at the two corners of the graph (0..23), -1 for none
   int8_t nowCol;  // the column of the current hour; before it is the past, after it the coming hours
   // Now playing: what is playing, and the album art (null while it loads or when there is none)
   char title[48], artist[48], station[48];  // the station shares the artist's line, one after the other, while showStation is 1

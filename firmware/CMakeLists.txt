@@ -44,9 +44,6 @@ if(TARGET ultimatrix.elf)
     if(ULTIMATRIX_MODE STREQUAL "pacman" AND ULTIMATRIX_BLUETOOTH)
         set(ULTIMATRIX_STATIC_RAM_KB 70)  # the Bluetooth stack (game controller) reserves about 10 KB more
     endif()
-    if(ULTIMATRIX_MODE STREQUAL "home")
-        set(ULTIMATRIX_STATIC_RAM_KB 62)  # the Home face keeps the Now playing snapshot (stations, stream) and the online art state
-    endif()
     add_custom_command(TARGET ultimatrix.elf POST_BUILD
         COMMAND ${PYTHON} "${CMAKE_CURRENT_LIST_DIR}/tools/check-static-ram.py" "$<TARGET_FILE:ultimatrix.elf>" "${CMAKE_OBJDUMP}" "${ULTIMATRIX_MODE}" "${ULTIMATRIX_STATIC_RAM_KB}"
         VERBATIM)

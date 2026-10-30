@@ -648,6 +648,8 @@ static const char *loadingDots() {
   return "...";  // measure all three dots; the text renderers animate visibility without changing width
 }
 static bool dimPlaces = false;  // the places shown are the ones kept in flash from before the boot: dimmed until new data is in
+// The chequered squares: an option, and not while the list is dimmed (the data is still loading)
+static bool chequersShown() { return Settings::getInstance()->f1Chequers && !dimPlaces; }
 static uint16_t placeInk(uint16_t c) { return dimPlaces ? scaleColor(c, 12) : c; }
 static bool showPit = true;  // off while the list of a finished part is drawn: everybody is in the pit lane  // set while the list after a qualifying part is drawn
 
@@ -764,6 +766,7 @@ void liveRight(const F1Ticker::Session &s, char *right, size_t size, int hour, i
 // The chequered flag behind a list: squares of 8 pixels, seven rows of eight under the 8 pixel header
 static void flagFill(MatrixPanel_I2S_DMA *d, int x, int y, int w, int h) {
   d->fillRect(x, y, w, h, 0);
+  if (!chequersShown()) return;
   int top = max(y, 8), bottom = y + h;
   for (int row = (top - 8) / 8; 8 + row * 8 < bottom; row++)
     for (int col = 0; col < 8; col++) {
@@ -968,6 +971,7 @@ static const int FLAG_TOP = 16;
 
 // The chequered flag of the results over the rows y0 to y1 (not included): squares of 8, the same everywhere
 static void chequer(MatrixPanel_I2S_DMA *d, int y0, int y1) {
+  if (!chequersShown()) return;
   for (int y = max(y0, 0); y < min(y1, 64); y++) tileRows |= 1ULL << y;  // so a colon over them fades into the squares
   for (int block = y0 / 8; block * 8 < y1; block++)
     for (int col = 0; col < W / 8; col++) {

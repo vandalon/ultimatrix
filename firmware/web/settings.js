@@ -1291,7 +1291,7 @@ document.querySelector('#nflDemo')?.addEventListener('click', async () => {
     let floorNow = 0, timer = 0, keep = 0;
     const post = (path, params) => fetch(path + '?' + new URLSearchParams(params), { method: 'POST' });
     const show = () => { const percent = +level.value, value = Math.round(percent * 2.55); out.textContent = percent + '% (' + value + '/255)'; map.textContent = 'After saving, brightness 1 means ' + percent + '% on the panel and 255 still means full brightness.'; return value; };
-    const grid = () => post('/api/hue-test', { b: show(), secs: 90, wide: 1 }).catch(() => {});
+    const grid = () => post('/api/hue-test', { b: Math.max(1, show()), secs: 90, wide: 1, deep: 1 }).catch(() => {});
     const welcome = () => { const notice = document.querySelector('#welcome-cal'); if (notice) notice.hidden = !!floorNow || document.body.classList.contains('welcome-only'); };
     window.calWelcome = welcome;
     const refresh = async () => {
@@ -1300,7 +1300,7 @@ document.querySelector('#nflDemo')?.addEventListener('click', async () => {
       clear.hidden = !floorNow || !run.hidden; welcome();
     };
     const stop = () => { clearTimeout(timer); clearInterval(keep); run.hidden = save.hidden = cancel.hidden = true; start.hidden = false; post('/api/hue-test', { b: 0 }).catch(() => {}); };
-    start.addEventListener('click', () => { level.value = floorNow ? Math.round(floorNow / 2.55) : 12; run.hidden = save.hidden = cancel.hidden = false; start.hidden = true; clear.hidden = true; grid(); clearInterval(keep); keep = setInterval(grid, 60000); });
+    start.addEventListener('click', () => { level.value = floorNow ? Math.round(floorNow / 2.55) : 0; run.hidden = save.hidden = cancel.hidden = false; start.hidden = true; clear.hidden = true; grid(); clearInterval(keep); keep = setInterval(grid, 60000); });
     level.addEventListener('input', () => { show(); clearTimeout(timer); timer = setTimeout(grid, 250); });
     cancel.addEventListener('click', () => { stop(); refresh(); });
     save.addEventListener('click', async () => {

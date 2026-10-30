@@ -88,6 +88,33 @@ static Clockface *face = nullptr;
 static ClockTime clockTime;
 static WebServer server(80);
 static WiFiManager wifi(SerialConsole);  // its debug output also goes to the telnet log
+
+static void bootTick();
+
+static bool hiddenWifiSaved() {
+  Preferences prefs;
+  bool hidden = false;
+  if (prefs.begin("ultimatrix", true)) { hidden = prefs.getBool("wifiHidden", false); prefs.end(); }
+  return hidden;
+}
+
+// True when no network is saved yet (the normal first start) or the saved name shows up in a scan; the pulse keeps going meanwhile.
+static bool savedNetworkVisible() {
+  WiFi.mode(WIFI_STA);
+  const String saved = WiFi.SSID();
+  if (saved.isEmpty()) return true;
+  for (int attempt = 0; attempt < 2; attempt++) {  // twice: one scan can miss a network that is there
+    WiFi.scanNetworks(true);
+    uint32_t until = millis() + 8000;
+    while (WiFi.scanComplete() == WIFI_SCAN_RUNNING && (int32_t)(millis() - until) < 0) { bootTick(); delay(20); }
+    const int found = WiFi.scanComplete();
+    bool seen = false;
+    for (int i = 0; i < found && !seen; i++) seen = WiFi.SSID(i) == saved;
+    WiFi.scanDelete();
+    if (seen) return true;
+  }
+  return false;
+}
 static uint32_t nextFrame = 0;
 static uint32_t restartAt = 0;
 static bool updateOnly = false;  // a restart made to install an update: no face, no feeds, just the update screen, so the whole heap is free for the download
@@ -592,7 +619,7 @@ static void settingsState() {
   json += ",\"nightSun\":" + String(s.nightSun ? "true" : "false") + ",\"nightClock\":" + String(s.nightClock ? "true" : "false");
   json += ",\"timezone\":" + jsonText(s.timezone) + ",\"autoTimezone\":" + String(s.manualTimezone ? "false" : "true") + ",\"matchSecs\":" + String(s.matchSecs);
   json += ",\"resultMins\":" + String(s.resultMins) + ",\"timeStyle\":" + String(s.timeStyle);
-  json += ",\"dither\":" + String(s.dither ? "true" : "false") + ",\"swapBlueGreen\":" + String(s.swapBlueGreen ? "true" : "false") + ",\"telnet\":" + String(s.telnet ? "true" : "false") + ",\"autoUpdate\":" + String(s.autoUpdate ? "true" : "false");
+  json += ",\"dither\":" + String(s.dither ? "true" : "false") + ",\"swapBlueGreen\":" + String(s.swapBlueGreen ? "true" : "false") + ",\"telnet\":" + String(s.telnet ? "true" : "false") + ",\"hiddenWifi\":" + String(s.hiddenWifi ? "true" : "false") + ",\"autoUpdate\":" + String(s.autoUpdate ? "true" : "false");
   json += ",\"birthdays\":" + jsonText(s.birthdays);
 #ifdef UM_SPORTS_SWITCH
   json += ",\"sportsOrder\":" + jsonText(s.sportsOrder) + ",\"sportsHome\":" + jsonText(s.sportsHome) + ",\"sportsLead\":" + String(s.sportsLead);
@@ -639,7 +666,7 @@ static void settingsState() {
 #if defined(UM_MARIO) || defined(UM_LUIGI)
   json += ",\"marioWorld\":" + String(s.numberFont);
 #endif
-  json += ",\"f1Flags\":" + String(s.f1Flags ? "true" : "false") + "}}";
+  json += ",\"f1Flags\":" + String(s.f1Flags ? "true" : "false") + ",\"f1Chequers\":" + String(s.f1Chequers ? "true" : "false") + "}}";
   server.sendHeader("Cache-Control", "no-store");
   server.send(200, "application/json", json);
 }
@@ -969,6 +996,7 @@ static void saveSettings() {
   s.dither = server.hasArg("dither");
   s.telnet = server.hasArg("telnet");
   s.autoUpdate = server.hasArg("autoUpdate");
+  s.hiddenWifi = server.hasArg("hiddenWifi");
 #ifdef UM_SPORTS_SWITCH
   if (server.hasArg("sportsOrder")) {  // the sports page sends all of its fields together
     s.sportsOrder = server.arg("sportsOrder");
@@ -987,7 +1015,7 @@ static void saveSettings() {
   s.showRankings = server.hasArg("showRankings"); s.footballOthers = server.hasArg("footballOthers"); s.ballRoll = server.hasArg("ballRoll");
   s.numberFont = server.hasArg("numberFont") ? 1 : 0;
 #elif defined(UM_F1)
-  s.f1Drivers = selectedValues("f1Drivers"); s.f1Flags = server.hasArg("f1Flags");
+  s.f1Drivers = selectedValues("f1Drivers"); s.f1Flags = server.hasArg("f1Flags"); s.f1Chequers = server.hasArg("f1Chequers");
 #elif defined(UM_NBA)
   {
     String teams = selectedValues("nbaTeams");
@@ -1842,7 +1870,7 @@ struct DimColour {
   float w[8];                          // wg wb gg gb og ob bg bb (1 = neutral)
 };
 static const char *const kDimNames[8] = {"wg", "wb", "gg", "gb", "og", "ob", "bg", "bb"};
-static const DimColour kDimDefault = {0, 0, 1, 2, 8, 5, 0, 31, 0.06f, {1, 1, 1, 1, 1, 1, 1, 1}};
+static const DimColour kDimDefault = {0, 1, 1, 2, 8, 5, 0, 31, 0.06f, {1, 1, 1, 1, 1, 1, 1, 1}};
 static DimColour dimColour = kDimDefault;
 static void applyDimColour() {
   brightFloor = dimColour.floorB;
@@ -2064,7 +2092,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
-  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
+  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "f1Chequers", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
   "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder", "haPhono", "haNoInfo", "haWeeks", "haExport", "haThin",  // HaConfig.cpp
@@ -2250,6 +2278,8 @@ void setup() {
 addEventListener('submit',function(e){if(/\/wifi$/.test(e.target.getAttribute('action')||''))busy('Scanning for networks…')});
 addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a');if(a&&/\/wifi$/.test(a.getAttribute('href')||''))busy('Scanning for networks…')});
 addEventListener('pageshow',function(){var b=document.getElementById('busy');if(b)b.remove()})</script>
+<script>addEventListener('DOMContentLoaded',function(){var h=document.getElementById('hidden'),s=document.getElementById('s');if(!h||!s)return;var l=document.querySelector('label[for=s]');
+function f(){s.style.display=h.checked?'':'none';if(l)l.style.display=h.checked?'':'none';if(!h.checked)s.value=''}h.addEventListener('change',f);f()})</script>
 <script>addEventListener('DOMContentLoaded',function(){document.querySelectorAll('.msg').forEach(function(m){
 if(!/Saving Credentials/.test(m.textContent))return;
 function link(u){return '<a href="'+u+'" target="_blank" rel="noopener">'+u+'</a> (<a href="#" data-copy="'+u+'">copy</a>)'}
@@ -2294,12 +2324,18 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   // Optional admin PIN, asked once during the first setup. Not offered again when one is set, so a nearby phone
   // cannot replace it by forcing the setup page to open.
   static WiFiManagerParameter pinField("pin", "Admin PIN (optional): 4 to 8 digits that protect the clock's settings. Leave empty for none.", "", 8, "inputmode='numeric' pattern='[0-9]*' autocomplete='off' placeholder='No PIN'");
-  if (!adminpin::isSet()) {
-    wifi.addParameter(&pinField);
-    wifi.setSaveConfigCallback([]() {
-      if (adminpin::validFormat(pinField.getValue()) && adminpin::set(pinField.getValue())) consoleLog("[WiFi] Admin PIN set during setup\n");
-    });
-  }
+  static WiFiManagerParameter hiddenField("hidden", "Hidden network", "1", 2, "type='checkbox' style='width:auto'", WFM_LABEL_AFTER);  // ticked: the clock retries the connection at boot instead of scanning for the name first
+  static WiFiManagerParameter lineBreak("<br/><br/>");  // the checkbox ends its line without a break, so the next label would sit beside it
+  wifi.addParameter(&hiddenField);
+  wifi.addParameter(&lineBreak);
+  const bool askPin = !adminpin::isSet();
+  if (askPin) wifi.addParameter(&pinField);
+  wifi.setSaveConfigCallback([askPin]() {
+    const bool hidden = hiddenField.getValue()[0] != 0;  // the name field only shows when this is ticked, so a typed name is always a hidden network
+    Preferences prefs;
+    if (prefs.begin("ultimatrix", false)) { prefs.putBool("wifiHidden", hidden); prefs.end(); }
+    if (askPin && adminpin::validFormat(pinField.getValue()) && adminpin::set(pinField.getValue())) consoleLog("[WiFi] Admin PIN set during setup\n");
+  });
   wifi.setWaitCallback(bootTick);  // keep the connecting pulse going while a saved network is tried
   wifi.setConnectTimeout(40);  // seconds per attempt, as the core's own wait: without a timeout the wait does not call bootTick, so the pulse froze
   wifi.setConnectRetries(3);  // three attempts before the setup portal: a router that is still starting after a power cut should not bring up the QR code
@@ -2311,7 +2347,13 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
     setupPrefs.end();
   }
   if (forceSetup || setupRefreshRestart) wifi.startConfigPortal(kApName);  // after the restart for the fast display, go straight to the portal
-  else wifi.autoConnect(kApName);
+  else {
+    // A network that is gone (not seen in a scan) goes to the setup portal at once; a hidden one cannot be seen, so it gets the retries
+    if (!hiddenWifiSaved() && !savedNetworkVisible()) {
+      consoleLog("[WiFi] Saved network not seen in a scan, opening the setup portal\n");
+      wifi.startConfigPortal(kApName);
+    } else wifi.autoConnect(kApName);
+  }
   static const char *headerKeys[] = {"Origin", "Sec-Fetch-Site", "Sec-WebSocket-Key", "User-Agent", "X-Token"};
   server.addHandler(new HostGuard());  // first: every request, GET and POST
   server.collectHeaders(headerKeys, 5);  // Origin and X-Token: see BoundedPost, Sec-Fetch-Site: /win; the others are read by the WLED overlay
@@ -2556,7 +2598,7 @@ void loop() {
     const bool hueTesting = hueTest.until && (int32_t)(hueTest.until - now) > 0;
     if (hueTest.until && !hueTesting) hueTest.until = 0;
     if (hueTesting) brightness = hueTest.brightness;
-    const bool deepDim = nightTesting || (hueTesting ? hueTest.deep : displayControl.nightDimmed(face && face->handlesNight()));  // the red night clock may dim past the safe window width
+    const bool deepDim = nightTesting || (hueTesting ? hueTest.deep : true);  // every face may dim past the safe window width, as night mode does, so the Brightness slider reaches the same darkness
     uint8_t panel = panelBrightness(brightness, nightMode || hueTesting);  // night mode (an explicit level) and the test grid are not stretched over the calibrated floor
     if (panel != appliedBrightness || deepDim != appliedDeepDim) {
       const uint8_t dimFloor = display->brightnessFloor();
@@ -2594,7 +2636,7 @@ void loop() {
       if (mqttPixelsShown && !Mqtt::instance().pixelsActive()) { nightClock.reset(); face->invalidate(); }
       mqttPixelsShown = Mqtt::instance().pixelsActive();
       const bool popup = face->alertOverridesNight();  // an alert that must show through the night clock and the birthday screen
-      const bool night = (nightTesting || displayControl.nightClockShown(face->handlesNight())) && !popup;
+      const bool night = ((nightTesting && Settings::getInstance()->nightClock) || displayControl.nightClockShown(face->handlesNight())) && !popup;  // the tuning only shows the red clock when the night clock is on, else the face at that brightness
       if (!btMode() && !playing(now) && notice::active(now, displayControl.nightDimmed(face->handlesNight()) && !popup)) {  // a message sent from Home Assistant takes the panel, whatever the face; a normal one waits out the night
         mqttDisplayMode = "notification";
         notice::draw(*display, now);
