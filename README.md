@@ -287,6 +287,10 @@ Automations can draw individual pixels or send a complete 64×64 image over MQTT
 
 Add birthdays under **Birthdays** in settings: a name (capitals, digits and spaces, up to 12 characters), a day, a month and an optional birth year, up to 10. On that day every face is replaced by a birthday screen with the name, the age (or HAPPY BIRTHDAY! without a year) and the time. It steps aside while a favourite team's football match or any F1/MotoGP session is live (and for a minute afterwards), and the night clock still takes over at night. A 29 February birthday is celebrated on 1 March in other years. With the remote console on, `birthday` shows the screen for a minute whatever the date.
 
+### HTTP API
+
+Everything the settings page does goes through the clock's HTTP API: settings, display brightness and the colour tests, firmware updates, sports switching, saved pictures and GIFs, MQTT and Home Assistant setup. It is fully documented with OpenAPI: browse the [API documentation](https://vandalon.github.io/ultimatrix/api/) (the test versions are in the [beta documentation](https://vandalon.github.io/ultimatrix/beta/api/)) or read the spec in [docs/openapi.yaml](docs/openapi.yaml). The same access rules apply as for the settings page: the admin PIN, and **Who may open the clock**.
+
 ## Updates and switching faces
 
 The clock checks for updates at startup when its cached check is missing or more than 24 hours old, then about once a day while running. With Automatic updates on (the default, under Advanced), a newer version is installed by itself and the clock restarts; with it off, checking installs nothing. Available updates appear on the boot screen and settings page; with Automatic updates off, installation starts when you choose it.

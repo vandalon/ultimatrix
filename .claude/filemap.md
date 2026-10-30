@@ -5,7 +5,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 14 clock fa
 - AGENTS.md -> CLAUDE.md: shared Codex/Claude project rules (one source)
 - .claude/filemap.md: this routing index; update affected entries when files change purpose
 - HANDOFF.txt, WORKLOG.txt: current shared session handoff (read first); local work log (both gitignored)
-- README.md: user docs for all clock faces. LICENSE*, THIRD_PARTY_NOTICES.md, LICENSE_SCOPE.md: licensing
+- README.md: user docs for all clock faces and the HTTP API (links the OpenAPI docs). LICENSE*, THIRD_PARTY_NOTICES.md, LICENSE_SCOPE.md: licensing
 - .github/workflows/release.yml: release CI
 - .gitignore: local tooling, build output and handoff/log exclusions
 - docs/openapi.yaml: OpenAPI 3.0 description of the clock's HTTP API (routes, parameters, access rules); .github/workflows/api-docs.yml builds it with Redoc and publishes it with GitHub Pages
