@@ -11,6 +11,7 @@ struct Settings {
   uint8_t displayHeight = 64;
   bool showF1 = false;
   bool f1Flags = false;
+  bool f1Chequers = true;
   String f1Drivers;
   uint8_t color = 0;
   uint8_t pacmanClockColor = 0, clockMinutesColor = 0, clockShade = 0;

@@ -7,6 +7,7 @@
 
 static unsigned long virtualMs = 0;
 unsigned long millis() { return virtualMs; }
+unsigned long micros() { return virtualMs * 1000UL; }
 void delay(unsigned long ms) { virtualMs += ms; }
 void (*onFlip)(MatrixPanel_I2S_DMA *) = nullptr;
 static MatrixPanel_I2S_DMA display;

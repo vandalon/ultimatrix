@@ -40,6 +40,7 @@ using std::min;
 
 inline void yield() {}
 unsigned long millis();
+unsigned long micros();
 void delay(unsigned long ms);
 
 class __FlashStringHelper;
