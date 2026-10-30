@@ -21,6 +21,7 @@ std::atomic<uint32_t> savedVersion{1};
 Config *current = nullptr;  // on the heap, created on first use, so the update-only boot does not reserve it
 const char *failedStep = "";
 char weather[kEntity] = {};
+char order[8] = "EHMD";
 Slot extras[kHomeTiles - kTiles] = {{TILE_WEATHER, 1, 0, 0, 0, "", ""}, {TILE_NONE, 0, 0, 0, 0, "", ""}, {TILE_NONE, 0, 0, 0, 0, "", ""}};  // fourth, fifth and sixth tile
 Slot washer = {ICON_WASHER, 0, 0, 0, 0, "", ""};
 char *iconText[kIcons] = {};  // heap, exactly as long as each list is; null is empty
@@ -80,6 +81,12 @@ Config &config() {
 }
 
 char (&weatherEntity())[kEntity] { return weather; }
+char (&pageOrder())[8] { return order; }
+bool &exportGraph() { static bool on = false; return on; }
+bool &thinClock() { static bool on = false; return on; }
+int &predictWeeks() { static int weeks = 13; return weeks; }
+bool &hideBareMedia() { static bool hide = false; return hide; }
+bool &lineInAsPhono() { static bool phono = false; return phono; }
 char (*mediaPlayers())[kEntity] { return rooms.id; }
 size_t iconEntityCopy(int index, char *out, size_t size) {
   std::lock_guard<std::mutex> guard(iconLock);
@@ -113,6 +120,12 @@ void load() {
   if (ok) {
     barStored = p.getBool("haBarV", false);
     p.getString("haWeather", weather, sizeof(weather));
+    if (p.isKey("haOrder")) p.getString("haOrder", order, sizeof(order));
+    lineInAsPhono() = p.getBool("haPhono", false);
+    hideBareMedia() = p.getBool("haNoInfo", false);
+    exportGraph() = p.getBool("haExport", false);
+    thinClock() = p.getBool("haThin", false);
+    predictWeeks() = constrain((int)p.getUChar("haWeeks", 13), 1, 26);
     tileStored = cacheblob::get(p, "haTile4", extras[0], 1);
     if (!tileStored) {
       extras[0] = {TILE_WEATHER, uint8_t(weather[0] ? 0 : 1), 0, 0, 0, "", ""};
@@ -138,6 +151,11 @@ void load() {
     if (!validEntity(washer.entity)) washer.entity[0] = 0;
   }
   p.end();
+  {  // every page once, else the standard order
+    bool good = strlen(order) == 4;
+    for (const char *letter = "EHMD"; *letter; letter++) good = good && strchr(order, *letter);
+    if (!good) strcpy(order, "EHMD");
+  }
   if (weather[0] && (!validEntity(weather) || strncmp(weather, "weather.", 8))) weather[0] = 0;
   if (ok) {
     Preferences q;
@@ -217,6 +235,36 @@ bool save() {
     if (weather[0]) ok = p.putString("haWeather", weather) == strlen(weather);
     else if (p.isKey("haWeather")) ok = p.remove("haWeather");
     if (!ok) failedStep = "weather";
+  }
+  if (ok) {
+    if (strcmp(order, "EHMD")) ok = p.putString("haOrder", order) == strlen(order);
+    else if (p.isKey("haOrder")) ok = p.remove("haOrder");
+    if (!ok) failedStep = "page order";
+  }
+  if (ok) {
+    if (lineInAsPhono()) ok = p.putBool("haPhono", true) > 0;
+    else if (p.isKey("haPhono")) ok = p.remove("haPhono");
+    if (!ok) failedStep = "phono";
+  }
+  if (ok) {
+    if (hideBareMedia()) ok = p.putBool("haNoInfo", true) > 0;
+    else if (p.isKey("haNoInfo")) ok = p.remove("haNoInfo");
+    if (!ok) failedStep = "media filter";
+  }
+  if (ok) {
+    if (exportGraph()) ok = p.putBool("haExport", true) > 0;
+    else if (p.isKey("haExport")) ok = p.remove("haExport");
+    if (!ok) failedStep = "energy layout";
+  }
+  if (ok) {
+    if (thinClock()) ok = p.putBool("haThin", true) > 0;
+    else if (p.isKey("haThin")) ok = p.remove("haThin");
+    if (!ok) failedStep = "clock style";
+  }
+  if (ok) {
+    if (predictWeeks() != 13) ok = p.putUChar("haWeeks", (uint8_t)predictWeeks()) > 0;
+    else if (p.isKey("haWeeks")) ok = p.remove("haWeeks");
+    if (!ok) failedStep = "prediction weeks";
   }
   if (ok && !(ok = cacheblob::put(p, "haWasher", washer, 1))) failedStep = "washer";
   for (int i = 0; ok && i < kHomeTiles - kTiles; i++) {

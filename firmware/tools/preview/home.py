@@ -20,7 +20,7 @@ def build(work):
     for include in (HERE / "shim", HERE, gfx, FIRMWARE / "clockfaces/home", FIRMWARE / "lib/faces", FIRMWARE / "lib/core", FIRMWARE / "lib/ha-feed"):
         command += ["-I", str(include)]
     command += [str(HERE / "home.cpp"), str(gfx / "Adafruit_GFX.cpp"), str(FIRMWARE / "clockfaces/home/Clockface.cpp"),
-                str(FIRMWARE / "clockfaces/home/HomeRenderer.cpp"), str(FIRMWARE / "lib/ha-feed/HaDefaults.cpp"), str(FIRMWARE / "lib/ha-feed/HaDevices.cpp"), "-o", str(binary)]
+                str(FIRMWARE / "clockfaces/home/HomeRenderer.cpp"), str(FIRMWARE / "lib/ha-feed/HaDefaults.cpp"), str(FIRMWARE / "lib/ha-feed/HaDevices.cpp"), str(FIRMWARE / "lib/ha-feed/HaPrices.cpp"), str(HERE / "shim/HaConfigStub.cpp"), "-o", str(binary)]
     subprocess.run(command, check=True)
     return binary
 

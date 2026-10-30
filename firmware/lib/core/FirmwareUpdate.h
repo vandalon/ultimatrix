@@ -54,6 +54,7 @@ private:
   TaskHandle_t _worker = nullptr;
   bool queue(const char *mode, bool force, bool stageOnly);
   bool _stageOnly = false;
+  bool _keepFeeds = false;  // preparing a face ahead of time: the feeds keep running (no firmwareUpdating), unlike an update or a check
   void check();
   void run();
   void message(const char *text, bool failed = false);

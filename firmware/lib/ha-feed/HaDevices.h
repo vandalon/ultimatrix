@@ -13,13 +13,16 @@
 namespace ha {
 namespace devices {
 
-constexpr int kMax = 8, kName = 25;  // names kept per list, characters per name
+constexpr int kName = 25, kLowPool = 300, kOfflinePool = 1100;  // characters per name; bytes for the names of each list, packed as "name;name"
 
 struct Snapshot {
-  char low[kMax][kName], offline[kMax][kName];
-  uint8_t lowShown, offlineShown;     // names kept
+  char low[kLowPool], offline[kOfflinePool];
+  uint8_t lowShown, offlineShown;     // names kept (the ones that fit the pool)
   uint8_t lowTotal, offlineTotal;     // devices found
 };
+
+// The k-th name (from 0) of a packed list
+bool nameAt(const char *pool, int k, char *out, size_t size);
 
 // The template; returns its length, 0 when it does not fit
 size_t buildTemplate(char *out, size_t capacity);

@@ -61,8 +61,10 @@ void Settings::load() {
   if (accessScope > 2) accessScope = 1;
   clockName = p.getString("clockName", "Ultimatrix");
   if (!validClockName(clockName)) clockName = "Ultimatrix";
+  hiddenWifi = p.getBool("wifiHidden", false);
+  f1Chequers = p.getBool("f1Chequers", true);
   autoUpdate = p.getBool("autoUpdate", true);
-  nightClock = p.getBool("nightClock", true);
+  nightClock = p.getBool("nightClock", false);
   dither = p.getBool("dither", false);
   birthdays = p.getString("birthdays", "");
   if (birthdays.length() > 260) birthdays = "";
@@ -76,8 +78,36 @@ void Settings::load() {
       sportsLead = constrain(lead, 0, 120); sportsRacing = racing >= 0 && racing <= 2 ? racing : 0; sportsFav = fav != 0; sportsMax = constrain(max, 1, 12); sportsOthers = others != 0; footballOthers = fbOthers != 0; sportsHold = constrain(hold, 0, 120); sportsBridge = constrain(bridge, 0, 240);
     }
   }
+  nbaExtra = p.getUChar("nbaExtra", 0) != 0;
+  nbaLiveOnly = p.getUChar("nbaLive", 1) != 0;
+  nbaIdle = p.getUChar("nbaIdle", 0);
+  if (nbaIdle > 2) nbaIdle = 0;
+  nbaTables = p.getUChar("nbaTab", 0);
+  if (nbaTables > 2) nbaTables = 0;
   nbaTeams = p.getString("nbaTeams", "");
   if (nbaTeams.length() > 60) nbaTeams = "";
+  mlbExtra = p.getUChar("mlbExtra", 0) != 0;
+  mlbLiveOnly = p.getUChar("mlbLive", 1) != 0;
+  mlbIdle = p.getUChar("mlbIdle", 0);
+  if (mlbIdle > 2) mlbIdle = 0;
+  mlbTables = p.getUChar("mlbTab", 0);
+  if (mlbTables > 2) mlbTables = 0;
+  mlbHours = p.getUChar("mlbHrs", 10); mlbMinutes = p.getUChar("mlbMin", 5);
+  if (mlbHours < 1 || mlbHours > 10) mlbHours = 10;
+  if (mlbMinutes < 1 || mlbMinutes > 10) mlbMinutes = 5;
+  mlbTeams = p.getString("mlbTeams", "");
+  if (mlbTeams.length() > 60) mlbTeams = "";
+  nflExtra = p.getUChar("nflExtra", 0) != 0;
+  nflLiveOnly = p.getUChar("nflLive", 1) != 0;
+  nflIdle = p.getUChar("nflIdle", 0);
+  if (nflIdle > 2) nflIdle = 0;
+  nflTables = p.getUChar("nflTab", 0);
+  if (nflTables > 2) nflTables = 0;
+  nflHours = p.getUChar("nflHrs", 10); nflMinutes = p.getUChar("nflMin", 3);
+  if (nflHours < 1 || nflHours > 10) nflHours = 10;
+  if (nflMinutes < 1 || nflMinutes > 10) nflMinutes = 3;
+  nflTeams = p.getString("nflTeams", "");
+  if (nflTeams.length() > 60) nflTeams = "";
   pongBackdrop = p.getUChar("pongBg", 3);
   if (pongBackdrop > 5) pongBackdrop = 3;
   arcHours = p.getUChar("arcHrs", 0); arcMinutes = p.getUChar("arcMin", 0); arcScore = p.getUChar("arcPts", 0);
@@ -128,7 +158,7 @@ void Settings::load() {
     // No valid record (a fresh or factory-reset clock; the keys of firmware before version 2 are erased at every start): the defaults
     rotation = 0; matchSecs = 8; resultMins = 120; timeStyle = 2; numberFont = 1;
     autoBrightness = lightSensorReadable(ldrPin);  // auto brightness on when a light sensor answers
-    minimumBrightness = 3;
+    minimumBrightness = 1;  // the lowest the slider allows
     brightness = autoBrightness ? 255 : 128;  // full with auto brightness, otherwise half
     swapBlueGreen = false; ballRoll = true; showRankings = true; f1Flags = false; telnet = false;
     f1Drivers = "";
@@ -174,12 +204,15 @@ bool Settings::save() {
   Preferences p;
   if (!p.begin("ultimatrix", false)) return false;
   bool saved = p.putBytes("settingsV2", &record, sizeof(record)) == sizeof(record);  // one write commits everything
+  if (!saved) { p.remove("settingsV2"); saved = p.putBytes("settingsV2", &record, sizeof(record)) == sizeof(record); }  // the flash of settings is small: when the new record does not fit next to the old one, replace it instead of updating it
   if (saved) saved = p.putString("clockName", clockName) == clockName.length();
   if (saved) saved = p.putBool("mdnsUseName", mdnsUseName) == 1;
   if (saved) p.putBool("anyHost", anyHost);
   if (saved) p.putUChar("accessScope", accessScope);
   if (saved) p.putBool("dither", dither);
   if (saved) p.putBool("nightClock", nightClock);  // own key too: the record stays as it is
+  if (saved) p.putBool("f1Chequers", f1Chequers);
+  if (saved) p.putBool("wifiHidden", hiddenWifi);  // own key: the boot reads it before the settings record
   if (saved) p.putBool("autoUpdate", autoUpdate);  // own key, so records saved before this setting keep it on
   if (saved) p.putString("birthdays", birthdays);  // own key as well: the record stays as it is
   if (saved) {
@@ -192,6 +225,22 @@ bool Settings::save() {
   if (saved) p.putUChar("pongLv", pongLevel);
   if (saved) p.putUChar("pongSp", pongSpeed);
   if (saved) p.putString("nbaTeams", nbaTeams);
+  if (saved) p.putUChar("nbaTab", nbaTables);
+  if (saved) p.putUChar("nbaIdle", nbaIdle);
+  if (saved) p.putUChar("nbaLive", nbaLiveOnly ? 1 : 0);
+  if (saved) p.putUChar("nbaExtra", nbaExtra ? 1 : 0);
+  if (saved) { p.putUChar("mlbHrs", mlbHours); p.putUChar("mlbMin", mlbMinutes); }
+  if (saved) p.putString("mlbTeams", mlbTeams);
+  if (saved) p.putUChar("mlbTab", mlbTables);
+  if (saved) p.putUChar("mlbIdle", mlbIdle);
+  if (saved) p.putUChar("mlbLive", mlbLiveOnly ? 1 : 0);
+  if (saved) p.putUChar("mlbExtra", mlbExtra ? 1 : 0);
+  if (saved) { p.putUChar("nflHrs", nflHours); p.putUChar("nflMin", nflMinutes); }
+  if (saved) p.putString("nflTeams", nflTeams);
+  if (saved) p.putUChar("nflTab", nflTables);
+  if (saved) p.putUChar("nflIdle", nflIdle);
+  if (saved) p.putUChar("nflLive", nflLiveOnly ? 1 : 0);
+  if (saved) p.putUChar("nflExtra", nflExtra ? 1 : 0);
   if (saved) p.putUChar("pongBg", pongBackdrop);  // and this one: the record's size must not change
   p.end();
   if (saved) { memcpy(faceOptions, options, sizeof(options)); counter()++; }

@@ -57,8 +57,19 @@ function timezoneMode() {
   document.querySelector('#timezone-field').style.opacity = auto ? 0.45 : 1;
 }
 // Sports: which sports may take the panel, in priority order (hidden field sportsOrder, "f1,football")
-const SPORTS = [['f1', 'F1'], ['motogp', 'MotoGP'], ['football', 'Football'], ['nba', 'NBA']];
+// The default order is by popularity (NFL, NBA, MLB); the order the user drags is saved in sportsOrder
+const SPORTS = [['football', 'Football'], ['f1', 'F1'], ['motogp', 'MotoGP'], ['nfl', 'NFL'], ['nba', 'NBA'], ['mlb', 'MLB']];
+// Freedom mode: for our American friends, football is called soccer in the face picker and the sports list (this browser only)
+function freedomMode() { try { return localStorage.getItem('freedom') === '1'; } catch (_) { return false; } }
+function applyFreedom() {
+  const soccer = freedomMode();
+  SPORTS.find(s => s[0] === 'football')[1] = soccer ? 'Soccer' : 'Football';
+  const label = document.querySelector('#faces [data-face="football"] b');
+  if (label) label.textContent = soccer ? 'Soccer' : 'Football';
+}
 const NBA_TEAMS = [['ATL', 'Atlanta Hawks'], ['BOS', 'Boston Celtics'], ['BKN', 'Brooklyn Nets'], ['CHA', 'Charlotte Hornets'], ['CHI', 'Chicago Bulls'], ['CLE', 'Cleveland Cavaliers'], ['DAL', 'Dallas Mavericks'], ['DEN', 'Denver Nuggets'], ['DET', 'Detroit Pistons'], ['GS', 'Golden State Warriors'], ['HOU', 'Houston Rockets'], ['IND', 'Indiana Pacers'], ['LAC', 'LA Clippers'], ['LAL', 'Los Angeles Lakers'], ['MEM', 'Memphis Grizzlies'], ['MIA', 'Miami Heat'], ['MIL', 'Milwaukee Bucks'], ['MIN', 'Minnesota Timberwolves'], ['NO', 'New Orleans Pelicans'], ['NY', 'New York Knicks'], ['OKC', 'Oklahoma City Thunder'], ['ORL', 'Orlando Magic'], ['PHI', 'Philadelphia 76ers'], ['PHX', 'Phoenix Suns'], ['POR', 'Portland Trail Blazers'], ['SAC', 'Sacramento Kings'], ['SA', 'San Antonio Spurs'], ['TOR', 'Toronto Raptors'], ['UTAH', 'Utah Jazz'], ['WSH', 'Washington Wizards']].map(([value, label]) => ({ value, label }));
+const NFL_TEAMS = [['ARI', 'Arizona Cardinals'], ['ATL', 'Atlanta Falcons'], ['BAL', 'Baltimore Ravens'], ['BUF', 'Buffalo Bills'], ['CAR', 'Carolina Panthers'], ['CHI', 'Chicago Bears'], ['CIN', 'Cincinnati Bengals'], ['CLE', 'Cleveland Browns'], ['DAL', 'Dallas Cowboys'], ['DEN', 'Denver Broncos'], ['DET', 'Detroit Lions'], ['GB', 'Green Bay Packers'], ['HOU', 'Houston Texans'], ['IND', 'Indianapolis Colts'], ['JAX', 'Jacksonville Jaguars'], ['KC', 'Kansas City Chiefs'], ['LAC', 'Los Angeles Chargers'], ['LAR', 'Los Angeles Rams'], ['LV', 'Las Vegas Raiders'], ['MIA', 'Miami Dolphins'], ['MIN', 'Minnesota Vikings'], ['NE', 'New England Patriots'], ['NO', 'New Orleans Saints'], ['NYG', 'New York Giants'], ['NYJ', 'New York Jets'], ['PHI', 'Philadelphia Eagles'], ['PIT', 'Pittsburgh Steelers'], ['SEA', 'Seattle Seahawks'], ['SF', 'San Francisco 49ers'], ['TB', 'Tampa Bay Buccaneers'], ['TEN', 'Tennessee Titans'], ['WSH', 'Washington Commanders']].map(([value, label]) => ({ value, label }));
+const MLB_TEAMS = [['ARI', 'Arizona Diamondbacks'], ['ATH', 'Athletics'], ['ATL', 'Atlanta Braves'], ['BAL', 'Baltimore Orioles'], ['BOS', 'Boston Red Sox'], ['CHC', 'Chicago Cubs'], ['CHW', 'Chicago White Sox'], ['CIN', 'Cincinnati Reds'], ['CLE', 'Cleveland Guardians'], ['COL', 'Colorado Rockies'], ['DET', 'Detroit Tigers'], ['HOU', 'Houston Astros'], ['KC', 'Kansas City Royals'], ['LAA', 'Los Angeles Angels'], ['LAD', 'Los Angeles Dodgers'], ['MIA', 'Miami Marlins'], ['MIL', 'Milwaukee Brewers'], ['MIN', 'Minnesota Twins'], ['NYM', 'New York Mets'], ['NYY', 'New York Yankees'], ['PHI', 'Philadelphia Phillies'], ['PIT', 'Pittsburgh Pirates'], ['SD', 'San Diego Padres'], ['SF', 'San Francisco Giants'], ['SEA', 'Seattle Mariners'], ['STL', 'St. Louis Cardinals'], ['TB', 'Tampa Bay Rays'], ['TEX', 'Texas Rangers'], ['TOR', 'Toronto Blue Jays'], ['WSH', 'Washington Nationals']].map(([value, label]) => ({ value, label }));
 // The plan under Sports: what the clock found in the schedules and what it will do about it (computed here from /api/sports)
 let sportsPlanTimer = 0;
 async function sportsPlan() {
@@ -107,21 +118,65 @@ document.querySelector('#sportsPrepGo')?.addEventListener('click', async () => {
 function sportsInit(settings) {
   const list = document.querySelector('#sports-list'), box = field('sportsOrder');
   const chosen = (settings.sportsOrder || '').split(',').filter(id => SPORTS.some(s => s[0] === id));
-  let order = [...chosen, ...SPORTS.map(s => s[0]).filter(id => !chosen.includes(id))], on = new Set(chosen);
-  const save = () => { box.value = order.filter(id => on.has(id)).join(','); render(); dirty(); setTimeout(sportsPlan, 2500); };
+  // the clock keeps only the sports that are on, in order; the places of the ones that are off are kept in this browser, so moving one still sticks
+  let kept = [];
+  try { kept = JSON.parse(localStorage.getItem('sportsAll') || '[]').filter(id => SPORTS.some(s => s[0] === id)); } catch (_) {}
+  const all = SPORTS.map(s => s[0]), on = new Set(chosen);
+  let order = kept.length ? [...kept, ...all.filter(id => !kept.includes(id))] : [...chosen, ...all.filter(id => !chosen.includes(id))];
+  const places = order.map((id, i) => on.has(id) ? i : -1).filter(i => i >= 0);
+  chosen.forEach((id, k) => { order[places[k]] = id; });  // the sports that are on take their places in the order the clock has them
+  const save = () => { try { localStorage.setItem('sportsAll', JSON.stringify(order)); } catch (_) {} box.value = order.filter(id => on.has(id)).join(','); render(); dirty(); setTimeout(sportsPlan, 2500); };
   function render() {
     list.replaceChildren(...order.map((id, i) => {
       const row = document.createElement('div'); row.className = 'bday';
       const check = document.createElement('input'); check.type = 'checkbox'; check.checked = on.has(id); check.ariaLabel = SPORTS.find(s => s[0] === id)[1];
       check.onchange = () => { check.checked ? on.add(id) : on.delete(id); save(); };
       const name = document.createElement('span'); name.textContent = (i + 1) + '. ' + SPORTS.find(s => s[0] === id)[1];
-      const up = document.createElement('button'); up.type = 'button'; up.className = 'secondary'; up.textContent = '↑'; up.disabled = i === 0;
-      up.onclick = () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; save(); };
-      const down = document.createElement('button'); down.type = 'button'; down.className = 'secondary'; down.textContent = '↓'; down.disabled = i === order.length - 1;
-      down.onclick = () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; save(); };
-      row.append(check, name, up, down); return row;
+      const grip = document.createElement('span'); grip.textContent = '⋮⋮'; grip.title = 'Drag to change the order'; grip.ariaLabel = 'Drag to reorder ' + SPORTS.find(s => s[0] === id)[1];
+      grip.style.cssText = 'cursor:grab;touch-action:none;user-select:none;padding:6px 10px;font-weight:700;opacity:.7';
+      row.dataset.id = id;
+      // the move and the drop are followed on the window, so the drag goes on wherever the pointer is, with or without pointer capture
+      // the grabbed row lifts (shadow, a little larger) and follows the pointer; the rows it passes slide out of the way
+      let grabDy = 0, shift = 0;
+      const follow = e => { const top = row.getBoundingClientRect().top - shift; shift = e.clientY - grabDy - top; row.style.transform = 'translateY(' + shift + 'px) scale(1.03)'; };
+      const move = e => {
+        for (const other of list.children) {
+          if (other === row) continue;
+          const r = other.getBoundingClientRect();
+          if (e.clientY > r.top && e.clientY < r.bottom) {
+            const before = new Map([...list.children].filter(c => c !== row).map(c => [c, c.getBoundingClientRect().top]));
+            list.insertBefore(row, e.clientY < r.top + r.height / 2 ? other : other.nextSibling);
+            before.forEach((top, c) => {
+              const dy = top - c.getBoundingClientRect().top;
+              if (!dy) return;
+              c.style.transition = 'none'; c.style.transform = 'translateY(' + dy + 'px)';
+              c.getBoundingClientRect();
+              c.style.transition = 'transform .15s ease'; c.style.transform = '';
+            });
+            break;
+          }
+        }
+        follow(e);
+      };
+      const drop = () => {
+        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', drop); window.removeEventListener('pointercancel', drop);
+        row.style.cssText = '';
+        order = [...list.children].map(r => r.dataset.id); save();
+      };
+      grip.onpointerdown = e => {
+        e.preventDefault();
+        try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+        grabDy = e.clientY - row.getBoundingClientRect().top; shift = 0;
+        row.style.cssText = 'position:relative;z-index:5;transition:box-shadow .15s;box-shadow:0 10px 24px rgba(14,26,32,.28);background:#fff;border-radius:12px;transform:scale(1.03)';
+        window.addEventListener('pointermove', move); window.addEventListener('pointerup', drop); window.addEventListener('pointercancel', drop);
+      };
+      row.append(check, name, grip); return row;
     }));
   }
+  const freedom = document.querySelector('#freedom');
+  freedom.checked = freedomMode();
+  freedom.onchange = () => { try { localStorage.setItem('freedom', freedom.checked ? '1' : '0'); } catch (_) {} applyFreedom(); render(); sportsPlan(); };
+  applyFreedom();
   box.value = chosen.join(',');
   sportsPlan();
   const home = field('sportsHome');
@@ -172,9 +227,9 @@ function choices(id, name, entries, values) {
   const grouped = entries.some(entry => entry.group);
   target.replaceChildren();
   let group = null;
-  // Europe and national teams stay on top, then countries with a selection, then A-Z (stable sort keeps league order)
-  const pinned = ['Europe', 'National teams'];
-  const rank = group => pinned.includes(group) ? pinned.indexOf(group) - 2 : entries.some(entry => entry.group === group && selected.has(entry.value)) ? 0 : 1;
+  // Continents in a fixed order, then any other group with a selection, then A-Z (stable sort keeps league order)
+  const pinned = ['Europe', 'South America', 'Asia', 'North America', 'National teams'];
+  const rank = group => pinned.includes(group) ? pinned.indexOf(group) - pinned.length : entries.some(entry => entry.group === group && selected.has(entry.value)) ? 0 : 1;
   (grouped ? [...entries].sort((a, b) => a.group === b.group ? 0 : rank(a.group) - rank(b.group) || a.group.localeCompare(b.group)) : [...entries].sort((a, b) => selected.has(b.value) - selected.has(a.value))).forEach(entry => {
     if (grouped && entry.group !== group) {
       group = entry.group; const heading = document.createElement('div'); heading.className = 'choice-group'; heading.dataset.group = group; heading.textContent = group;
@@ -294,13 +349,14 @@ async function load() {
     showPin(data.pinSet);
     const racing = data.mode === 'F1' || data.mode === 'MotoGP', sporty = racing || data.mode === 'Football';
     const pacman = data.mode === 'Pac-Man', arcade = pacman || data.mode === 'Invaders' || data.mode === 'Pong';   // faces you can play from this page
-    field('dither').closest('label').style.display = arcade || data.mode === 'Mario' || data.mode === 'Luigi' ? 'none' : '';  // those faces decide for themselves
     const homeFace = data.mode === 'Home'; document.querySelector('#homeassistant').hidden = !homeFace; document.querySelector('#nav-ha').hidden = !homeFace;
     if (homeFace) { initHomeAssistant(); document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('#nav-ha').classList.add('active'); }
-    section('[data-sports]', sporty || data.mode === 'NBA' || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade); section('[data-sportfields]', sporty || data.mode === 'NBA'); section('[data-clockanim]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', arcade);
-    section('[data-football]', data.mode === 'Football'); section('[data-f1]', racing); section('[data-nba]', data.mode === 'NBA');
+    section('[data-sports]', sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'NFL' || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade); section('[data-sportfields]', sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'NFL'); section('[data-clockanim]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', arcade);
+    section('[data-football]', data.mode === 'Football'); section('[data-f1]', racing); section('[data-nba]', data.mode === 'NBA'); section('[data-mlb]', data.mode === 'MLB'); section('[data-nfl]', data.mode === 'NFL');
     if (data.mode === 'NBA') choices('#nba-teams', 'nbaTeams', NBA_TEAMS, data.settings.nbaTeams);
-    if (sporty || data.mode === 'NBA' || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
+    if (data.mode === 'MLB') { choices('#mlb-teams', 'mlbTeams', MLB_TEAMS, data.settings.mlbTeams); for (const name of ['mlbHours', 'mlbMinutes']) field(name).replaceChildren(...['Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'].map((label, i) => new Option(label, i + 1))); }
+    if (data.mode === 'NFL') { choices('#nfl-teams', 'nflTeams', NFL_TEAMS, data.settings.nflTeams); for (const name of ['nflHours', 'nflMinutes']) field(name).replaceChildren(...['Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'].map((label, i) => new Option(label, i + 1))); }
+    if (sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'NFL' || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
     invaders = data.mode === 'Invaders'; pongSlide = data.mode === 'Pong';
     document.querySelector('#play').hidden = !arcade;
     if (arcade && !pacman) {   // no colours and no Bluetooth controller (yet) on these faces, and their own instructions
@@ -338,6 +394,7 @@ async function load() {
     document.querySelector('#sidebar-ip').textContent = data.network.ip || 'Offline';
     if (data.welcomeHidden && !data.welcomeMode) hideWelcome();
     document.body.classList.toggle('welcome-only', !!data.welcomeMode);
+    window.calWelcome?.();
     { const start = document.querySelector('#welcome-start'); if (start) start.hidden = !data.welcomeMode; const dismiss = document.querySelector('#welcome-dismiss'); if (dismiss) dismiss.parentElement.hidden = !!data.welcomeMode; }
     { const link = document.querySelector('#welcome-ip'); const url = data.network.ip ? 'http://' + data.network.ip + '/' : ''; if (link) { link.textContent = url || '—'; link.href = url || '#'; } }
     lightNow = data.lightReading; nightWhy = data.nightWhy || '';
@@ -452,13 +509,14 @@ document.querySelectorAll('.sidebar nav a').forEach(link => link.addEventListene
 load();
 
 let updatePolling = false, currentFace = '';
-const betaServer = 'https://raw.githubusercontent.com/vandalon/ultimatrix/beta-updates';
+const betaServer = 'https://raw.githubusercontent.com/vandalon/ultimatrix/beta';
+const betaServerOld = betaServer + '-updates';  // the earlier branch name, still saved on some clocks
 async function refreshFirmware() {
   try {
     const response = await fetch('/api/firmware', {cache:'no-store'}); if (!response.ok) return;
     const state = await response.json();
     document.querySelector('#firmware-version').textContent = state.version;
-    { const field = document.querySelector('#update-server'); if (document.activeElement !== field) field.value = state.server || ''; document.querySelector('#update-beta').checked = (state.server || '') === betaServer; }
+    { const field = document.querySelector('#update-server'); if (document.activeElement !== field) field.value = state.server || ''; document.querySelector('#update-beta').checked = [betaServer, betaServerOld].includes(state.server || ''); }
     document.querySelector('#firmware-memory').textContent = Math.round(state.freeHeap / 1024) + ' KiB';
     document.querySelector('#firmware-status').textContent = state.message;
     document.querySelector('#firmware-latest').textContent = state.checking ? 'Checking…' : state.available ? state.latest + ' available' : state.checkedAt ? 'Up to date' : '—';
@@ -532,38 +590,6 @@ document.querySelector('#faces').addEventListener('click', event => {
 });
 refreshFirmware();
 
-// Colour quality: the clock lowers it by itself when memory runs short (and tries again after a quiet day when it was a busy time)
-async function refreshDisplay() {
-  try {
-    const response = await fetch('/api/display', {cache:'no-store'}); if (!response.ok) return;
-    const state = await response.json(), select = document.querySelector('#display-quality');
-    select.innerHTML = '';
-    select.add(new Option('Automatic', '0'));
-    state.levels.forEach((name, index) => select.add(new Option((index === 0 ? 'Best' : index === state.levels.length - 1 ? 'Lowest' : 'Level ' + (index + 1)) + ' · ' + name, String(index + 1))));
-    select.value = String(state.lock);
-    const name = state.levels[state.level - 1];
-    let text = 'Running at ' + name + '.';
-    if (state.lock) text = 'Fixed at ' + name + '. The clock does not change it.';
-    else if (state.level > 1) text = 'Lowered to ' + name + ' after memory ran short' + (state.reason === 'busy' ? ' during live data. It tries the best quality again from ' + state.retryHour + ':00, when nothing live is running.' : ' at a quiet time. It stays until you reset it.');
-    document.querySelector('#display-status').textContent = text;
-    document.querySelector('#display-reset').hidden = state.lock !== 0 || state.level === 1;
-    const lowered = state.lock === 0 && state.level > 1;
-    document.querySelector('#display-banner').hidden = !lowered;
-    if (lowered) document.querySelector('#display-banner-text').textContent = 'The clock ran short of memory and now runs at ' + name + ' (level ' + state.level + ' of ' + state.levels.length + '). ' + (state.reason === 'busy' ? 'It tries the best quality again from ' + state.retryHour + ':00 when nothing live is running.' : 'It stays until you reset it.');
-  } catch (_) {}
-}
-async function saveDisplay(body) {
-  try {
-    const response = await fetch('/api/display', {method:'POST', body}); const result = await response.json();
-    if (!response.ok) throw new Error(result.message);
-    busy = true; controls.disabled = true; message(result.message); setTimeout(reconnect, 2500);
-  } catch (error) { message(error.message || 'Could not save the display quality.', true); }
-}
-document.querySelector('#display-quality').addEventListener('change', event => saveDisplay(new URLSearchParams({lock: event.target.value})));
-document.querySelector('#display-reset').addEventListener('click', () => saveDisplay(new URLSearchParams({reset: '1'})));
-document.querySelector('#display-banner-reset').addEventListener('click', () => saveDisplay(new URLSearchParams({reset: '1'})));
-refreshDisplay();
-
 function hideWelcome() { document.querySelector('#welcome')?.remove(); document.querySelector('.sidebar nav a[href="#welcome"]')?.remove(); }
 document.querySelector('#welcome-dismiss')?.addEventListener('click', async () => {
   try { const response = await fetch('/api/welcome/dismiss', { method: 'POST' }); if (response.ok) hideWelcome(); } catch (_) {}
@@ -593,6 +619,45 @@ const haEl = (tag, attrs = {}, ...kids) => { const node = Object.assign(document
 function haInput(value, placeholder, extra = {}) { return haEl('input', Object.assign({type: 'text', value: value || '', placeholder, autocomplete: 'off', spellcheck: false}, extra)); }
 function haSelect(names, value) { const select = haEl('select'); names.forEach((name, index) => select.add(new Option(name, index))); select.value = value; return select; }
 function haGroup(title, hint) { return haEl('div', {className: 'ha-group'}, haEl('h3', {textContent: title}), haEl('p', {className: 'hint', textContent: hint})); }
+// Rows that can be dragged into another order by their grip, like the sports list; onDrop gets called after every move
+function haSortable(list, onDrop) {
+  for (const row of list.children) {
+    const grip = row.querySelector('.grip');
+    let grabDy = 0, shift = 0;
+    const follow = e => { const top = row.getBoundingClientRect().top - shift; shift = e.clientY - grabDy - top; row.style.transform = 'translateY(' + shift + 'px) scale(1.03)'; };
+    const move = e => {
+      for (const other of list.children) {
+        if (other === row) continue;
+        const r = other.getBoundingClientRect();
+        if (e.clientY > r.top && e.clientY < r.bottom) {
+          const before = new Map([...list.children].filter(c => c !== row).map(c => [c, c.getBoundingClientRect().top]));
+          list.insertBefore(row, e.clientY < r.top + r.height / 2 ? other : other.nextSibling);
+          before.forEach((top, c) => {
+            const dy = top - c.getBoundingClientRect().top;
+            if (!dy) return;
+            c.style.transition = 'none'; c.style.transform = 'translateY(' + dy + 'px)';
+            c.getBoundingClientRect();
+            c.style.transition = 'transform .15s ease'; c.style.transform = '';
+          });
+          break;
+        }
+      }
+      follow(e);
+    };
+    const drop = () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', drop); window.removeEventListener('pointercancel', drop);
+      row.style.cssText = '';
+      onDrop();
+    };
+    grip.onpointerdown = e => {
+      e.preventDefault();
+      try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+      grabDy = e.clientY - row.getBoundingClientRect().top; shift = 0;
+      row.style.cssText = 'position:relative;z-index:5;transition:box-shadow .15s;box-shadow:0 10px 24px rgba(14,26,32,.28);background:#fff;border-radius:12px;transform:scale(1.03)';
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', drop); window.addEventListener('pointercancel', drop);
+    };
+  }
+}
 function haCheck(label, checked) { const box = haEl('input', {type: 'checkbox', checked}); return [box, haEl('label', {className: 'ha-auto'}, box, label)]; }
 // Autocomplete from Home Assistant: the clock asks it for matching entities of the right kind while you type
 let haList = null, haSuggestTimer = 0, haSuggestSeq = 0;
@@ -625,9 +690,9 @@ function haBindSuggest(input, kind) {
 // Several entities in one field, as tags (like the favourite teams): the value stays "id,id,id", with "auto" as a single tag
 const HA_TILE_MULTI = [0, 1, 2, 3];  // temperature, humidity, people and power tiles combine several entities
 function haLock(root, off) { root.querySelector('input').disabled = off; root.style.opacity = off ? 0.5 : ''; root.style.pointerEvents = off ? 'none' : ''; }
-function haTags(value, placeholder, kind, limit = 95) {
+function haTags(value, placeholder, kind, limit = 95, sortable = false) {
   let ids = (value || '').split(',').map(id => id.trim()).filter(Boolean);
-  const list = haEl('div', {className: 'tags'}), input = haEl('input', {type: 'text', placeholder, autocomplete: 'off', spellcheck: false});
+  const list = haEl('div', {className: sortable ? 'choice-list' : 'tags'}), input = haEl('input', {type: 'text', placeholder, autocomplete: 'off', spellcheck: false});
   const box = haEl('div', {className: 'tag-box'}, list, input), menu = haEl('div', {className: 'suggest', hidden: true}), note = haEl('p', {className: 'hint'});
   const root = haEl('div', {}, box, menu, note);
   let shown = [], active = 0, seq = 0;
@@ -636,8 +701,14 @@ function haTags(value, placeholder, kind, limit = 95) {
     list.replaceChildren(...ids.map(id => {
       const remove = haEl('button', {type: 'button', className: 'tag-x', textContent: '×'}); remove.setAttribute('aria-label', 'Remove ' + id);
       remove.addEventListener('click', () => { ids = ids.filter(one => one !== id); changed(); input.focus(); });
-      return haEl('span', {className: 'tag'}, id, remove);
+      if (!sortable) return haEl('span', {className: 'tag'}, id, remove);
+      const grip = haEl('span', {className: 'grip', textContent: '⋮⋮', title: 'Drag to change the order'});  // a row per entry, dragged like the page order
+      grip.style.cssText = 'cursor:grab;touch-action:none;user-select:none;padding:6px 10px;font-weight:700;opacity:.7';
+      const row = haEl('div', {className: 'bday'}, haEl('span', {textContent: id}), remove, grip);
+      row.dataset.id = id;
+      return row;
     }));
+    if (sortable) haSortable(list, () => { ids = [...list.children].map(r => r.dataset.id); root.dispatchEvent(new Event('change', {bubbles: true})); });
     note.textContent = ids.join(',').length > limit ? 'Too many for the clock to store: remove one.' : '';
     note.hidden = !note.textContent;
   };
@@ -768,13 +839,25 @@ async function initHomeAssistant() {
   tlsBox.addEventListener('change', () => { if (tlsBox.checked && ['8123', '80'].includes(port.value)) port.value = 443; else if (!tlsBox.checked && port.value === '443') port.value = 8123; });
 
   const [energyBox, energyLabel] = haCheck('Energy page', state.pages & 2), [homeBox, homeLabel] = haCheck('Home page', state.pages & 1);
-  const [mediaBox, mediaLabel] = haCheck('Now playing page', state.pages & 4), [devicesBox, devicesLabel] = haCheck('Device problems page', state.pages & 8), [backdropBox, backdropLabel] = haCheck('Show the album art, dimmed, behind every page', state.pages & 16);
+  const [mediaBox, mediaLabel] = haCheck('Now playing page', state.pages & 4), [devicesBox, devicesLabel] = haCheck('Device problems page', state.pages & 8), [backdropBox, backdropLabel] = haCheck('Show the album art, dimmed, behind every page', state.pages & 16), [onlineBox, onlineLabel] = haCheck('Find missing album art online', state.pages & 32), [logoBox, logoLabel] = haCheck('Show the station logo of radio streams', state.pages & 64), [offlineBox, offlineLabel] = haCheck('Device problems page only when a device is offline', state.pages & 128), [phonoBox, phonoLabel] = haCheck('Show the Line-in source as a record player (Phono)', state.phono), [bareBox, bareLabel] = haCheck('Skip Now playing when there is no song info', state.noinfo), [exportBox, exportLabel] = haCheck('Energy page: three rows (solar by day, battery at night) and a graph that also shows the power sent out', state.export), [thinBox, thinLabel] = haCheck('Time and date at the top in thin letters (1 px) instead of fat ones (2 px)', state.thin);
   const secs = haEl('input', {type: 'number', min: 3, max: 120, value: state.pageSecs});
-  const pages = haGroup('Pages', 'The clock starts on the Energy page and rotates between the pages you tick. A page without data is skipped: the Energy page needs its entities below, Now playing needs something playing, and Device problems lists low batteries (20% or less) and offline devices, so it only shows while there are any. The album art option needs a media player under Now playing; while it plays, its cover sits at a quarter brightness behind every other page.');
-  pages.append(haEl('div', {className: 'ha-two ha-three'}, energyLabel, homeLabel, mediaLabel, devicesLabel), haEl('div', {className: 'field'}, backdropLabel), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Seconds per page'}), secs));
+  const weeks = haEl('input', {type: 'number', min: 1, max: 26, value: state.weeks || 13});
+  const pages = haGroup('Pages', 'The clock starts on the Energy page and rotates between the pages you tick. A page without data is skipped: the Energy page needs its entities below, Now playing needs something playing, and Device problems lists low batteries (20% or less) and offline devices, so it only shows while there are any. Find missing album art online: when the player has no picture of its own (or one outside Home Assistant), the clock searches Deezer, then iTunes, by artist and title, and downloads the cover. This sends the artist and song name to those services. Show the station logo: a radio stream without a cover shows the logo of its station instead of the placeholder, and also when the search finds nothing. The logo is found by station name in the radio-browser.info directory and resized by wsrv.nl, which sends them the station name and your country. The album art option needs a media player under Now playing; while it plays, its cover sits at a quarter brightness behind every other page.');
+  const pageLabels = {E: energyLabel, H: homeLabel, M: mediaLabel, D: devicesLabel};
+  const pageList = haEl('div', {className: 'choice-list'});
+  for (const id of [...(state.order || 'EHMD')]) {
+    const grip = haEl('span', {className: 'grip', textContent: '⋮⋮', title: 'Drag to change the order'});
+    grip.style.cssText = 'cursor:grab;touch-action:none;user-select:none;padding:6px 10px;font-weight:700;opacity:.7';
+    const row = haEl('div', {className: 'bday'}, pageLabels[id], grip);
+    row.dataset.id = id;
+    pageList.append(row);
+  }
+  const pageOrder = () => [...pageList.children].map(r => r.dataset.id).join('');
+  haSortable(pageList, () => pageList.dispatchEvent(new Event('change', {bubbles: true})));
+  pages.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Page order, drag to change'}), pageList), haEl('div', {className: 'field'}, backdropLabel), haEl('div', {className: 'field'}, onlineLabel), haEl('div', {className: 'field'}, logoLabel), haEl('div', {className: 'field'}, offlineLabel), haEl('div', {className: 'field'}, phonoLabel), haEl('div', {className: 'field'}, bareLabel), haEl('div', {className: 'field'}, exportLabel), haEl('div', {className: 'field'}, thinLabel), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Seconds per page'}), secs), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Energy graph: weeks of history for the expected usage'}), weeks, haEl('small', {textContent: 'The expected usage of the coming hours is the average of the same weekday over this many weeks. Days with very low usage (holidays) are ignored, but with only a few weeks a holiday can still leave too little to go on, or skew the average: use at least 8 weeks if you travel a lot. Needs a house or grid power sensor with statistics.'})));
   body.append(pages);
-  const playing = haGroup('Now playing', 'Pick up to four rooms (media players). The page shows the title, the artist and the album art of the first of them that is playing (the order below), and is skipped when none is. Album art needs a JPEG picture from Home Assistant; other pictures show a note.');
-  const rooms = haTags((state.media || []).filter(Boolean).join(','), 'Type to find a media player…', () => 'media', 400);
+  const playing = haGroup('Now playing', 'Pick up to four rooms (media players). The page shows the title, the artist and the album art of the first of them that is playing: drag the rooms to change the order, and is skipped when none is. Album art needs a JPEG picture from Home Assistant; other pictures show a note.');
+  const rooms = haTags((state.media || []).filter(Boolean).join(','), 'Type to find a media player…', () => 'media', 400, true);
   playing.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Rooms'}), rooms));
   body.append(playing);
 
@@ -915,7 +998,7 @@ async function initHomeAssistant() {
   showStatus();
   let lastSent = '', haSaving = false, haSaveTimer;
   const build = () => {
-    const body = new URLSearchParams({host: host.value, port: port.value || '8123', tls: tlsBox.checked ? '1' : '0', pages: String((homeBox.checked ? 1 : 0) | (energyBox.checked ? 2 : 0) | (mediaBox.checked ? 4 : 0) | (devicesBox.checked ? 8 : 0) | (backdropBox.checked ? 16 : 0)), pageSecs: secs.value,
+    const body = new URLSearchParams({host: host.value, port: port.value || '8123', tls: tlsBox.checked ? '1' : '0', order: pageOrder(), pages: String((homeBox.checked ? 1 : 0) | (energyBox.checked ? 2 : 0) | (mediaBox.checked ? 4 : 0) | (devicesBox.checked ? 8 : 0) | (backdropBox.checked ? 16 : 0) | (onlineBox.checked ? 32 : 0) | (logoBox.checked ? 64 : 0) | (offlineBox.checked ? 128 : 0)), pageSecs: secs.value, phono: phonoBox.checked ? '1' : '0', noinfo: bareBox.checked ? '1' : '0', export: exportBox.checked ? '1' : '0', thin: thinBox.checked ? '1' : '0', weeks: weeks.value,
       gridImportPositive: gridBox.checked ? '1' : '0', batteryDischargePositive: batteryBox.checked ? '1' : '0', doorbell: doorbell.value, washerEntity: washer.value, washerFlags: String(washerPopup.value()),
       alarmFlags: String(alarmPopup.value()), doorbellFlags: String(bellPopup.value())});
     if (token.value.trim()) body.set('token', token.value.trim());
@@ -985,6 +1068,11 @@ async function loadStorage() {
   } catch (_) { summary.textContent = 'Could not read the storage.'; }
 }
 document.querySelector('#storage-card').addEventListener('toggle', event => { if (event.target.open) loadStorage(); });
+document.querySelector('#storage-updates').addEventListener('click', async () => {
+  if (!confirm('Clear the update records?')) return;
+  try { const response = await fetch('/api/storage/clear?updates=1', { method: 'POST' }); if (!response.ok) throw new Error('Could not clear the update records.'); message('Cleared'); await loadStorage(); }
+  catch (error) { message(error.message, true); }
+});
 document.querySelector('#storage-clear').addEventListener('click', async event => {
   const button = event.currentTarget;
   if (!confirm('Remove ' + button.dataset.count + ' cached item(s), ' + Math.ceil(button.dataset.bytes / 1024) + ' KB? Saved drawings stay.')) return;
@@ -1191,3 +1279,66 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
     }
   }, 50);
 })();
+
+document.querySelector('#nflDemo')?.addEventListener('click', async () => {
+  try { const r = await fetch('/api/nfl/demo', { method: 'POST', body: new URLSearchParams({ on: 1 }) }); if (!r.ok) throw new Error(await r.text()); message('Demo started: every screen once'); } catch (error) { message(error.message, true); }
+});
+
+{  // Display > Calibrate colours: the lowest panel brightness that keeps this panel's colours right (POST /api/dim-colour floor=); brightness 1 then means that level
+  const card = document.querySelector('#calibrate-card');
+  if (card) {
+    const q = selector => card.querySelector(selector);
+    const level = q('#cal-level'), out = q('#cal-out'), start = q('#cal-start'), save = q('#cal-save'), cancel = q('#cal-cancel'), clear = q('#cal-clear'), run = q('#cal-run'), status = q('#cal-status'), map = q('#cal-map');
+    let floorNow = 0, timer = 0, keep = 0;
+    const post = (path, params) => fetch(path + '?' + new URLSearchParams(params), { method: 'POST' });
+    const show = () => { const percent = +level.value, value = Math.round(percent * 2.55); out.textContent = percent + '% (' + value + '/255)'; map.textContent = 'After saving, brightness 1 means ' + percent + '% on the panel and 255 still means full brightness.'; return value; };
+    const grid = () => post('/api/hue-test', { b: Math.max(1, show()), secs: 90, wide: 1, deep: 1 }).catch(() => {});
+    const welcome = () => { const notice = document.querySelector('#welcome-cal'); if (notice) notice.hidden = !!floorNow || document.body.classList.contains('welcome-only'); };
+    window.calWelcome = welcome;
+    const refresh = async () => {
+      try { floorNow = (await (await fetch('/api/dim-colour', { cache: 'no-store' })).json()).floor || 0; } catch (_) {}
+      status.textContent = floorNow ? 'Calibrated: brightness 1 is ' + Math.round(floorNow / 2.55) + '% on the panel.' : "Not calibrated: brightness 1 is the panel's lowest step.";
+      clear.hidden = !floorNow || !run.hidden; welcome();
+    };
+    const stop = () => { clearTimeout(timer); clearInterval(keep); run.hidden = save.hidden = cancel.hidden = true; start.hidden = false; post('/api/hue-test', { b: 0 }).catch(() => {}); };
+    start.addEventListener('click', () => { level.value = floorNow ? Math.round(floorNow / 2.55) : 0; run.hidden = save.hidden = cancel.hidden = false; start.hidden = true; clear.hidden = true; grid(); clearInterval(keep); keep = setInterval(grid, 60000); });
+    level.addEventListener('input', () => { show(); clearTimeout(timer); timer = setTimeout(grid, 250); });
+    cancel.addEventListener('click', () => { stop(); refresh(); });
+    save.addEventListener('click', async () => {
+      const value = show();
+      try { if (!(await post('/api/dim-colour', { floor: value })).ok) throw new Error('save'); } catch (_) { status.textContent = 'Could not save.'; return; }
+      stop(); await refresh();
+      const minimum = field('minimumBrightness');  // the old minimum would sit on top of the new floor
+      if (minimum && +minimum.value > 1) { minimum.value = 1; minimum.dispatchEvent(new Event('input', { bubbles: true })); }
+    });
+    clear.addEventListener('click', async () => { try { await post('/api/dim-colour', { floor: 0 }); } catch (_) {} refresh(); });
+    document.querySelector('#welcome-cal-button')?.addEventListener('click', () => { card.open = true; card.scrollIntoView({ behavior: 'smooth', block: 'center' }); start.click(); });
+    refresh();
+  }
+}
+
+{  // Display > Night mode brightness: the panel brightness in night mode (POST /api/dim-colour night=; previewed with POST /api/night-test)
+  const card = document.querySelector('#night-tune-card');
+  if (card) {
+    const q = selector => card.querySelector(selector);
+    const level = q('#nt-level'), out = q('#nt-out'), start = q('#nt-start'), save = q('#nt-save'), cancel = q('#nt-cancel'), run = q('#nt-run'), status = q('#nt-status');
+    let nightNow = 0, timer = 0, keep = 0;
+    const post = (path, params) => fetch(path + '?' + new URLSearchParams(params), { method: 'POST' });
+    const show = () => { out.textContent = level.value + '/255'; return +level.value; };
+    const preview = () => post('/api/night-test', { b: show(), secs: 90 }).catch(() => {});
+    const refresh = async () => {
+      try { nightNow = (await (await fetch('/api/dim-colour', { cache: 'no-store' })).json()).night || 0; } catch (_) {}
+      status.textContent = nightNow ? 'Night mode brightness: ' + nightNow + '/255.' : 'Night mode follows the Minimum brightness slider.';
+    };
+    const stop = () => { clearTimeout(timer); clearInterval(keep); run.hidden = save.hidden = cancel.hidden = true; start.hidden = false; post('/api/night-test', { b: 0 }).catch(() => {}); };
+    start.addEventListener('click', () => { level.value = nightNow || 31; run.hidden = save.hidden = cancel.hidden = false; start.hidden = true; preview(); clearInterval(keep); keep = setInterval(preview, 60000); });
+    level.addEventListener('input', () => { show(); clearTimeout(timer); timer = setTimeout(preview, 250); });
+    cancel.addEventListener('click', () => { stop(); refresh(); });
+    save.addEventListener('click', async () => {
+      const value = show();
+      try { if (!(await post('/api/dim-colour', { night: value })).ok) throw new Error('save'); } catch (_) { status.textContent = 'Could not save.'; return; }
+      stop(); await refresh();
+    });
+    refresh();
+  }
+}

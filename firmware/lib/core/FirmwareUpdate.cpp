@@ -256,7 +256,7 @@ void FirmwareUpdate::progress(uint32_t bytes, uint32_t total) {
 }
 
 bool FirmwareUpdate::knownMode(const char *mode) {
-  static const char *const modes[] = {"home", "football", "f1", "motogp", "tetris", "word", "mario", "luigi", "pacman", "invaders", "pong", "nba"};
+  static const char *const modes[] = {"home", "football", "f1", "motogp", "tetris", "word", "mario", "luigi", "pacman", "invaders", "pong", "nba", "mlb", "nfl"};
   for (const char *known : modes) if (mode && !strcmp(mode, known)) return true;
   return false;
 }
@@ -345,28 +345,35 @@ bool FirmwareUpdate::activateStaged(const char *mode) {
 bool FirmwareUpdate::queue(const char *mode, bool force, bool stageOnly) {
   std::lock_guard<std::mutex> guard(_lock);
   if (_status.busy || _status.ready || _latest.checking || _workerRunning) return false;
-  std::unique_lock<std::mutex> gate(networkBudget(), std::try_to_lock);
-  if (!gate.owns_lock() || (liveDataActive() && !force)) {
+  // A feed download holding the network gate is no reason to refuse: the worker waits for the gate (feeds are stopped first)
+  if (liveDataActive() && !force) {
     _status.lowMemory = false;
-    strlcpy(_status.message, "A live match or session is running. It is not paused to free memory for the update; try again when it has ended.", sizeof(_status.message));
+    strlcpy(_status.message, "A live match or session is running. Try again when it has ended.", sizeof(_status.message));
     return false;
   }
   if (_lastAttempt && millis() - _lastAttempt < 30000) { strlcpy(_status.message, "Wait 30 seconds before checking again.", sizeof(_status.message)); return false; }
+  // Preparing a face ahead of time leaves the feeds (Home Assistant included) running, so it only goes ahead when the heap holds the
+  // download as it is. Without room it does not start; switching to the face later downloads it with the feeds stopped, as an update does.
+  if (stageOnly && heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < minFreeBlock() + kTaskStack + 4096) {
+    strlcpy(_status.message, "Not enough free memory to prepare a face while the feeds run.", sizeof(_status.message));
+    return false;
+  }
   _lastAttempt = millis();
   strlcpy(_target, mode && *mode ? mode : kMode, sizeof(_target));
   _stageOnly = stageOnly;
+  _keepFeeds = stageOnly;
   _status = Status{"Checking signed update manifest.", 0, 0, true, false, false, false};
-  firmwareUpdating = true;
+  if (!_keepFeeds) firmwareUpdating = true;
   consoleLog("[Firmware] %s queued for %s\n", stageOnly ? "Staging" : "Install", _target);
   _pending = Work::Install; _force = force;
   _stoppingAt = millis();
-  strlcpy(_status.message, "Stopping feeds before updating.", sizeof(_status.message));
+  strlcpy(_status.message, _keepFeeds ? "Preparing the face in the background." : "Stopping feeds before updating.", sizeof(_status.message));
   return true;
 }
 
 void FirmwareUpdate::task(void *self) {
   auto &update = *static_cast<FirmwareUpdate *>(self);
-  firmwareUpdating = true;
+  if (!update._keepFeeds) firmwareUpdating = true;
   {
     // Feed tasks and their stacks have already been reclaimed by service().
     std::unique_lock<std::mutex> gate(networkBudget());
@@ -501,9 +508,9 @@ void FirmwareUpdate::latest(Latest &out) { std::lock_guard<std::mutex> guard(_lo
 
 bool FirmwareUpdate::startCheck(bool force) {  // _lock held
   if (_latest.checking || _status.busy || _status.ready || _workerRunning || _pending != Work::None) return false;
-  std::unique_lock<std::mutex> gate(networkBudget(), std::try_to_lock);
-  if (!gate.owns_lock() || (liveDataActive() && !force)) return false;
+  if (liveDataActive() && !force) return false;  // the worker waits for the network gate itself
   consoleLog("[Firmware] Check queued%s\n", force ? " (forced during a live session)" : "");
+  _keepFeeds = false;
   _force = force;
   _latest.checking = true;
   firmwareUpdating = true;
@@ -555,7 +562,7 @@ void FirmwareUpdate::service(uint32_t now) {
     firmwareUpdating = false;
     return;
   }
-  if (!stopped) return;
+  if (!stopped && !_keepFeeds) return;  // preparing a face does not wait for the feeds: they were never stopped
   bool checking = _pending == Work::Check;
   _pending = Work::None;
   _workerRunning = true;
@@ -568,7 +575,10 @@ void FirmwareUpdate::service(uint32_t now) {
     _status.busy = false;
     _nextCheck = at(now + kRetryMs);
     if (checking) strlcpy(_latest.error, "Not enough free memory to check right now.", sizeof(_latest.error));
-    else {
+    else if (_keepFeeds) {  // preparing only: nothing restarts, the clock just stays as it is
+      _status.failed = true;
+      strlcpy(_status.message, "Not enough free memory to prepare the face right now.", sizeof(_status.message));
+    } else {
       _status.failed = true; _status.lowMemory = true;
       strlcpy(_status.message, "Not enough free memory. Restarting to install the update.", sizeof(_status.message));
     }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Writes tools/zone_coords.csv: the main city (latitude, longitude in degrees) of every zone in tools/zones.csv,
+# Writes tools/zone_coords.csv: the main city (latitude, longitude in degrees) and the ISO country code of every zone in tools/zones.csv,
 # from the IANA zone.tab, so a clock with a manually chosen timezone can work out sunrise and sunset for that zone.
 #   python3 tools/gen_zone_coords.py [zone.tab]     (default /usr/share/zoneinfo/zone.tab)
 import csv, os, re, sys
@@ -22,9 +22,9 @@ with open(tab, encoding="utf-8") as f:
     for line in f:
         if line.startswith("#") or not line.strip():
             continue
-        _, place, name = line.rstrip("\n").split("\t")[:3]
+        country, place, name = line.rstrip("\n").split("\t")[:3]
         m = re.match(r"([+-])(\d{2})(\d{2})(\d{2})?([+-])(\d{3})(\d{2})(\d{2})?$", place)
-        coords[name] = (degrees(m[1], m[2], m[3], m[4]), degrees(m[5], m[6], m[7], m[8]))
+        coords[name] = (degrees(m[1], m[2], m[3], m[4]), degrees(m[5], m[6], m[7], m[8]), country)
 
 rows = [(z,) + (coords.get(z) or coords.get(ALIASES.get(z, "")))
         for z in sorted(zones) if coords.get(z) or coords.get(ALIASES.get(z, ""))]

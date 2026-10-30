@@ -36,7 +36,8 @@ Item cycle[kMaxItems];
 int cycleCount = 0;
 uint32_t cycleMs = 0;
 char cycleFavourites[64] = "";
-uint32_t cycleVersion = 0;
+uint8_t cycleTables = 0xFF, cycleIdle = 0xFF;
+bool cycleLiveOnly = true, cycleExtra = false;
 uint16_t cycleSecs = 0, cycleKeep = 0xFFFF;  // the settings the round and the result window were made with
 
 // What the pages before the update showed, for the baskets: a game by its teams
@@ -58,7 +59,7 @@ void add(Kind kind, int index, int page, int pages, uint16_t ms) {
   if (cycleCount < kMaxItems) cycle[cycleCount++] = {kind, (uint8_t)index, (uint8_t)page, (uint8_t)pages, ms};
 }
 
-void build(const char *favourites, ClockTime *time, uint16_t pageMs) {
+void build(const char *favourites, ClockTime *time, uint16_t pageMs, uint8_t tables, bool liveOnly, bool extra, uint8_t idle) {
   cycleCount = 0;
   int order[nba::kMaxGames];
   const int count = orderGames(*snap, favourites, order);
@@ -67,22 +68,25 @@ void build(const char *favourites, ClockTime *time, uint16_t pageMs) {
     for (int i = 0; i < count && shownGames < 6; i++)
       if (snap->games[order[i]].state == nba::Live) { add(GamePage, order[i], shownGames, snap->live > 6 ? 6 : snap->live, pageMs); shownGames++; }
     for (int i = 0; i < count; i++)
-      if (snap->games[order[i]].state == nba::Live) { add(QuartersPage, order[i], 0, 1, pageMs); break; }
-    if (count > 1) for (int page = 0, pages = gamePages(count); page < pages && page < 2; page++) add(TodayPage, 0, page, pages, pageMs);
+      if (extra && snap->games[order[i]].state == nba::Live) { add(QuartersPage, order[i], 0, 1, pageMs); break; }
+    if (extra && count > 1 && !liveOnly) for (int page = 0, pages = gamePages(count); page < pages && page < 2; page++) add(TodayPage, 0, page, pages, pageMs);
   } else {
-    if (!count) add(ClockPage, 0, 0, 1, pageMs);
     int favouriteGames = 0;
-    for (int i = 0; i < count && favouriteGames < 2; i++)
+    for (int i = 0; extra && i < count && favouriteGames < 2; i++)
       if (hasFavourite(favourites, snap->games[order[i]])) {
         add(GamePage, order[i], favouriteGames, 2, pageMs);
         if (snap->games[order[i]].state == nba::Final) add(QuartersPage, order[i], 0, 1, pageMs);
         favouriteGames++;
       }
-    for (int page = 0, pages = gamePages(count); page < pages && page < 3; page++) add(TodayPage, 0, page, pages, pageMs);
-    if (count) add(ClockPage, 0, 0, 1, pageMs);
+    for (int page = 0, pages = gamePages(count); extra && page < pages && page < 3; page++) add(TodayPage, 0, page, pages, pageMs);
   }
-  for (int page = 0, pages = fixturePages(*snap, time); page < pages && page < 3; page++) add(UpcomingPage, 0, page, pages, pageMs);
-  if (!snap->live) {
+  if (extra ? !(snap->live && liveOnly) : !snap->live) {
+    // what to show while no game is live (Settings > NBA): games within 7 days, the scrolling list with its own small clock (idle 0, 2);
+    // the big clock page (idle 1, 2) and when nothing is coming
+    if (snap->nextCount && idle != 1) add(UpcomingPage, 0, 0, 1, upcomingMs(*snap, time, pageMs));
+    if ((!snap->nextCount || idle != 0) && !snap->live) add(ClockPage, 0, 0, 1, pageMs);
+  }
+  if (extra && !(snap->live && liveOnly) && (tables == 2 || (tables == 1 && !snap->live))) {
     for (int page = 0, pages = standingsPages(snap->east); page < pages; page++) add(EastPage, 0, page, pages, pageMs);
     for (int page = 0, pages = standingsPages(snap->west); page < pages; page++) add(WestPage, 0, page, pages, pageMs);
   }
@@ -92,10 +96,12 @@ void build(const char *favourites, ClockTime *time, uint16_t pageMs) {
 }
 
 // The page for this moment, and how far into it
+uint32_t itemElapsed = 0;  // how long the page returned by current() has been up
+
 const Item &current(uint32_t now) {
   uint32_t t = now % cycleMs;
   for (int i = 0; i < cycleCount; i++) {
-    if (t < cycle[i].ms) return cycle[i];
+    if (t < cycle[i].ms) { itemElapsed = t; return cycle[i]; }
     t -= cycle[i].ms;
   }
   return cycle[0];
@@ -120,12 +126,17 @@ void render(MatrixPanel_I2S_DMA &d, const Item &item, ClockTime *time, uint32_t 
       drawToday(d, *snap, order, count, favourites, item.page, time, now);
       break;
     }
-    case UpcomingPage: drawUpcoming(d, *snap, favourites, item.page, time, now); break;
+    case UpcomingPage: {
+      const Settings &settings = *Settings::getInstance();
+      const uint16_t seconds = settings.matchSecs < 3 ? 3 : settings.matchSecs > 60 ? 60 : settings.matchSecs;
+      drawUpcoming(d, *snap, favourites, item.page, time, now, itemElapsed, seconds * 1000);
+      break;
+    }
     case EastPage: drawStandings(d, snap->east, true, favourites, item.page, time, now); break;
     case WestPage: drawStandings(d, snap->west, false, favourites, item.page, time, now); break;
     default: {
       char line[24] = "";
-      if (snap->nextCount) snprintf(line, sizeof(line), "%s-%s", snap->next[0].away, snap->next[0].home);
+      if (snap->nextCount) nextGameLine(time, snap->next[0], line, sizeof(line));
       drawClock(d, time, now, line);
     }
   }
@@ -229,7 +240,9 @@ void Clockface::setup(ClockTime *dateTime) {
 void Clockface::update() {
   const uint32_t now = millis();
   const bool moving = haveShown && !sameItem(shown, sliding) && now - slideStart < kSlideMs;
-  const uint32_t interval = basket.active || moving ? 40 : 90;
+  const bool listPage = cycleCount && current(now).kind == UpcomingPage;  // the lists slide: smoother
+  const bool clockPage = !cycleCount || current(now).kind == ClockPage;  // the ball moves: as smooth as the lists
+  const uint32_t interval = basket.active || moving || listPage || clockPage ? 40 : 90;
   if (haveFrame && now - drawnAt < interval) return;
   ticker->resume();  // after an update check the feed task is gone
 
@@ -237,7 +250,7 @@ void Clockface::update() {
   const char *favourites = settings.nbaTeams.c_str();
   const uint16_t seconds = settings.matchSecs < 3 ? 3 : settings.matchSecs > 60 ? 60 : settings.matchSecs;
   const bool fresh = ticker->version() != seenVersion;
-  if (fresh || strcmp(cycleFavourites, favourites) || seconds != cycleSecs || settings.resultMins != cycleKeep) {
+  if (fresh || strcmp(cycleFavourites, favourites) || seconds != cycleSecs || settings.resultMins != cycleKeep || settings.nbaTables != cycleTables || settings.nbaIdle != cycleIdle || settings.nbaLiveOnly != cycleLiveOnly || settings.nbaExtra != cycleExtra) {
     ticker->snapshot(*snap);
     seenVersion = snap->version;
     applyResultWindow(_dateTime, settings.resultMins);
@@ -248,9 +261,13 @@ void Clockface::update() {
     strlcpy(cycleFavourites, favourites, sizeof(cycleFavourites));
     cycleSecs = seconds;
     cycleKeep = settings.resultMins;
-    build(favourites, _dateTime, seconds * 1000);
+    cycleTables = settings.nbaTables;
+    cycleIdle = settings.nbaIdle;
+    cycleLiveOnly = settings.nbaLiveOnly;
+    cycleExtra = settings.nbaExtra;
+    build(favourites, _dateTime, seconds * 1000, settings.nbaTables, settings.nbaLiveOnly, settings.nbaExtra, settings.nbaIdle);
   }
-  if (!cycleCount) build(favourites, _dateTime, seconds * 1000);
+  if (!cycleCount) build(favourites, _dateTime, seconds * 1000, settings.nbaTables, settings.nbaLiveOnly, settings.nbaExtra, settings.nbaIdle);
 
   haveFrame = true;
   drawnAt = now;
@@ -289,3 +306,4 @@ void Clockface::update() {
   }
   _display->flipDMABuffer();
 }
+

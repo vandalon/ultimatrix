@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
-set(ULTIMATRIX_MODE "football" CACHE STRING "Clock mode: football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong, nba, home, bridge or scanner")
-set_property(CACHE ULTIMATRIX_MODE PROPERTY STRINGS football f1 motogp tetris word mario luigi pacman invaders pong nba home bridge scanner)
-if(NOT ULTIMATRIX_MODE MATCHES "^(football|f1|motogp|tetris|word|mario|luigi|pacman|invaders|pong|nba|home|bridge|scanner)$")
-    message(FATAL_ERROR "ULTIMATRIX_MODE must be football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong, nba, home, bridge or scanner")
+set(ULTIMATRIX_MODE "football" CACHE STRING "Clock mode: football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong, nba, mlb, nfl, home, bridge or scanner")
+set_property(CACHE ULTIMATRIX_MODE PROPERTY STRINGS football f1 motogp tetris word mario luigi pacman invaders pong nba mlb nfl home bridge scanner)
+if(NOT ULTIMATRIX_MODE MATCHES "^(football|f1|motogp|tetris|word|mario|luigi|pacman|invaders|pong|nba|mlb|nfl|home|bridge|scanner)$")
+    message(FATAL_ERROR "ULTIMATRIX_MODE must be football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong, nba, mlb, nfl, home, bridge or scanner")
 endif()
 set(SDKCONFIG "${CMAKE_BINARY_DIR}/sdkconfig")
 # Only the Pac-Man face carries the Bluetooth stack (a game controller); its extra settings come after the shared ones.
@@ -40,7 +40,7 @@ if(EXISTS "${_ws_header}")
 endif()
 # Static RAM budget per face: what a face reserves at link time is missing from the heap in every boot, the update-only boot included.
 if(TARGET ultimatrix.elf)
-    set(ULTIMATRIX_STATIC_RAM_KB 60 CACHE STRING "Static RAM budget (KB) per face")
+    set(ULTIMATRIX_STATIC_RAM_KB 62 CACHE STRING "Static RAM budget (KB) per face")
     if(ULTIMATRIX_MODE STREQUAL "pacman" AND ULTIMATRIX_BLUETOOTH)
         set(ULTIMATRIX_STATIC_RAM_KB 70)  # the Bluetooth stack (game controller) reserves about 10 KB more
     endif()

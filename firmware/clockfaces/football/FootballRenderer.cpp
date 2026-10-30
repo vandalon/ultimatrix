@@ -86,8 +86,9 @@ static const uint8_t *glyph3x5(char c) {
     {'P', {6,5,6,4,4}}, {'Q', {2,5,5,7,3}}, {'R', {6,5,6,5,5}}, {'S', {3,4,2,1,6}}, {'T', {7,2,2,2,2}},
     {'U', {5,5,5,5,7}}, {'V', {5,5,5,5,2}}, {'W', {5,5,5,7,5}}, {'X', {5,5,2,5,5}}, {'Y', {5,5,2,2,2}},
     {'Z', {7,1,2,4,7}}, {'-', {0,0,7,0,0}}, {'\'', {2,2,0,0,0}}, {'+', {0,2,7,2,0}}, {':', {0,2,0,2,0}},
-    {'/', {1,1,2,4,4}}, {'.', {0,0,0,0,2}},
+    {'/', {1,1,2,4,4}}, {'.', {0,0,0,0,2}}, {'(', {1,2,2,2,1}}, {')', {4,2,2,2,4}},
   };
+  c = toupper((unsigned char)c);  // card names arrive in mixed case
   for (const auto &g : FONT)
     if (g.c == c) return g.rows;
   return nullptr;  // space and anything unknown
@@ -301,6 +302,8 @@ bool readResult(size_t index, MatchRow &out) {
   out = MatchRow();
   matchFrom(row.home, row.away, row.homeScore, row.awayScore, row.competition, row.color, row.favourite, out);
   out.progress = 1;
+  out.homePens = row.homePens;
+  out.awayPens = row.awayPens;
   addMarks(row, out);
   return true;
 }
@@ -408,6 +411,7 @@ static void drawTimeline(MatrixPanel_I2S_DMA *d, const MatchRow &m, int y) {
   fill(d, 2, y, played, 2, PLAYED);
   for (size_t i = 0; i < m.markCount; i++) {
     const football::Mark &e = m.marks[i];
+    if (e.kind == 'p' || e.kind == 'x') continue;  // the kicks of a shootout have their own rows
     int x = constrain(2 + (W - 4) * min((int)e.minute, 90) / 90, 2, W - 3);
     if (e.kind == 'g') drawSmallBall(d, x - 1, e.home ? y - 5 : y + 3);
     else fill(d, x, e.home ? y - 4 : y + 3, 1, 3, e.kind == 'r' ? RED_CARD : YELLOW_CARD);
@@ -415,13 +419,34 @@ static void drawTimeline(MatrixPanel_I2S_DMA *d, const MatchRow &m, int y) {
   fill(d, min(W - 4, 2 + played), y, 2, 2, halfTime(m) ? HALF_TIME : INK);
 }
 
+// The penalty shootout: a row of kicks for each team, the home team's above. Green went in, red did not,
+// grey is still to come (at least five each).
+static bool shootout(const MatchRow &m) { return m.live && strcmp(m.detail, "PEN") == 0; }
+static void drawKicks(MatrixPanel_I2S_DMA *d, const MatchRow &m, int y) {
+  for (int side = 0; side < 2; side++) {
+    bool home = side == 0;
+    char kicks[16];
+    int taken = 0;
+    for (size_t i = 0; i < m.markCount && taken < 16; i++)
+      if ((m.marks[i].kind == 'p' || m.marks[i].kind == 'x') && m.marks[i].home == home) kicks[taken++] = m.marks[i].kind;
+    int slots = max(5, taken), pitch = slots <= 10 ? 6 : 4;
+    int x = (W - (slots * pitch - 2)) / 2, top = home ? y - 4 : y + 1;
+    for (int k = 0; k < slots; k++)
+      fill(d, x + k * pitch, top, pitch - 2, 3, k >= taken ? rgb(40, 44, 40) : kicks[k] == 'p' ? rgb(60, 220, 90) : RED_CARD);
+  }
+}
+
 static void drawScoreTiles(MatrixPanel_I2S_DMA *d, int y);
-static void drawScoreDigits(MatrixPanel_I2S_DMA *d, int home, int away, int y);
+static void drawScoreDigits(MatrixPanel_I2S_DMA *d, int home, int away, int y, uint16_t homeInk = INK, uint16_t awayInk = INK);
+static bool showingPenalties();
+static uint16_t penaltyColor(const MatchRow &m, bool home);
 static bool scoreOnTiles();
 
 // The score between the shirts: on flip tiles, or the plain digits when a team has reached double figures
 static void drawScoreArea(MatrixPanel_I2S_DMA *d, const MatchRow &m, int shirtY, bool settled = false) {
-  if (settled && m.singleFigures())
+  if (settled && m.penalties() && m.homePens <= 9 && m.awayPens <= 9 && showingPenalties())
+    drawScoreDigits(d, m.homePens, m.awayPens, shirtY, m.homePens > m.awayPens ? MINUTES : INK, m.awayPens > m.homePens ? MINUTES : INK);  // the shootout, its winner green
+  else if (settled && m.singleFigures())
     drawScoreDigits(d, m.homeScore, m.awayScore, shirtY);
   else if (!settled && scoreOnTiles()) drawScoreTiles(d, shirtY);
   else drawScore(d, m.score(), shirtY - 9);
@@ -440,9 +465,10 @@ static void drawMatch(MatrixPanel_I2S_DMA *d, const MatchRow &m, bool roomy, int
   drawText5(d, home, 8 - textWidth5(home) / 2, nameY, TEAM_NAME);
   drawText5(d, away, 55 - textWidth5(away) / 2, nameY, TEAM_NAME);
   if (halfTime(m)) drawCentered(d, "HT", nameY + 2, HALF_TIME);
-  else if (!m.live) drawCentered(d, "FT", nameY + 2, HALF_TIME);
+  else if (!m.live) drawCentered(d, m.penalties() && showingPenalties() ? "PEN" : "FT", nameY + 2, HALF_TIME);
   drawScoreArea(d, m, shirtY, settled);
-  drawTimeline(d, m, timelineY);
+  if (shootout(m)) drawKicks(d, m, timelineY);
+  else drawTimeline(d, m, timelineY);
 }
 
 // The next match enters from above; the previous match moves down into the lower row.
@@ -550,9 +576,16 @@ static uint16_t scoreColor(const MatchRow &m, int own, int other) {
   return m.live ? LIVE_ROW : resultColor(own, other);
 }
 
+// A result decided on penalties alternates between the score and the shootout in brackets; the winner is green either way
+static bool showingPenalties() { return (millis() / 2500) & 1; }
+static uint16_t penaltyColor(const MatchRow &m, bool home) {
+  return resultColor(home ? m.homePens : m.awayPens, home ? m.awayPens : m.homePens);
+}
+
 static void drawResult(MatrixPanel_I2S_DMA *d, const MatchRow &m, int y) {
   uint16_t homeColor, awayColor;
   kitColors(m.homeKit, m.awayKit, homeColor, awayColor);
+  const bool pens = m.penalties();
   String score = m.score(), home, away;
   bool split = splitScore(score, home, away);
   bool big = split && home.length() + away.length() <= 2;  // "2-1" in the 5x7 font; "12-1" doesn't fit
@@ -560,15 +593,29 @@ static void drawResult(MatrixPanel_I2S_DMA *d, const MatchRow &m, int y) {
   fill(d, 0, y, 2, 7, homeColor);
   drawText5(d, String(m.home), 3, y, TEAM_NAME);
   int sx = (W - scoreWidth) / 2;
-  if (big) {
-    drawText5(d, home, sx, y, scoreColor(m, home.toInt(), away.toInt()));
+  uint16_t homeInk = pens ? penaltyColor(m, true) : scoreColor(m, m.homeScore, m.awayScore);
+  uint16_t awayInk = pens ? penaltyColor(m, false) : scoreColor(m, m.awayScore, m.homeScore);
+  if (pens && showingPenalties()) {
+    String h = String((int)m.homePens), a = String((int)m.awayPens);
+    int x = (W - textWidth("(" + h + "-" + a + ")")) / 2;
+    drawText(d, "(", x, y + 1, DASH);
+    x += 4;
+    drawText(d, h, x, y + 1, homeInk);
+    x += 4 * h.length();
+    drawText(d, "-", x, y + 1, DASH);
+    x += 4;
+    drawText(d, a, x, y + 1, awayInk);
+    x += 4 * a.length();
+    drawText(d, ")", x, y + 1, DASH);
+  } else if (big) {
+    drawText5(d, home, sx, y, homeInk);
     int dashWidth = numericfont::enabled() && away != "1" ? 4 : 5;
     fill(d, sx + 6, y + 3, dashWidth, 1, m.live ? LIVE_ROW : DASH);
-    drawText5(d, away, sx + 12, y, scoreColor(m, away.toInt(), home.toInt()));
+    drawText5(d, away, sx + 12, y, awayInk);
   } else if (split) {
-    drawText(d, home, sx, y + 1, scoreColor(m, home.toInt(), away.toInt()));
+    drawText(d, home, sx, y + 1, homeInk);
     drawText(d, "-", sx + textWidth(home) + 1, y + 1, m.live ? LIVE_ROW : DASH);
-    drawText(d, away, sx + textWidth(home) + 5, y + 1, scoreColor(m, away.toInt(), home.toInt()));
+    drawText(d, away, sx + textWidth(home) + 5, y + 1, awayInk);
   } else {
     drawText(d, score, sx, y + 1, m.live ? LIVE_ROW : INK);
   }
@@ -928,11 +975,11 @@ static const int SCORE_TILE_W = 12, SCORE_TILE_H = 15;
 
 static bool scoreOnTiles() { return scoreDigit[0] >= 0 && scoreDigit[1] >= 0; }
 
-static void drawScoreDigits(MatrixPanel_I2S_DMA *d, int home, int away, int y) {
+static void drawScoreDigits(MatrixPanel_I2S_DMA *d, int home, int away, int y, uint16_t homeInk, uint16_t awayInk) {
   const GlyphSet &set = numericfont::enabled() ? BLOCK_SCORE_GLYPHS : SCORE_GLYPHS;
   int x2 = 17 + SCORE_TILE_W + 1 + 4 + 1;
-  drawFlipTile(d, set, home, home, 1, 17, y, SCORE_TILE_W, SCORE_TILE_H, INK, WHITE_SOFT);
-  drawFlipTile(d, set, away, away, 1, x2, y, SCORE_TILE_W, SCORE_TILE_H, INK, WHITE_SOFT);
+  drawFlipTile(d, set, home, home, 1, 17, y, SCORE_TILE_W, SCORE_TILE_H, homeInk, WHITE_SOFT);
+  drawFlipTile(d, set, away, away, 1, x2, y, SCORE_TILE_W, SCORE_TILE_H, awayInk, WHITE_SOFT);
   fill(d, 17 + SCORE_TILE_W + 1, y + SCORE_TILE_H / 2 - 1, 4, 2, DASH);
 }
 
@@ -1243,7 +1290,7 @@ void drawBigClock(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, int second, int r
 }
 // ---- Cards and substitutions: a few seconds full screen, like a goal ----
 
-static const uint16_t PITCH_LIGHT = rgb(14, 34, 18), PITCH_DARK = rgb(10, 18, 12);
+static const uint16_t PITCH_LIGHT = rgb(0, 38, 14), PITCH_DARK = rgb(0, 22, 8);  // no red: one 5-bit step of it greys the green
 static const uint16_t OFF_RED = rgb(235, 70, 60), ON_GREEN = rgb(60, 220, 90), CARD_INK = rgb(18, 18, 20);
 
 static bool lightColor(uint16_t c) {

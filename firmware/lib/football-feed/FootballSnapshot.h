@@ -24,7 +24,7 @@ constexpr uint16_t kTeams = 160;    // table rows over all groups
 // A goal or card, for the timeline
 struct Mark {
   uint8_t minute;  // 1-based playing minute, stoppage time counts on
-  char kind;       // 'g' goal, 'y' yellow card, 'r' red card
+  char kind;       // 'g' goal, 'y' yellow card, 'r' red card, 'p' shootout kick scored, 'x' shootout kick missed
   bool home;       // the home team's
 };
 
@@ -49,6 +49,7 @@ struct LiveRow {
 struct ResultRow {
   Side home, away;
   int8_t homeScore, awayScore;
+  int8_t homePens, awayPens;  // the penalty shootout, -1 when there was none
   char competition[6];
   uint16_t color;
   bool favourite;

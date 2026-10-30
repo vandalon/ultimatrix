@@ -1,8 +1,9 @@
 name: Build and release
 # Every push to main, pull request and manual run builds every clock face (no signing, nothing published).
 # Push a tag such as v0.3.0 to also sign the update manifests, publish a GitHub release and deploy the web flasher and a mirror of the update files to GitHub Pages.
-# A tag with -beta in it (v0.3.0-beta.1) builds and signs the same way but only replaces the beta channel: the branch beta-updates, laid out as <face>/manifest.json.
-# Clocks follow it by entering https://raw.githubusercontent.com/vandalon/ultimatrix/beta-updates as the update server (Settings > Advanced); empty goes back to stable.
+# A tag with -beta in it (v0.3.0-beta.1) builds and signs the same way but only replaces the beta channel: the branch beta, laid out as <face>/manifest.json,
+# and puts a beta web flasher and the beta API docs under /beta/ on the Pages site (the stable site comes back from the pages-stable branch).
+# Clocks follow it by entering https://raw.githubusercontent.com/vandalon/ultimatrix/beta as the update server (Settings > Advanced); empty goes back to stable.
 on:
   push:
     branches: [main]
@@ -22,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong, nba, home]
+        mode: [football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong, nba, mlb, nfl, home]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Check that every stored settings key is in the boot allowlist
@@ -101,17 +102,17 @@ jobs:
         with:
           name: signed-release
           path: dist/release
-      - name: Replace the beta-updates branch (one commit, so old betas do not pile up in the repository)
+      - name: Replace the beta branch (one commit, so old betas do not pile up in the repository)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd dist/release
-          git init -q -b beta-updates
+          git init -q -b beta
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -q -m "Beta $GITHUB_REF_NAME"
-          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" beta-updates
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" beta
   release:
     needs: sign
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-beta')  # only a stable release tag publishes
@@ -142,9 +143,76 @@ jobs:
           mkdir -p web-flasher/updates
           cp dist/release/* web-flasher/updates/
           python firmware/tools/build-updates-page.py web-flasher/updates "$GITHUB_REF_NAME"
+      - name: Build the API docs (the page is /api/ on the site)
+        run: |
+          mkdir -p web-flasher/api
+          npx --yes @redocly/cli@1.34.5 build-docs docs/openapi.yaml -o web-flasher/api/index.html
+          cp docs/openapi.yaml web-flasher/api/openapi.yaml
+      - name: Keep a copy of this site for the beta deploys (one commit on pages-stable, so a beta can rebuild the whole site)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rm -rf "$RUNNER_TEMP/snapshot" && mkdir "$RUNNER_TEMP/snapshot" && cp -a web-flasher/. "$RUNNER_TEMP/snapshot/"
+          cd "$RUNNER_TEMP/snapshot"
+          git init -q -b pages-stable
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Stable site $GITHUB_REF_NAME"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" pages-stable
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: web-flasher
       - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+  beta-pages:
+    # A beta tag publishes a beta web flasher and the beta API docs under /beta/. A Pages deploy replaces the whole site, so the stable
+    # site is restored first from the pages-stable branch (written by the stable release job). Without that branch nothing is deployed.
+    needs: sign
+    if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-beta')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: build-*
+          merge-multiple: true
+      - name: Is there a stable site to keep?
+        id: stable
+        run: |
+          if git ls-remote --exit-code --heads origin pages-stable >/dev/null 2>&1; then echo "found=true" >> "$GITHUB_OUTPUT"
+          else echo "::warning::No pages-stable branch yet (it appears after the next stable release), so the beta site is not deployed"; fi
+      - name: Restore the stable site
+        if: steps.stable.outputs.found == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: pages-stable
+          path: site
+      - name: Add the beta flasher and the beta API docs
+        if: steps.stable.outputs.found == 'true'
+        run: |
+          rm -rf site/.git site/beta
+          mkdir -p site/beta/api
+          cp -r web-flasher/index.html web-flasher/img web-flasher/firmware site/beta/
+          sed -i "s|<body>|<body><p style=\"margin:0;padding:8px 12px;background:#b45309;color:#fff;text-align:center\">Beta ${GITHUB_REF_NAME}: a test version, it may have bugs. <a style=\"color:#fff\" href=\"../\">Stable flasher</a></p>|" site/beta/index.html
+          npx --yes @redocly/cli@1.34.5 build-docs docs/openapi.yaml -o site/beta/api/index.html
+          cp docs/openapi.yaml site/beta/api/openapi.yaml
+      - name: Prepare Pages
+        if: steps.stable.outputs.found == 'true'
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+      - name: Upload the site
+        if: steps.stable.outputs.found == 'true'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: site
+      - id: deployment
+        if: steps.stable.outputs.found == 'true'
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

@@ -28,6 +28,7 @@ bool hasFavourite(const char *favourites, const nba::Game &game);
 int orderGames(const nba::Snapshot &snap, const char *favourites, int *out);
 int gamePages(int count);
 int fixturePages(const nba::Snapshot &snap, ClockTime *time);
+uint16_t upcomingMs(const nba::Snapshot &snap, ClockTime *time, uint16_t pageMs);  // how long the scrolling list needs to pass once (at least pageMs)
 int standingsPages(const nba::Table &table);
 
 // One game, big: the time on top, both teams with record and score, the quarter and clock, a quarter bar at the bottom
@@ -37,11 +38,13 @@ void drawQuarters(MatrixPanel_I2S_DMA &d, const nba::Game &game, ClockTime *time
 // Four games to a page, one line of teams and score and one of status
 void drawToday(MatrixPanel_I2S_DMA &d, const nba::Snapshot &snap, const int *order, int count, const char *favourites, int page, ClockTime *time, uint32_t ms);
 // The coming days
-void drawUpcoming(MatrixPanel_I2S_DMA &d, const nba::Snapshot &snap, const char *favourites, int page, ClockTime *time, uint32_t ms);
+void drawUpcoming(MatrixPanel_I2S_DMA &d, const nba::Snapshot &snap, const char *favourites, int page, ClockTime *time, uint32_t ms, uint32_t elapsed = 0, uint32_t groupMs = 8000);
 // The conference table, eight teams to a page
 void drawStandings(MatrixPanel_I2S_DMA &d, const nba::Table &table, bool east, const char *favourites, int page, ClockTime *time, uint32_t ms);
 // Without games: hours over minutes, a ball dribbling along the floor, and a line about what is next
 void drawClock(MatrixPanel_I2S_DMA &d, ClockTime *time, uint32_t ms, const char *line);
+// The line for that clock about the next game: "LAL-BOS 19:30" (the tip-off in the clock's own 12 or 24 hour format)
+void nextGameLine(ClockTime *time, const nba::Fixture &fixture, char *out, size_t size);
 // A basket: the ball into the net, +points and the new score (ms since it began, 0 to kBasketMs)
 void drawBasket(MatrixPanel_I2S_DMA &d, const nba::Game &game, bool home, int points, uint32_t ms);
 

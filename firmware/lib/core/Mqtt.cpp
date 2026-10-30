@@ -92,7 +92,7 @@ const Entity kEntities[E_COUNT] = {
     {"camera", "screen", "Screen", CUSTOM, "\"topic\":\"~/screen\",\"encoding\":\"\""},
     {"sensor", "cpu_usage", "CPU usage", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"icon\":\"mdi:chip\""},
     {"sensor", "display_cpu", "Display refill CPU", STATE | DIAGNOSTIC, "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"icon\":\"mdi:led-on\""},
-    {"select", "face", "Face", STATE | COMMAND | CONFIG, "\"options\":[\"Home\",\"Football\",\"F1\",\"MotoGP\",\"Tetris\",\"Words\",\"Mario\",\"Luigi\",\"Pac-Man\",\"Invaders\",\"Pong\",\"NBA\"],\"icon\":\"mdi:swap-horizontal\""},
+    {"select", "face", "Face", STATE | COMMAND | CONFIG, "\"options\":[\"Home\",\"Football\",\"F1\",\"MotoGP\",\"Tetris\",\"Words\",\"Mario\",\"Luigi\",\"Pac-Man\",\"Invaders\",\"Pong\",\"NBA\",\"MLB\",\"NFL\"],\"icon\":\"mdi:swap-horizontal\""},
     {"sensor", "display", "Display", CUSTOM, "\"stat_t\":\"~/display\",\"icon\":\"mdi:led-on\""},
 #ifdef UM_WLED_OVERLAY
     {"select", "canvas", "Saved picture", COMMAND | CUSTOM, "\"stat_t\":\"~/canvas\",\"icon\":\"mdi:image\""},
@@ -338,7 +338,7 @@ bool Mqtt::publish(const char *topic, const char *payload, bool retain) {
 // The Face select: the label Home Assistant shows and the mode name the updater knows
 struct FaceChoice { const char *label, *mode; };
 constexpr FaceChoice kFaces[] = {{"Home", "home"}, {"Football", "football"}, {"F1", "f1"}, {"MotoGP", "motogp"}, {"Tetris", "tetris"},
-                                 {"Words", "word"}, {"Mario", "mario"}, {"Luigi", "luigi"}, {"Pac-Man", "pacman"}, {"Invaders", "invaders"}, {"Pong", "pong"}, {"NBA", "nba"}};
+                                 {"Words", "word"}, {"Mario", "mario"}, {"Luigi", "luigi"}, {"Pac-Man", "pacman"}, {"Invaders", "invaders"}, {"Pong", "pong"}, {"NBA", "nba"}, {"MLB", "mlb"}, {"NFL", "nfl"}};
 
 // One command from Home Assistant: validated like the settings page does, then applied to the settings (the caller
 // notices the change and runs the follow-ups). Bad values are ignored.

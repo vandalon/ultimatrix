@@ -30,13 +30,13 @@ inline uint16_t mix(uint16_t a, uint16_t b, int t) {
 inline uint16_t dim(uint16_t c, int level) { return mix(0, c, level); }
 
 // Everything a face draws through put/box can be shifted sideways and cut to a column range (page slides); the default is the whole panel
-struct View { int dx = 0, x0 = 0, x1 = W; int fade = 255; };   // fade below 255 dims everything drawn through put/box/sprite
+struct View { int dx = 0, x0 = 0, x1 = W; int fade = 255; int y0 = 0; };  // y0: rows above it are not drawn by put   // fade below 255 dims everything drawn through put/box/sprite
 inline View view;
 
 inline void put(MatrixPanel_I2S_DMA &d, int x, int y, uint16_t c) {
   if (view.fade < 255) c = dim(c, view.fade);
   x += view.dx;
-  if (x >= view.x0 && x < view.x1 && (unsigned)y < (unsigned)H) d.drawPixel(x, y, c);
+  if (x >= view.x0 && x < view.x1 && y >= view.y0 && (unsigned)y < (unsigned)H) d.drawPixel(x, y, c);
 }
 inline void box(MatrixPanel_I2S_DMA &d, int x, int y, int w, int h, uint16_t c) {
   if (view.fade < 255) c = dim(c, view.fade);

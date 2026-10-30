@@ -53,6 +53,7 @@ struct MatchRow {
   char home[4], away[4];
   TeamKit homeKit, awayKit;
   int8_t homeScore, awayScore;
+  int8_t homePens = -1, awayPens = -1;  // a result decided on penalties: the shootout score
   uint16_t scoreColor;  // the competition's colour
   float progress;       // playing time 0..1, drawn as a bar under the text
   bool live, favourite;
@@ -60,6 +61,8 @@ struct MatchRow {
   char competition[6];
   uint8_t markCount;
   football::Mark marks[football::kMarks];
+  // Level after extra time and decided on penalties
+  bool penalties() const { return !live && homePens >= 0 && awayPens >= 0 && homeScore == awayScore && homePens != awayPens; }
   // "2-1"
   String score() const { return String((int)homeScore) + "-" + String((int)awayScore); }
   // Both teams have a single figure: the score can go on flip tiles

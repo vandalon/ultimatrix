@@ -20,7 +20,7 @@ namespace {
 
 constexpr uint32_t kStackBytes = 8192, kMinFreeBlock = 10000;
 constexpr unsigned long kLiveMs = 20000, kIdleMs = 5UL * 60000, kRetryMs = 60000, kSlowMs = 30UL * 60000;
-constexpr int kFixtureDays = 3;
+constexpr int kFixtureDays = 7;
 constexpr char kScoreboard[] = "http://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard";
 constexpr char kStandings[] = "http://site.api.espn.com/apis/v2/sports/basketball/nba/standings";
 

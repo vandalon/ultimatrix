@@ -54,7 +54,7 @@ class FootballTicker {
     // A goal or card, for the timeline of faces that draw their own layout
     struct Event {
       uint8_t minute;  // 1-based playing minute, stoppage time counts on
-      char kind;       // 'g' goal, 'y' yellow card, 'r' red card
+      char kind;       // 'g' goal, 'y' yellow card, 'r' red card, 'p' shootout kick scored, 'x' shootout kick missed
       bool home;       // the home team's
       uint8_t number;  // a card: the player's shirt number, 0 = unknown
       char name[11];   // a card: the player's surname
@@ -117,6 +117,7 @@ class FootballTicker {
       String detail;      // live: "67'" or "HT"
       String home, away;
       int homeScore, awayScore;
+      int homePens = -1, awayPens = -1;  // the penalty shootout, -1 when there was none
       time_t endedAt = 0; // UTC, finished matches only
       std::vector<Event> events;
       String league;      // ESPN code of the competition, for its table
@@ -229,6 +230,7 @@ class FootballTicker {
     bool nationalFavourite(const char *abbreviation);
     void checkFavourites(time_t today);
     bool fetchNextMatch(const char *teamId, String &league, time_t &kickoff);
+    bool fetchTodayMatch(const char *teamId, String &league, time_t &kickoff);
     bool updateBoard(const String &key, const char *league, time_t today, const char *label, uint16_t color,
                      const char *onlyTeam);
     bool fetchScoreboard(const char *league, time_t localDay, const char *label, uint16_t color,

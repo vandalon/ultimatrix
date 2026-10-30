@@ -21,7 +21,7 @@ struct Settings {
   bool autoBrightness = false;
   uint8_t ldrPin = 35;
   uint16_t ldrDark = 50, ldrLight = 2500;
-  uint8_t minimumBrightness = 3;
+  uint8_t minimumBrightness = 1;  // the lowest the slider allows; 0 would switch the panel off
   bool nightEnabled = false;
   uint16_t nightStart = 22 * 60, nightEnd = 7 * 60;
   uint8_t nightBrightness = 3;
@@ -42,13 +42,31 @@ struct Settings {
   uint8_t pongDate = 1, pongDay = 1, pongLevel = 0;     // Pong: how well the computer plays against you, 0 easiest to 8 hardest; own NVS key
   uint8_t pongSpeed = 2;     // Pong: game speed while the computer plays, 0 slowest to 4 fastest (50 75 100 125 150 %); own NVS key
   uint8_t pongBackdrop = 3;  // Pong: brightness of the clock behind the court, 0 off to 5 brightest; own NVS key, outside the record
+  bool nbaExtra = false;  // NBA: the extra pages in the round (today's games, quarter scores, favourites, tables); off: only the next-up page / big clock, and the live games; own NVS key "nbaExtra"
+  bool nbaLiveOnly = true;  // NBA: while a game is live only the live games (and their quarters) are shown; own NVS key "nbaLive"
+  uint8_t nbaIdle = 0;  // NBA: what to show while no game is live: 0 the next-up page (the big clock when nothing is coming), 1 the big clock, 2 both in turn; own NVS key "nbaIdle"
+  uint8_t nbaTables = 0;  // NBA: the East and West tables in the round: 0 off, 1 when no game is live, 2 always; own NVS key "nbaTab"
+  bool mlbExtra = false;  // MLB: the extra pages in the round (today's games, line scores, favourites, tables); off: only the next-up page / big clock, and the live games; own NVS key "mlbExtra"
+  bool mlbLiveOnly = true;  // MLB: while a game is live only the live games (and their line scores) are shown; own NVS key "mlbLive"
+  uint8_t mlbIdle = 0;  // MLB: what to show while no game is live: 0 the next-up page (the big clock when nothing is coming), 1 the big clock, 2 both in turn; own NVS key "mlbIdle"
+  uint8_t mlbTables = 0;  // MLB: the AL and NL tables in the round: 0 off, 1 when no game is live, 2 always; own NVS key "mlbTab"
+  uint8_t mlbHours = 10, mlbMinutes = 5;  // MLB: colours of the big clock hours and minutes (the pacmancolors list: 10 white, 5 peach); own NVS keys "mlbHrs", "mlbMin"
+  String mlbTeams;  // MLB: favourite teams as abbreviations, comma separated ("NYY,LAD"); own NVS key "mlbTeams"
+  bool nflExtra = false;  // NFL: the extra pages in the round (today's games, line scores, favourites, tables); off: only the next-up page / big clock, and the live games; own NVS key "nflExtra"
+  bool nflLiveOnly = true;  // NFL: while a game is live only the live games (and their line scores) are shown; own NVS key "nflLive"
+  uint8_t nflIdle = 0;  // NFL: what to show while no game is live: 0 the next-up page (the big clock when nothing is coming), 1 the big clock, 2 both in turn; own NVS key "nflIdle"
+  uint8_t nflTables = 0;  // NFL: the AFC and NFC tables in the round: 0 off, 1 when no game is live, 2 always; own NVS key "nflTab"
+  uint8_t nflHours = 10, nflMinutes = 3;  // NFL: colours of the big clock hours and minutes (the pacmancolors list: 10 white, 3 pastel blue); own NVS keys "nflHrs", "nflMin"
+  String nflTeams;  // NFL: favourite teams as abbreviations, comma separated ("NYY,LAD"); own NVS key "nflTeams"
   String nbaTeams;  // NBA: favourite teams as abbreviations, comma separated ("LAL,BOS"); own NVS key "nbaTeams"
   uint8_t ghostColors[4] = {};  // Pac-Man: 0 lets the face pick a contrasting pastel
   bool ballRoll = true;
   bool showRankings = true;
   bool f1Flags = false;
+  bool f1Chequers = true;  // F1/MotoGP: the chequered flag squares behind the lists; own NVS key f1Chequers, outside the record
+  bool hiddenWifi = false;  // the saved Wi-Fi network is hidden: a scan cannot find it, so it is tried a few times instead
   bool autoUpdate = true;  // check once a day and install a newer signed image by itself
-  bool nightClock = true;  // off: the dim red night clock never replaces the face (not by schedule, not in a dark room); own NVS key
+  bool nightClock = false;  // off: the dim red night clock never replaces the face (not by schedule, not in a dark room); own NVS key
   bool dither = false;  // smoother dark colours at low brightness (HUB75 ordered dithering); own NVS key
   bool telnet = false;  // LAN console on port 23, unauthenticated: off unless switched on
   String f1Drivers;

@@ -1,13 +1,14 @@
 # Ultimatrix file map
-ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 12 clock faces (home, football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong, nba) plus a bridge image, web settings UI. Use this index to choose targeted reads. Skips dependency internals, build output, generated files and binary assets.
+ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 14 clock faces (home, football, f1, motogp, tetris, word, mario, luigi, pacman, invaders, pong, nba, mlb, nfl) plus a bridge image, web settings UI. Use this index to choose targeted reads. Skips dependency internals, build output, generated files and binary assets.
 
 ## Root
 - AGENTS.md -> CLAUDE.md: shared Codex/Claude project rules (one source)
 - .claude/filemap.md: this routing index; update affected entries when files change purpose
 - HANDOFF.txt, WORKLOG.txt: current shared session handoff (read first); local work log (both gitignored)
-- README.md: user docs for all clock faces. LICENSE*, THIRD_PARTY_NOTICES.md, LICENSE_SCOPE.md: licensing
+- README.md: user docs for all clock faces and the HTTP API (links the OpenAPI docs). LICENSE*, THIRD_PARTY_NOTICES.md, LICENSE_SCOPE.md: licensing
 - .github/workflows/release.yml: release CI
 - .gitignore: local tooling, build output and handoff/log exclusions
+- docs/openapi.yaml: OpenAPI 3.0 description of the clock's HTTP API (routes, parameters, access rules); .github/workflows/api-docs.yml builds it with Redoc and publishes it with GitHub Pages
 - docs/: HARDWARE.md (wiring, boards, power, LDR, troubleshooting), ARCHITECTURE.md (runtime/design), UPDATES.md (signed OTA)
 - docs/photos/: real-panel Home Assistant photos (connecting, home, energy, now playing; 1000 px) shown in a row at the top of README
 - docs/previews/: README GIFs (quickstart.gif: flash/Wi-Fi/face-picker intro, built by firmware/tools/preview/quickstart.py) and welcome-preview.html (standalone welcome mockup)
@@ -19,7 +20,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 12 clock fa
 - main/CMakeLists.txt: mode/source selection, generated timezone table, embedded web assets; MotoGP selects the F1 face
 - components/clock-libraries/CMakeLists.txt: vendored display/Wi-Fi libraries and shared panel colour-depth setting
 - partitions.csv, sdkconfig.defaults, dependencies.lock: partition table, IDF config, deps
-- src/main.cpp: app entry (setup/loop), service wiring, mDNS peer detection with MAC-suffixed hostnames for multiple clocks, boot/geo-IP/update flow and web/API routes, read-only /api/screen BMP preview
+- src/main.cpp: app entry (setup/loop), service wiring, dim-colour options and the calibrated brightness floor (GET/POST /api/dim-colour, NVS blob dimColour; panelBrightness() spreads user brightness 1..255 over floor..255; night level for the red night clock via dimColour night=, preview POST /api/night-test), mDNS peer detection with MAC-suffixed hostnames for multiple clocks, boot/geo-IP/update flow and web/API routes, read-only /api/screen BMP preview
 - HANDOFF.txt: older firmware-local notes; root HANDOFF.txt holds current state
 
 ### clockfaces/<name>/ (each: Clockface.cpp/.h, library.json)
@@ -31,7 +32,9 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 12 clock fa
 - tetris/: falling-digit clock; TetrisRenderer draws, TetrisScreens controls timing/frame state
 - home/: Home Assistant face; Clockface.cpp fills a Frame (pages, alerts, hourly bars) from HaClient, HomeRenderer.cpp draws the configurable tiles (including weather and the EV car with its bolt/plug badge), the dimmed album-art backdrop and the Now playing page, configurable status counts, plain background and breathing colon (shared with the native preview)
 - invaders/: self-playing Space Invaders (5x4 formation, shields, bombs, mystery ship at each minute, levels, lives); the time is in a top band time left and score/lives stacked right, the level is a dim background "L2"; steer(): left/right/up=auto-fire/down=stop
-- nba/: NBA face (UM_NBA, UM_SIMPLE_FACE, favourites in Settings::nbaTeams, NVS key nbaTeams): Clockface.cpp builds the page round (live game pages, quarters, today, upcoming, East/West tables, clock), slides pages and plays the basket animation; NbaRenderer.cpp draws every page (half-court background, dribbling ball, basket animation) and is shared with tools/preview/nba.py; feed: lib/nba-feed
+- nba/: NBA face (UM_NBA, UM_SIMPLE_FACE; settings in Settings: nbaTeams favourites, nbaTables, nbaLiveOnly, nbaExtra, nbaIdle = what to show while no game is live): Clockface.cpp builds the page round (live game pages, quarters, today, upcoming, East/West tables, big clock), slides pages, plays the basket animation and builds the big clock's next-game line; NbaRenderer.cpp draws every page (thin 5x9 capitals textThin, alternative number font for clocks/scores, 4-wide Q qText, stands background, scoreboard grid on the quarters page, sub-pixel ball with 13 plays on the big clock, basket animation with the score rolling to the new one) and is shared with tools/preview/nba.py; feed: lib/nba-feed
+- mlb/: MLB face (UM_MLB, UM_SIMPLE_FACE), the NBA face for baseball: same page round (live games, line score, today, next up, AL/NL tables, big clock) in Clockface.cpp, MlbRenderer.cpp draws it (ball-park stands background, bases/count/outs, ball into a catcher's mitt on the clock page, ball over the fence on a run; shared with tools/preview/mlb.py); settings mlbTeams, mlbTables, mlbLiveOnly, mlbExtra, mlbIdle (NVS mlbTeams/mlbTab/mlbLive/mlbExtra/mlbIdle); feed: lib/mlb-feed
+- nfl/: NFL face (UM_NFL, UM_SIMPLE_FACE): Clockface.cpp page round (live games, line score, next-up + AFC/NFC seeds, tables, big clock), score text flash (TOUCHDOWN/FIELD GOAL), demo mode (POST /api/nfl/demo); NflRenderer.cpp draws everything (field strip, 9x5 analytic football, 4x6/5x6 title fonts, stands with ad boards)
 - pong/: big dim time backdrop, score on top (the left player misses at the minute, the right one at the hour, which changes the clock; points reset at 10); backdrop brightness = Settings::pongBackdrop (NVS key pongBg); playable left paddle, match to 7; steer(): up/down/stop
 - f1/: shared F1/MotoGP face; F1Renderer draws, F1Screens controls pages/timing, LoadingTyre.h holds the loading tyre bitmap
 - football/: sports face; FootballRenderer draws, FootballScreens controls pages/timing; releases display snapshot during WLED and restores it on return (feed: lib/football-feed)
@@ -43,7 +46,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 12 clock fa
 - Birthdays.h: birthday setting parse/clean/lookup. BirthdayCanvas.h: 3 KB band renderer + fonts; BirthdayParty.h: the birthday screen (24 s story loop)
 - FirmwareUpdate.cpp/.h, UpdateTrust.h: OTA update + trust/verification
 - TimeService, ClockTime, NightClock, SunTimes: time, timezone, night mode, sunrise/sunset
-- PanelTier.h: panel colour quality levels (depth, I2S clock, refresh), the NVS state and the retry rule
+- PanelTier.h: the panel colour quality (8 bit, 20 MHz, 100 Hz; a light one for the update-only boot); no levels or fall-back
 - DisplayControl, PanelLayout, BootScreen, ScreenTimer, FlipDigits, NumericFont, LapFonts: display/panel helpers, fonts
 - TelnetConsole.cpp/.h, Console.h: remote logging console
 - ScreenPng.h: bounded 192x192 indexed PNG encoder (kScale 3) from 64x64 display rows; square LED gaps, fixed DEFLATE runs/repeated cells/rows, no large framebuffer or zlib window
@@ -51,7 +54,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 12 clock fa
 - Mqtt.cpp/.h: optional MQTT link to Home Assistant (default off): config in NVS, discovery entities, commands queued by the esp-mqtt task and applied by poll(), state publishing, 10-second CPU task/refill diagnostics, changed-screen MQTT camera snapshots, a dynamic Saved picture dropdown for Canvas slots, a Face select (signed face install), Display mode sensor
 - DlnaRenderer.cpp/.h, DlnaDescriptions.h: DLNA media renderer (HA Browse media/Play/Stop of pictures; SSDP + SOAP, polling only) and UPnP service descriptions; wired in main.cpp, untested on device
 - AdminPin.cpp/.h: optional admin PIN (salted hash in NVS key adminPin), login tokens in RAM and the lock-out; the guard is in main.cpp BoundedPost, the page side in web/auth.js
-- SportsPlan.h: pure auto-switch decision (priority order, lead, hold, daily cap, min gap, return home). SportsWatch.cpp/.h: heap task reading F1/MotoGP/Football/NBA schedules; main.cpp sportsSwitch() installs the sport's face; Settings > Sports card (all faces but bridge/scanner)
+- SportsPlan.h: pure auto-switch decision (priority order, lead, hold, daily cap, min gap, return home). SportsWatch.cpp/.h: heap task reading F1/MotoGP/Football/NBA/MLB schedules; main.cpp sportsSwitch() installs the sport's face; Settings > Sports card (all faces but bridge/scanner)
 - faces/BoldFont.h: arcade fonts (Invaders): bold 7 px capitals, block digits at any size, thick 12x22 level digits (Pong keeps its own copy of the capitals in its Clockface.cpp)
 - Gamepad.cpp/.h, HidReport.h: Pac-Man only (UM_GAMEPAD, -DULTIMATRIX_BLUETOOTH, extra config in firmware/sdkconfig.bt): BLE HID game controller (NimBLE central: pair/forget/enable, GATT discovery, report-map parser for d-pad/stick); off by default (NVS btPad), uses ~90 KB heap when on
 - PlaySocket.cpp/.h: Pong/Invaders only: the game controller WebSocket (GET /play on port 80, text frames "230"/"4"/"-1", first frame "t<token>" with a PIN set), same handshake as lib/wled/WledWs.cpp; read in the main loop, calls main.cpp playSteer
@@ -77,8 +80,10 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 12 clock fa
 - football-feed/: FootballTicker collects ESPN data; EspnParse parses it; FootballSnapshot.h defines display snapshots; staging is allocated on demand and trimmed with disposable caches during WLED; GoalAnimation, TeamColors, TeamKit.h handle goal visuals and kits
 - motogp-feed/: MotoGpTicker.cpp collects results/live timing into F1Ticker snapshots; MotoGpScan.h parses streams; MotoGpRiders.h maps riders/bikes
 - nba-feed/: NbaTypes.h (fixed-size Snapshot: games with quarter scores, coming fixtures, two tables), NbaTicker (one feed task: ESPN basketball/nba scoreboard 20 s live / 5 min, next 3 days one request per day, standings every 30 min; JsonScan; snapshot copied under a lock)
+- mlb-feed/: MlbTypes.h (Snapshot: games with runs per inning, bases/count/outs, hits/errors; fixtures of today and 3 days; AL and NL tables ordered by ESPN's playoff seed), MlbTicker (one feed task like NbaTicker: ESPN baseball/mlb scoreboard 20 s live / 5 min, standings every 30 min)
+- nfl-feed/: NflTypes.h (Snapshot: week's games with quarters/down/spot/timeouts, fixtures, AFC and NFC tables), NflTicker (one feed task: scoreboard of the whole week 15 s live / 5 min idle, next week's schedule when this one is over, standings every 30 min)
 - tetris/: TetrisDigits, TetrisLayout, TetrisShapes (digit animation, layout and block shapes)
-- ha-feed/: HaConfig (slot settings in one NVS blob, separate fourth-tile/legacy-weather/washer-alert keys, token write-only), HaDefaults (defaults and entity rules), HaTemplate (builds the Jinja template, parses the result line), HaClient (WebSocket task: auth, render_template subscriptions, reconnect), HaMedia (Now playing: players template/parser, album-art fetch + ROM JPEG decode to 36x36)
+- ha-feed/: HaConfig (slot settings in one NVS blob, separate fourth-tile/legacy-weather/washer-alert keys, token write-only), HaDefaults (defaults and entity rules), HaTemplate (builds the Jinja template, parses the result line), HaClient (WebSocket task: auth, render_template subscriptions, reconnect), HaMedia (Now playing: players template/parser, album-art fetch + ROM JPEG decode to 36x36), HaPrices (today + tomorrow hourly prices template/parser for the Energy price strip)
 - firmware/lib/ha-feed/HaDevices.cpp/.h — Devices page: names of low-battery and offline devices (own HA template + parser)
 - faces/: FaceKit.h, MiniFont.h, PlumberSprites.h (drawing helpers, small font and walking poses); PlumberWorld.h defines courses, mushroom drops, items and Piranha pipes
 
@@ -92,16 +97,20 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 12 clock fa
 - build-webflasher.sh: merges full-flash images and ESP Web Tools manifests into web-flasher/firmware/ (generated)
 - package-firmware.py: packages application images and signed OTA manifests into dist/ (generated)
 - check-nvs-keys.py: fails when a key stored in the "ultimatrix" NVS namespace is missing from kKnownKeys (main.cpp) or the Home cleanup list; runs in CI
-- check-static-ram.py: post-build check that fails a face above the 60 KB static RAM budget (hooked in firmware/CMakeLists.txt)
+- check-static-ram.py: post-build check that fails a face above the 62 KB static RAM budget (hooked in firmware/CMakeLists.txt)
+- hue-test.sh: steps the clock through panel brightness levels with the POST /api/hue-test swatch grid (8 hues x 8 values); WG/WB env set the low-light channel weights
+- colour-calibrate.py: finds the lowest panel brightness with right colours (test grid at rising levels, stores it as the floor via POST /api/dim-colour floor=); --tune also tries the optional hue guard, search and per-LED weights (Ctrl-C restores)
 
 - img2base64.py: JPEG/PNG -> 64x64 rgb565_base64 JSON payload for MQTT pixels/set (Pillow)
+- football-catalog/generate.py: adds leagues (+ ESPN club lists) to lib/core/FootballCatalog.h and regroups the picker by continent; re-runnable
 - gzip_asset.py: gzip -9 (fixed timestamp) of one web asset for embedding
 - gen_icons.py: renders BootScreen's U logo into web app icons
 - gen_tzdb.py, zones.csv: generate the build-time timezone table from zone rules
 - preview/faces.cpp, preview/faces.py, preview/faces-scenarios.h: native pixel-art face runner, GIF generation and scenarios
 - preview/boot.cpp, preview/showcase.cpp, preview/showcase.py, preview/showcase-data.json: native boot/sports/Tetris previews and sample snapshots
 - preview/birthday.cpp, preview/birthday.py: native birthday-screen render to GIF
-- preview/nba.cpp, preview/nba.py: NBA pages with the real NbaRenderer and made-up games, contact sheet via ffmpeg
+- preview/nba.cpp, preview/nba.py: NBA pages with the real NbaRenderer and made-up games, contact sheet via ffmpeg; `nba-preview <dir> ball <ms...>` renders the big clock at moments (PREVIEW_TIME="YYYY-MM-DD HH:MM" sets the time)
+- preview/mlb.cpp, preview/mlb.py: MLB pages with the real MlbRenderer and made-up games, contact sheet via ffmpeg; `mlb-preview <dir> ball <ms...>` renders only the clock page
 - preview/home.cpp, preview/home.py: native Home Assistant face scenes (home, energy, alerts, status) with made-up values, contact sheet via ffmpeg
 - preview/refresh.py: exports README GIFs, stills/contact sheets and web face thumbnails from native renders
 - preview/motogp-snapshot.py: fetches real MotoGP API data for preview snapshots; preview/motogp-scan-test.cpp checks scanners against saved downloads

@@ -3,6 +3,7 @@
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #include "HaTemplate.h"
 
+#include <ctype.h>
 #include <math.h>
 #include <memory>
 #include <new>
@@ -385,6 +386,7 @@ bool contains(const char *from, const char *to, const char *text) {
 
 }  // namespace
 
+const char *autoPriceEntity() { return autoPrice[0] >= '0' && autoPrice[0] <= '9' ? "" : autoPrice; }
 void setAutoPrice(const char *price) { strlcpy(autoPrice, price ? price : "", sizeof(autoPrice)); }
 
 bool parseEnergyPrefs(const char *json, char (&ids)[E_COUNT][kEntity], char (&gridTo)[kEntity], char *price) {
@@ -465,8 +467,11 @@ uint8_t parseStatistics(const char *json, const char (*ids)[kEntity], int count,
   return found;
 }
 
-uint32_t parseHourly(const char *json, const char *id, uint32_t lastHourStart, float *out) {
+uint32_t parseHourly(const char *json, const char *id, uint32_t lastHourStart, float *out, const char *key) {
   uint32_t mask = 0;
+  char tag[16];
+  snprintf(tag, sizeof(tag), "\"%s\":", key);
+  const size_t tagLength = strlen(tag);
   char needle[kEntity + 8];
   snprintf(needle, sizeof(needle), "\"%s\":[", id);
   const char *at = strstr(json, needle);
@@ -481,7 +486,7 @@ uint32_t parseHourly(const char *json, const char *id, uint32_t lastHourStart, f
     const char *start = nullptr, *mean = nullptr;
     for (const char *q = p; q + 8 < objectEnd; ++q) {
       if (!start && !strncmp(q, "\"start\":", 8)) start = q + 8;
-      else if (!mean && !strncmp(q, "\"mean\":", 7)) mean = q + 7;
+      else if (!mean && !strncmp(q, tag, tagLength)) mean = q + tagLength;
     }
     if (start && mean && strncmp(mean, "null", 4)) {
       double t = strtod(start, nullptr);
@@ -492,6 +497,76 @@ uint32_t parseHourly(const char *json, const char *id, uint32_t lastHourStart, f
     p = objectEnd;
   }
   return mask;
+}
+
+void parseDaily(const char *json, const char *id, uint32_t firstStart, int count, float *out) {
+  char needle[kEntity + 8];
+  snprintf(needle, sizeof(needle), "\"%s\":[", id);
+  const char *at = strstr(json, needle);
+  if (!at) return;
+  at += strlen(needle) - 1;
+  const char *end = blockEnd(at);
+  if (!end) return;
+  for (const char *p = at; p < end; ++p) {
+    if (*p != '{') continue;
+    const char *objectEnd = blockEnd(p);
+    if (!objectEnd) break;
+    const char *start = nullptr, *mean = nullptr;
+    for (const char *q = p; q + 8 < objectEnd; ++q) {
+      if (!start && !strncmp(q, "\"start\":", 8)) start = q + 8;
+      else if (!mean && !strncmp(q, "\"mean\":", 7)) mean = q + 7;
+    }
+    if (start && mean && strncmp(mean, "null", 4)) {
+      double t = strtod(start, nullptr);
+      if (t > 1e11) t /= 1000;  // milliseconds
+      const long day = ((long)t - (long)firstStart + 43200) / 86400;  // half a day of slack for the clock change
+      if (day >= 0 && day < count) out[day] = strtof(mean, nullptr);
+    }
+    p = objectEnd;
+  }
+}
+
+uint32_t parseSolarForecast(const char *json, const char *date, float *kw) {
+  uint32_t mask = 0;
+  const char *at = strstr(json, "\"wh_hours\"");
+  if (!at) return 0;
+  for (const char *p = at; (p = strchr(p, '"')) != nullptr;) {
+    // "YYYY-MM-DDTHH:...": Wh
+    if (!strncmp(p + 1, date, 10) && p[11] == 'T' && isdigit((unsigned char)p[12]) && isdigit((unsigned char)p[13])) {
+      const int hour = (p[12] - '0') * 10 + (p[13] - '0');
+      const char *close = strchr(p + 1, '"');
+      if (!close) break;
+      const char *colon = close + 1;
+      while (*colon == ' ' || *colon == ':') colon++;
+      if (hour < 24) {
+        if (!(mask >> hour & 1)) kw[hour] = 0;
+        kw[hour] += strtof(colon, nullptr) / 1000.0f;
+        mask |= 1u << hour;
+      }
+      p = close + 1;
+    } else {
+      p++;
+    }
+  }
+  return mask;
+}
+
+float parseMaximum(const char *json, const char *id) {
+  char needle[kEntity + 8];
+  snprintf(needle, sizeof(needle), "\"%s\":[", id);
+  const char *at = strstr(json, needle);
+  if (!at) return 0;
+  at += strlen(needle) - 1;
+  const char *end = blockEnd(at);
+  if (!end) return 0;
+  float peak = 0;
+  for (const char *p = at; p + 6 < end; ++p) {
+    if (strncmp(p, "\"max\":", 6)) continue;
+    const char *value = p + 6;
+    if (!strncmp(value, "null", 4)) continue;
+    peak = fmaxf(peak, strtof(value, nullptr));
+  }
+  return peak;
 }
 
 }  // namespace ha

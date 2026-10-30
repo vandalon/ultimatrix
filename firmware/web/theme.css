@@ -87,7 +87,7 @@ body.settings-app{background:radial-gradient(1200px 500px at 70% -10%,#dff4fc 0,
 
 /* Welcome-only mode: the clock is not set up yet, so the page shows the welcome card alone. */
 .welcome-only .card:not(#welcome),.welcome-only .save-bar,.welcome-only .sidebar nav a:not([href="#welcome"]){display:none!important}
-#notice{position:fixed;top:16px;right:16px;z-index:40;max-width:min(420px,calc(100vw - 32px));margin:0;box-shadow:0 8px 28px #0b2a3640;pointer-events:none;animation:update-in .3s cubic-bezier(.2,.8,.2,1)}
+#notice{position:fixed;bottom:24px;right:16px;z-index:40;max-width:min(420px,calc(100vw - 32px));margin:0;box-shadow:0 8px 28px #0b2a3640;pointer-events:none;animation:update-in .3s cubic-bezier(.2,.8,.2,1)}
 .bday{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #edf2f5}.bday input,.bday select{padding:10px 8px;min-width:0}.bday .n{flex:1 1 80px}.bday .d{flex:0 0 56px}.bday .m{flex:0 0 68px}.bday .y{flex:0 0 62px}.bday .x{flex:0 0 auto;background:transparent;color:var(--muted);padding:4px 8px;font-size:22px;line-height:1}.bday .x:hover{background:#eaf2f5}#bday-add{margin-top:14px}
 #birthdays summary{cursor:pointer;list-style:none;align-items:center;justify-content:space-between;margin-bottom:0}#birthdays summary::-webkit-details-marker{display:none}#birthdays summary::after{content:'\25B8';color:var(--muted)}#birthdays details[open] summary::after{content:'\25BE'}#birthdays details[open] summary{margin-bottom:14px}#birthdays summary h2{margin:0}#birthdays .hint-inline{float:none;margin-left:8px}
 

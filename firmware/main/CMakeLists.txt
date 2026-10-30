@@ -71,6 +71,20 @@ elseif(ULTIMATRIX_MODE STREQUAL "nba")
         "${root}/lib/${sport}/NbaTicker.cpp"
         "${root}/clockfaces/nba/NbaRenderer.cpp")
     set(mode_definitions UM_SIMPLE_FACE UM_NBA UM_MODE_NAME="NBA")
+elseif(ULTIMATRIX_MODE STREQUAL "mlb")
+    # MLB scores: its own small ESPN scoreboard feed and the face
+    set(sport "mlb-feed")
+    list(APPEND sources
+        "${root}/lib/${sport}/MlbTicker.cpp"
+        "${root}/clockfaces/mlb/MlbRenderer.cpp")
+    set(mode_definitions UM_SIMPLE_FACE UM_MLB UM_MODE_NAME="MLB")
+elseif(ULTIMATRIX_MODE STREQUAL "nfl")
+    # NFL scores: its own small ESPN scoreboard feed and the face
+    set(sport "nfl-feed")
+    list(APPEND sources
+        "${root}/lib/${sport}/NflTicker.cpp"
+        "${root}/clockfaces/nfl/NflRenderer.cpp")
+    set(mode_definitions UM_SIMPLE_FACE UM_NFL UM_MODE_NAME="NFL")
 elseif(ULTIMATRIX_MODE STREQUAL "home")
     # The Home Assistant face: its own client (WebSocket, one template subscription) and renderer
     set(sport "ha-feed")
@@ -82,6 +96,7 @@ elseif(ULTIMATRIX_MODE STREQUAL "home")
         "${root}/lib/${sport}/HaQuery.cpp"
         "${root}/lib/${sport}/HaMedia.cpp"
         "${root}/lib/${sport}/HaDevices.cpp"
+        "${root}/lib/${sport}/HaPrices.cpp"
         "${root}/clockfaces/home/HomeRenderer.cpp")
     set(mode_definitions UM_SIMPLE_FACE UM_HOME UM_MODE_NAME="Home")
 elseif(ULTIMATRIX_MODE STREQUAL "scanner")
@@ -190,7 +205,7 @@ add_dependencies(${COMPONENT_LIB} web_gz)
 # Installable-app manifest and its LED-matrix U icons.
 target_add_binary_data(${COMPONENT_LIB} "${root}/web/manifest.webmanifest" TEXT)
 # Clock face thumbnails for the face picker (64x64, one frame of each face).
-foreach(thumb football f1 motogp tetris word mario luigi pacman invaders pong nba home)
+foreach(thumb football f1 motogp tetris word mario luigi pacman invaders pong nba mlb nfl home)
     target_add_binary_data(${COMPONENT_LIB} "${root}/web/faces/${thumb}.png" BINARY)
 endforeach()
 foreach(icon icon-192 icon-512 icon-maskable-192 apple-touch-icon favicon-32)

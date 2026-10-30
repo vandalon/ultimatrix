@@ -8,7 +8,7 @@
 // What the NBA face shows, as plain fixed-size data: the feed fills it, the renderer draws it (also in the native previews).
 namespace nba {
 
-constexpr int kMaxGames = 15, kMaxFixtures = 24, kPeriods = 7, kTeams = 15;  // 4 quarters and up to 3 overtimes; a conference has 15 teams
+constexpr int kMaxGames = 15, kMaxFixtures = 48, kPeriods = 7, kTeams = 15;  // 4 quarters and up to 3 overtimes; a conference has 15 teams
 
 enum State : uint8_t { Pre = 0, Live = 1, Final = 2 };
 

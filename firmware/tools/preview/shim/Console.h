@@ -5,3 +5,4 @@ struct ConsoleStub {
   void println(const String &) {}
 };
 extern ConsoleStub Console;
+inline void consoleLog(const char *, ...) {}
