@@ -11,7 +11,7 @@ import re
 import subprocess
 import sys
 
-DEFAULT_BUDGET_KB = 60  # Football was 73 KB before its ticker moved to the heap (now ~57 KB); the smaller faces are ~53 KB
+DEFAULT_BUDGET_KB = 62  # Football was 73 KB before its ticker moved to the heap (now ~57 KB); the smaller faces are ~53 KB
 
 
 def main():

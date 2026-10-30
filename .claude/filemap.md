@@ -96,7 +96,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 14 clock fa
 - build-webflasher.sh: merges full-flash images and ESP Web Tools manifests into web-flasher/firmware/ (generated)
 - package-firmware.py: packages application images and signed OTA manifests into dist/ (generated)
 - check-nvs-keys.py: fails when a key stored in the "ultimatrix" NVS namespace is missing from kKnownKeys (main.cpp) or the Home cleanup list; runs in CI
-- check-static-ram.py: post-build check that fails a face above the 60 KB static RAM budget (hooked in firmware/CMakeLists.txt)
+- check-static-ram.py: post-build check that fails a face above the 62 KB static RAM budget (hooked in firmware/CMakeLists.txt)
 - hue-test.sh: steps the clock through panel brightness levels with the POST /api/hue-test swatch grid (8 hues x 8 values); WG/WB env set the low-light channel weights
 - colour-calibrate.py: finds the lowest panel brightness with right colours (test grid at rising levels, stores it as the floor via POST /api/dim-colour floor=); --tune also tries the optional hue guard, search and per-LED weights (Ctrl-C restores)
 

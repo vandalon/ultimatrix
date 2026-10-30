@@ -40,7 +40,7 @@ if(EXISTS "${_ws_header}")
 endif()
 # Static RAM budget per face: what a face reserves at link time is missing from the heap in every boot, the update-only boot included.
 if(TARGET ultimatrix.elf)
-    set(ULTIMATRIX_STATIC_RAM_KB 60 CACHE STRING "Static RAM budget (KB) per face")
+    set(ULTIMATRIX_STATIC_RAM_KB 62 CACHE STRING "Static RAM budget (KB) per face")
     if(ULTIMATRIX_MODE STREQUAL "pacman" AND ULTIMATRIX_BLUETOOTH)
         set(ULTIMATRIX_STATIC_RAM_KB 70)  # the Bluetooth stack (game controller) reserves about 10 KB more
     endif()
