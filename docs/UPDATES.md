@@ -13,7 +13,7 @@ Updates are signed application images. The clock never accepts an unsigned or ol
 
 ## Beta channel
 
-- Push a tag with `-beta` in it (`git tag v0.8.0-beta.1 && git push origin v0.8.0-beta.1`). The same workflow builds and signs all faces, but publishes no release and leaves Pages alone. It force-pushes the signed files to the single-commit branch `beta` (also `beta-updates`, its old name) (`<face>/manifest.json`, `manifest.sig`, image), replacing the previous beta.
+- Push a tag with `-beta` in it (`git tag v0.8.0-beta.1 && git push origin v0.8.0-beta.1`). The same workflow builds and signs all faces, but publishes no release and leaves Pages alone. It force-pushes the signed files to the single-commit branch `beta` (`<face>/manifest.json`, `manifest.sig`, image), replacing the previous beta.
 - Easiest: switch on Settings > Advanced > Firmware updates > Beta updates (it fills in the address below; switching off clears it). Or a clock joins the beta by entering `https://raw.githubusercontent.com/vandalon/ultimatrix/beta` as the update server (Settings > Advanced). Empty goes back to stable releases.
 - Replay protection is per source (see below), so beta and stable do not block each other. A clock on stable only moves to a newer stable when it is switched back; the beta source keeps offering the last beta until the next beta tag.
 
