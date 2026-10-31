@@ -99,3 +99,7 @@ body.settings-app{background:radial-gradient(1200px 500px at 70% -10%,#dff4fc 0,
 .notice.error{background:#ffe1d6;color:#8a2a0f;border-color:#e8a58d;font-weight:600}
 .plan{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0}.plan th,.plan td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--line)}.plan th{color:var(--muted);font-weight:600}
 @media(max-width:800px){.settings-app .sidebar{padding:10px 14px}.settings-app .sidebar nav{margin-top:8px}.settings-app .brand{font-size:19px}.update-banner,.warn-banner{top:64px}}
+.range-row{display:flex;align-items:center;gap:14px}.range-row>input,.range-row>.dual{flex:1;min-width:0}.range-nums{display:flex;flex-direction:column;gap:6px;align-items:flex-end}.range-nums label{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:11px;color:var(--muted)}.settings-app .range-nums input{width:76px;min-width:0;padding:8px 10px;text-align:right}.range-nums label[hidden]{display:none}
+#brightness-value,#sensor-range,#nt-out{display:none}
+.range-nums.below{flex-direction:row;flex-wrap:wrap;gap:14px;margin-top:8px;align-items:flex-start}.range-nums.below label{align-items:flex-start}.range-nums.below input{text-align:left}
+@media(max-width:800px){html,body{overflow-x:clip;max-width:100%}.sidebar{box-sizing:border-box;max-width:100%;overflow:hidden}.sidebar nav{overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}.main{min-width:0;max-width:100%;box-sizing:border-box}.card,.field,.dual,.range-row{min-width:0;max-width:100%}}

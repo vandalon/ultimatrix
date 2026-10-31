@@ -17,14 +17,45 @@ function payload(withRestart) {
   return params;
 }
 function message(text, error = false) { clearTimeout(noticeTimer); notice.textContent = text; notice.classList.toggle('error', error); notice.hidden = false; }
+// Every slider also gets a number field beside it for precise tuning (not submitted: no name)
+const rangeNums = [];
+function syncNums() { for (const [range, num] of rangeNums) if (document.activeElement !== num) num.value = range.value; }
+function addRangeNums() {
+  const groups = new Map();
+  for (const range of document.querySelectorAll('input[type=range]')) {
+    const anchor = range.closest('.dual') || range;
+    if (!groups.has(anchor)) groups.set(anchor, []);
+    groups.get(anchor).push(range);
+  }
+  for (const [anchor, ranges] of groups) {
+    const box = document.createElement('div'); box.className = 'range-nums';
+    for (const range of ranges) {
+      const label = document.createElement('label'), num = document.createElement('input');
+      if (ranges.length > 1) label.textContent = (range.getAttribute('aria-label') || 'Value') + ' ';
+      num.setAttribute('aria-label', range.getAttribute('aria-label') || 'Value');
+      num.type = 'number'; num.min = range.min; num.max = range.max; num.step = range.step || 1; num.value = range.value; num.inputMode = 'numeric';
+      num.addEventListener('input', () => { if (num.value === '' || isNaN(+num.value)) return; range.value = num.value; range.dispatchEvent(new Event('input', { bubbles: true })); });
+      num.addEventListener('change', () => { num.value = range.value; range.dispatchEvent(new Event('change', { bubbles: true })); });
+      label.append(num); box.append(label); rangeNums.push([range, num]);
+    }
+    if (ranges.length > 1) {  // two knobs: the boxes go below the slider and its labels
+      box.classList.add('below');
+      (anchor.nextElementSibling?.classList.contains('range-labels') ? anchor.nextElementSibling : anchor).after(box);
+    } else {
+      const row = document.createElement('div'); row.className = 'range-row';
+      anchor.replaceWith(row); row.append(anchor, box);
+    }
+  }
+}
+addRangeNums();
+document.addEventListener('click', () => setTimeout(syncNums, 0));
 function brightness(event) {
   const high = field('brightness'), low = field('minimumBrightness'), auto = field('autoBrightness').checked;
   if (auto) {
     if (event && event.target === low) high.value = Math.max(Number(high.value), Number(low.value));
     else low.value = Math.min(Number(low.value), Number(high.value));
   }
-  const pct = input => Math.round(Number(input.value) / 255 * 100) + '%';
-  document.querySelector('#brightness-value').textContent = auto ? pct(low) + ' – ' + pct(high) : pct(high);
+  document.querySelector('#brightness-value').textContent = auto ? low.value + ' – ' + high.value : high.value;
   document.querySelector('#brightness-dual').classList.toggle('auto', auto);
   const dual = document.querySelector('#brightness-dual');
   dual.style.setProperty('--lo', auto ? (Number(low.value) - 1) / 254 : 0);
@@ -37,6 +68,8 @@ function brightness(event) {
   document.querySelector('#night-times').hidden = field('nightSun').checked || ownNight;
   const sunHint = document.querySelector('#sun-hint'); sunHint.hidden = ownNight || !field('nightSun').checked || !sunHint.textContent;
   document.querySelector('#range-low').textContent = auto ? 'Dimmest' : 'Minimum';
+  const minNum = rangeNums.find(([range]) => range === low); if (minNum) minNum[1].parentElement.hidden = !auto;
+  syncNums();
 }
 let lightNow = -1, nightWhy = '';
 function sensor(event) {
@@ -48,6 +81,8 @@ function sensor(event) {
   box.style.setProperty('--lo', Number(dark.value) / 4095);
   box.style.setProperty('--hi', Number(light.value) / 4095);
   document.querySelector('#sensor-range').textContent = dark.value + ' – ' + light.value;
+  const ldr = document.querySelector('#brightness-ldr'); ldr.hidden = lightNow < 0; ldr.textContent = 'Light sensor reading: ' + lightNow + ' (0–4095)';
+  syncNums();
   mark.hidden = lightNow < 0; box.style.setProperty('--mark', Math.min(lightNow, 4095) / 4095);
   document.querySelector('#sensor-reading').textContent = lightNow >= 0 ? 'Current sensor reading: ' + lightNow + (nightWhy ? ' · Night clock on: ' + (nightWhy === 'dark' ? 'the reading is below the dark value' : 'the night schedule says so') : '') : 'Sensor is off.';
 }
@@ -1318,27 +1353,17 @@ document.querySelector('#nflDemo')?.addEventListener('click', async () => {
 }
 
 {  // Display > Night mode brightness: the panel brightness in night mode (POST /api/dim-colour night=; previewed with POST /api/night-test)
-  const card = document.querySelector('#night-tune-card');
-  if (card) {
-    const q = selector => card.querySelector(selector);
-    const level = q('#nt-level'), out = q('#nt-out'), start = q('#nt-start'), save = q('#nt-save'), cancel = q('#nt-cancel'), run = q('#nt-run'), status = q('#nt-status');
-    let nightNow = 0, timer = 0, keep = 0;
+  const level = document.querySelector('#nt-level'), out = document.querySelector('#nt-out');
+  if (level) {
+    let timer = 0;
     const post = (path, params) => fetch(path + '?' + new URLSearchParams(params), { method: 'POST' });
-    const show = () => { out.textContent = level.value + '/255'; return +level.value; };
-    const preview = () => post('/api/night-test', { b: show(), secs: 90 }).catch(() => {});
-    const refresh = async () => {
-      try { nightNow = (await (await fetch('/api/dim-colour', { cache: 'no-store' })).json()).night || 0; } catch (_) {}
-      status.textContent = nightNow ? 'Night mode brightness: ' + nightNow + '/255.' : 'Night mode follows the Minimum brightness slider.';
-    };
-    const stop = () => { clearTimeout(timer); clearInterval(keep); run.hidden = save.hidden = cancel.hidden = true; start.hidden = false; post('/api/night-test', { b: 0 }).catch(() => {}); };
-    start.addEventListener('click', () => { level.value = nightNow || 31; run.hidden = save.hidden = cancel.hidden = false; start.hidden = true; preview(); clearInterval(keep); keep = setInterval(preview, 60000); });
-    level.addEventListener('input', () => { show(); clearTimeout(timer); timer = setTimeout(preview, 250); });
-    cancel.addEventListener('click', () => { stop(); refresh(); });
-    save.addEventListener('click', async () => {
-      const value = show();
-      try { if (!(await post('/api/dim-colour', { night: value })).ok) throw new Error('save'); } catch (_) { status.textContent = 'Could not save.'; return; }
-      stop(); await refresh();
+    const show = () => { out.textContent = level.value; return +level.value; };
+    fetch('/api/dim-colour', { cache: 'no-store' }).then(r => r.json()).then(d => { level.value = d.nightOff ? 0 : (d.night || 31); show(); syncNums(); }).catch(() => {});
+    level.addEventListener('input', () => { show(); clearTimeout(timer); timer = setTimeout(() => post('/api/night-test', { b: +level.value, secs: 90, off: 1 }).catch(() => {}), 250); });
+    level.addEventListener('change', async () => {
+      clearTimeout(timer);
+      try { await post('/api/dim-colour', { night: show() }); } catch (_) { message('Could not save the night brightness.', true); }
+      post('/api/night-test', { b: 0 }).catch(() => {});
     });
-    refresh();
   }
 }

@@ -1896,8 +1896,9 @@ static void saveDimColour() {
 }
 static void sendDimColour() {
   char out[320];
-  int n = snprintf(out, sizeof(out), "{\"search\":%d,\"guard\":%d,\"restore\":%d,\"brightness\":%.3f,\"extra\":%u,\"limit\":%u,\"guardMin\":%.3f,\"floor\":%u,\"night\":%u", dimColour.search, dimColour.guard, dimColour.restore, dimColour.brightness, dimColour.kx, dimColour.limit, dimColour.guardMin / 64.f, dimColour.floorB, dimColour.nightB);
+  int n = snprintf(out, sizeof(out), "{\"search\":%d,\"guard\":%d,\"restore\":%d,\"brightness\":%.3f,\"extra\":%u,\"limit\":%u,\"guardMin\":%.3f,\"floor\":%u,\"night\":%u", dimColour.search, dimColour.guard, dimColour.restore, dimColour.brightness, dimColour.kx, dimColour.limit, dimColour.guardMin / 64.f, dimColour.floorB, dimColour.nightB == 255 ? 0u : (unsigned)dimColour.nightB);
   for (int i = 0; i < 8 && n > 0 && n < (int)sizeof(out); i++) n += snprintf(out + n, sizeof(out) - n, ",\"%s\":%.3f", kDimNames[i], dimColour.w[i]);
+  if (n > 0 && dimColour.nightB == 255 && n < (int)sizeof(out) - 20) n += snprintf(out + n, sizeof(out) - n, ",\"nightOff\":true");
   if (n > 0 && n < (int)sizeof(out) - 2) { out[n++] = '}'; out[n] = 0; }
   server.send(200, "application/json", String(out));
 }
@@ -2386,7 +2387,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/api/dim-colour", HTTP_GET, sendDimColour);
   postRoute("/api/dim-colour", []() {  // search/guard/restore 0|1, brightness, extra, limit, floor (0-200, the calibrated lowest panel brightness), wg wb gg gb og ob bg bb; save=0 only applies until a restart; reset=1 restores the defaults
     if (server.arg("reset").toInt()) { const uint8_t keep = dimColour.floorB, night = dimColour.nightB; dimColour = kDimDefault; dimColour.floorB = keep; dimColour.nightB = night; }  // the calibrated floor and night level survive a reset; floor=0 / night=0 clear them
-    if (server.hasArg("night")) { const long v = server.arg("night").toInt(); if (v >= 0 && v <= 255) dimColour.nightB = (uint8_t)v; }  // the panel brightness in night mode (0 = follow the Minimum slider)
+    if (server.hasArg("night")) { const long v = server.arg("night").toInt(); if (v >= 0 && v <= 255) dimColour.nightB = v == 0 ? 255 : (uint8_t)std::min<long>(v, 254); }  // the panel brightness in night mode (0 = panel dark, stored as 255)
     if (server.hasArg("floor")) { const long v = server.arg("floor").toInt(); if (v >= 0 && v <= 200) dimColour.floorB = (uint8_t)v; }
     auto flag = [](const char *name, uint8_t &value) { if (server.hasArg(name)) value = server.arg(name).toInt() != 0; };
     flag("search", dimColour.search); flag("guard", dimColour.guard); flag("restore", dimColour.restore);
@@ -2439,7 +2440,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/night-test", []() {  // b = the red night clock's panel brightness (1-255, 0 stops), secs = how long (default 90, at most 600); the clock then shows its night clock at that level
     const int b = server.arg("b").toInt(), secs = server.arg("secs").toInt();
     nightTest.brightness = (uint8_t)std::min(255, std::max(0, b));
-    nightTest.until = b > 0 ? millis() + std::min(600, secs > 0 ? secs : 90) * 1000u : 0;
+    nightTest.until = (b > 0 || server.hasArg("off")) ? millis() + std::min(600, secs > 0 ? secs : 90) * 1000u : 0;
     nightClock.reset(); if (face) face->invalidate();
     server.send(204);
   });
@@ -2592,7 +2593,7 @@ void loop() {
     if (nightTest.until && !nightTesting) nightTest.until = 0;
     const bool nightMode = nightTesting || displayControl.nightDimmed(face && face->handlesNight());  // the night schedule or a dark room: the red night clock, or the face when the night clock is off
     if (nightTesting) brightness = nightTest.brightness;
-    else if (nightMode && dimColour.nightB) brightness = dimColour.nightB;  // the tuned night mode level; without it night mode follows the Minimum slider
+    else if (nightMode && dimColour.nightB) brightness = dimColour.nightB == 255 ? 0 : dimColour.nightB;  // the tuned night mode level; without it night mode follows the Minimum slider
     if ((face && face->alertFullBrightness()) || notice::fullBrightness(now)) brightness = 255;  // a popup that asked for full brightness
     const bool hueTesting = hueTest.until && (int32_t)(hueTest.until - now) > 0;
     if (hueTest.until && !hueTesting) hueTest.until = 0;

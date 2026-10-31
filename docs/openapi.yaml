@@ -211,7 +211,7 @@ paths:
                 limit: { type: integer, minimum: 4, maximum: 40, default: 8, description: 'The search only runs for pixels whose brightest channel is at or below this many plane weights (the panel shows light in bit planes; a higher value covers brighter pixels)' }
                 guardMin: { type: number, minimum: 0, maximum: 3.9, default: 0, description: 'Lowest light, in plane weights, the hue guard still lifts. 0 (default) lifts every non-black pixel; a higher value leaves very dark pixels black. Stored in 1/64 steps' }
                 floor: { type: integer, minimum: 0, maximum: 200, default: 0, description: 'Lowest panel brightness (0-255) found by the colour calibration, where all colours still show. The Minimum brightness slider stretches over the range from here upwards. 0 = no calibration' }
-                night: { type: integer, minimum: 0, maximum: 255, default: 31, description: 'Panel brightness (0-255) used in night mode; 31 is about 12 %. 0 = follow the Minimum slider instead' }
+                night: { type: integer, minimum: 0, maximum: 255, default: 31, description: 'Panel brightness (0-254) used in night mode; 31 is about 12 %. 0 = panel dark' }
                 wg: { type: number, minimum: 0.1, maximum: 5, default: 1, description: 'Green weight for reds and ambers (red leads). Above 1 adds green to a dim red/amber/orange; 1 = neutral' }
                 wb: { type: number, minimum: 0.1, maximum: 5, default: 1, description: 'Blue weight for reds and ambers (red leads). Above 1 adds blue; 1 = neutral' }
                 gg: { type: number, minimum: 0.1, maximum: 5, default: 1, description: 'Green weight for greys and whites (no saturation). Blends towards `wg` as the colour gets more saturated; 1 = neutral' }
@@ -283,6 +283,7 @@ paths:
               properties:
                 b: { type: integer, minimum: 0, maximum: 255, description: Panel brightness; 0 stops }
                 secs: { type: integer, minimum: 1, maximum: 600, default: 90, description: 'How long the night brightness preview stays on, in seconds (1 to 600)' }
+                off: { type: integer, enum: [0, 1], description: 'With 1, `b=0` previews a dark panel instead of stopping the preview' }
       responses:
         '204': { description: Started or stopped }
   /api/auth:
@@ -1101,7 +1102,8 @@ components:
         limit: { type: integer, description: 'Plane weights of the brightest channel up to which the search runs (default 8)' }
         guardMin: { type: number, description: Default 0 }
         floor: { type: integer, description: 'Calibrated lowest panel brightness, 0 = none' }
-        night: { type: integer, description: 'Panel brightness in night mode, 0 = follows the Minimum slider' }
+        night: { type: integer, description: 'Panel brightness in night mode; 0 with `nightOff` true means the panel is dark' }
+        nightOff: { type: boolean, description: 'Present and true when night mode darkens the panel completely' }
         wg: { type: number, description: 'Green weight for reds and ambers (red leads). Above 1 adds green to a dim red/amber/orange; 1 = neutral' }
         wb: { type: number, description: 'Blue weight for reds and ambers (red leads). Above 1 adds blue; 1 = neutral' }
         gg: { type: number, description: 'Green weight for greys and whites (no saturation). Blends towards `wg` as the colour gets more saturated; 1 = neutral' }
