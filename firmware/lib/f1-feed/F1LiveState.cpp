@@ -23,6 +23,8 @@ void F1LiveState::reset() {
   _lap = _totalLaps = 0;
   _flag = 0;
   _finished = false;
+  _started = false;
+  _part = 0;
   _finishedUtc = 0;
   _topic[0] = 0;
 }
@@ -118,8 +120,8 @@ void F1LiveState::leaf(const char (*path)[JsonScan::KEY], int n, const char *val
     else if (!strcmp(key, "Status") && text) {
       const char *topic = snapshot ? path[1] : _topic;
       if (!strcmp(topic, "SessionStatus")) {  // Started, Finished (the chequered flag), Finalised, Ends
-        if (!strcmp(value, "Finished") || !strcmp(value, "Finalised") || !strcmp(value, "Ends")) _finished = true;
-        else if (!strcmp(value, "Started") || !strcmp(value, "Inactive")) { _finished = false; _finishedUtc = 0; }
+        if (!strcmp(value, "Finished") || !strcmp(value, "Finalised") || !strcmp(value, "Ends")) { _finished = true; _started = false; }
+        else if (!strcmp(value, "Started") || !strcmp(value, "Inactive")) { _finished = false; _finishedUtc = 0; _started = !strcmp(value, "Started"); }
         _pendingFinished = !snapshot && !strcmp(value, "Finished");
       } else {
         // 1 clear, 2 yellow, 4 safety car, 5 red, 6 and 7 virtual safety car
