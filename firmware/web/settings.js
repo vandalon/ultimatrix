@@ -118,7 +118,9 @@ async function sportsPlan() {
   const names = Object.fromEntries(SPORTS), rows = [];
   d.order.forEach((id, rank) => (d.sports[id]?.events || []).forEach(e => rows.push({ id, rank, ...e })));
   rows.sort((a, b) => a.s - b.s || a.rank - b.rank);
-  const time = t => new Date(t * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const clock = t => new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  // A start further than a week away shows its date instead of the weekday, the time below it in the table
+  const time = (t, br) => t - d.now > 7 * 86400 ? new Date(t * 1000).toLocaleDateString([], { day: 'numeric', month: 'short' }) + (br ? '<br>' : ', ') + clock(t) : new Date(t * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
   const on = r => r.l || (d.now >= r.s - d.lead && d.now < r.e);
   const lines = rows.filter(r => r.e + d.hold > d.now).map(r => {
     const from = r.s - d.lead, until = r.e;
@@ -132,7 +134,7 @@ async function sportsPlan() {
     else if (rival) status = 'Skipped: ' + names[rival.id] + ' ' + rival.n + ' is on';
     else if (on(r)) status = d.mode === r.id ? 'On now' : 'On now, switching';
     else status = 'Switches at ' + time(from);
-    return '<tr><td>' + names[r.id] + '</td><td>' + (r.n || '') + '</td><td>' + time(r.s) + '</td><td>' + status + '</td></tr>';
+    return '<tr><td>' + names[r.id] + '</td><td>' + (r.n || '') + '</td><td>' + time(r.s, true) + '</td><td>' + status + '</td></tr>';
   });
   const upcoming = id => (d.sports[id]?.events || []).some(e => e.e + d.hold > d.now);
   const seasons = d.order.filter(id => !upcoming(id) && d.sports[id]?.next > d.now).map(id => names[id] + ' ' + (d.sports[id].nextName ? d.sports[id].nextName + ', ' : '') + time(d.sports[id].next));

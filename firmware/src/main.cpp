@@ -101,13 +101,16 @@ static bool hiddenWifiSaved() {
 // True when no network is saved yet (the normal first start) or the saved name shows up in a scan; the pulse keeps going meanwhile.
 static bool savedNetworkVisible() {
   WiFi.mode(WIFI_STA);
-  const String saved = WiFi.SSID();
+  wifi_config_t conf = {};  // WiFi.SSID() is empty until a connection starts, the stored config is not
+  const String saved = esp_wifi_get_config(WIFI_IF_STA, &conf) == ESP_OK ? String((const char *)conf.sta.ssid) : String();
+  consoleLog("[WiFi] Saved network \"%s\"\n", saved.c_str());
   if (saved.isEmpty()) return true;
   for (int attempt = 0; attempt < 2; attempt++) {  // twice: one scan can miss a network that is there
     WiFi.scanNetworks(true);
     uint32_t until = millis() + 8000;
     while (WiFi.scanComplete() == WIFI_SCAN_RUNNING && (int32_t)(millis() - until) < 0) { bootTick(); delay(20); }
     const int found = WiFi.scanComplete();
+    consoleLog("[WiFi] Scan %d found %d networks\n", attempt + 1, found);
     bool seen = false;
     for (int i = 0; i < found && !seen; i++) seen = WiFi.SSID(i) == saved;
     WiFi.scanDelete();
