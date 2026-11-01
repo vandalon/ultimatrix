@@ -473,19 +473,6 @@ paths:
         '202': { $ref: '#/components/responses/Message' }
         '400': { $ref: '#/components/responses/MessageError' }
         '409': { $ref: '#/components/responses/MessageError' }
-  /api/nfl/demo:
-    post:
-      tags: [Sports]
-      summary: NFL demo screens (NFL build only)
-      requestBody:
-        content:
-          application/x-www-form-urlencoded:
-            schema:
-              type: object
-              properties:
-                'on': { type: integer, enum: [0, 1] }
-      responses:
-        '204': { description: Done }
   /api/storage:
     get:
       tags: [Storage]

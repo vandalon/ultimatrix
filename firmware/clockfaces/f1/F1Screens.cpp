@@ -78,8 +78,6 @@ bool F1Screens::advance(const ScreenInputs &in, F1Screen &viewOut, int &pageOut)
     uint32_t window = resultWindowSecs();
     resultsOn = window ? (long)(nowUtc - endUtc) < (long)window
                        : in.dateTime->utcToLocal(nowUtc) / SECS_PER_DAY == in.dateTime->utcToLocal(endUtc) / SECS_PER_DAY;
-    if (in.simScenario == 8) resultsOn = true;
-    else if (in.simScenario == 2) resultsOn = false;
   }
   F1Screen view = snap.live.valid ? LIVE : resultsOn ? LIST : snap.weekend && snap.last.valid ? BETWEEN : IDLE;
   static ScreenTimer scene;

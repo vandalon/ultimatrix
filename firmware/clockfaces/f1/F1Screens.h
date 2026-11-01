@@ -35,7 +35,6 @@ struct ScreenInputs {
   int hour, minute;
   uint32_t version;  // of the ticker's data
   bool intervals;    // the live race shows gaps between cars rather than to the leader
-  int simScenario;   // the telnet simulator's screen, 0 when off
 };
 
 class F1Screens {
@@ -44,7 +43,7 @@ class F1Screens {
     bool advance(const ScreenInputs &in, F1Screen &view, int &page);
     // The loading screen: whether its picture changed (the wave moves every 60 ms)
     bool loadingChanged(unsigned long frame, int height);
-    // Whatever was drawn over the face (notification, simulator) must be drawn again
+    // Whatever was drawn over the face (notification) must be drawn again
     void reset() { _haveFrame = false; }
 
   private:

@@ -413,8 +413,6 @@ static void watchMdns(uint32_t now) {
 #define UM_TELNET_COMMON_HELP "  nvs  show how full the settings storage is\r\n  mdns  show the mDNS name and records (mdns restart: announce again)\r\n  update  download signed application update\r\n  update-status  show update progress\r\n  birthday  show the birthday screen for a minute (again to stop)\r\n"
 #if defined(UM_MARIO) || defined(UM_LUIGI)
 #define UM_TELNET_HELP "  world   pick the world: world list, world demo, world rotate, world <name>\r\n"
-#elif defined(UM_F1)
-#define UM_TELNET_HELP "  sim     next simulated screen, then back to real data (s)\r\n  next    the same (n)\r\n"
 #else
 #define UM_TELNET_HELP ""
 #endif
@@ -513,12 +511,6 @@ static bool telnetCommand(const char *c, Print &out) {
     }
     out.print("Unknown world. Type world list.\r\n"); return true;
   }
-#endif
-#ifdef UM_F1
-  if (!face) { out.print("Not ready yet.\r\n"); return true; }
-  auto is = [&](const char *a, const char *b) { return !strcasecmp(c, a) || !strcasecmp(c, b); };
-  if (is("sim", "s")) { out.printf("%s\r\n", face->simulate()); return true; }
-  if (is("next", "n")) { out.printf("%s\r\n", face->simulateNext()); return true; }
 #endif
   return false;
 }
@@ -2450,12 +2442,6 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   });
   server.on("/api/settings", HTTP_GET, settingsState);
   postRoute("/api/settings", saveSettings);
-#ifdef UM_NFL
-  postRoute("/api/nfl/demo", []() {   // every screen once from made-up data: on=1 starts it, on=0 stops it
-    if (face) face->steer(server.arg("on").toInt() ? 1 : 0);
-    server.send(204);
-  });
-#endif
 #if defined(UM_PACMAN) || defined(UM_INVADERS) || defined(UM_PONG)
   postRoute("/api/play/steer", []() {   // play the face yourself: dir 0 up, 1 right, 2 down, 3 left, -1 back to the computer (what each does is up to the face)
     const int dir = server.arg("dir").toInt();

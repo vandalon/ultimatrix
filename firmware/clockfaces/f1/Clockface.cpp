@@ -24,103 +24,6 @@ static bool snapKnown = false;
 static F1Screens screens;
 static unsigned long snapSecond = 0;
 static bool snapIntervals = false;
-static int simScenario = 0;  // the telnet simulator's screen, 0 when off
-
-static const char *const SIM_NAMES[] = {"off", "idle", "between sessions", "race", "safety car", "red flag", "qualifying",
-                                        "practice", "full results", "qualifying Q2", "qualifying Q3", "chequered flag"};
-static const int SIM_COUNT = 12;
-static const char *const SIM_GRID[] = {"ANT", "RUS", "HAM", "LEC", "NOR", "PIA", "VER", "ALO", "GAS", "HAD", "STR", "COL",
-                                       "ALB", "SAI", "LAW", "LIN", "HUL", "BOR", "OCO", "BEA", "PER", "BOT"};
-
-static void simFill(F1Ticker::Session &s, const char *name, char tag, bool live) {
-  s.valid = true;
-  s.live = live;
-  s.tag = tag;
-  strlcpy(s.name, name, sizeof(s.name));
-  s.count = F1Ticker::ROWS;
-  static const char *const GAPS[] = {"+.088", "+.201", "+.317", "+.455", "+.620", "+.742", "+.911", "+1.030", "+1.2", "+1.5", "+1.9",
-                                     "+2.3", "+2.8", "+3.1", "+3.6", "+4.0", "+4.4", "+5.1", "+5.9", "+6.5", "+7.4"};
-  for (int i = 0; i < F1Ticker::ROWS; i++) {
-    // every 7 seconds the order changes: a swap, then a driver dropping nine places, then back, to see the markers
-    int grid = i;
-    int phase = (millis() / 7000) % 3;
-    if (live && phase == 1) grid = i == 3 ? 4 : i == 4 ? 3 : i;
-    if (live && phase == 2) grid = i == 11 ? 2 : (i >= 2 && i < 11) ? i + 1 : i;  // the third driver drops to twelfth
-    strlcpy(s.rows[i].code, SIM_GRID[grid], sizeof(s.rows[i].code));
-    s.rows[i].color = F1Ticker::driverColor(SIM_GRID[grid]);
-    s.rows[i].fastest = (tag == 'R' || tag == 'S') && strcmp(SIM_GRID[grid], "VER") == 0;
-    s.rows[i].improved = live && tag == 'Q' && (millis() / 3000) % 2 == 0 && (i == 4 || i == 8);  // a better lap just now: the time lights up
-    if (i == 0) strlcpy(s.rows[0].time, tag == 'R' || tag == 'S' ? "LEAD" : "1:29.412", sizeof(s.rows[0].time));
-    else strlcpy(s.rows[i].time, GAPS[i - 1], sizeof(s.rows[i].time));
-  }
-}
-
-static void simSnapshot(F1Ticker::Snapshot &s) {
-  s = F1Ticker::Snapshot();
-  if (simScenario == 11) return;
-  const int points[] = {372, 351, 289};
-  for (int i = 0; i < 22; i++) {
-    strlcpy(s.standings[i].code, SIM_GRID[i], sizeof(s.standings[i].code));
-    s.standings[i].color = F1Ticker::driverColor(SIM_GRID[i]);
-    s.standings[i].points = i < 3 ? points[i] : 250 - i * 10;
-  }
-  s.standingsCount = 22;
-  strlcpy(s.circuit, "Marina Bay Street Circuit Singapore", sizeof(s.circuit));
-  strlcpy(s.upcoming[0].city, "MEXICO CITY", sizeof(s.upcoming[0].city));
-  strlcpy(s.upcoming[0].circuit, "Marina Bay Street Circuit", sizeof(s.upcoming[0].circuit));  // the only outline there is yet
-  s.upcoming[0].start = ultime::now() + 17 * SECS_PER_DAY;
-  s.upcomingCount = 1;
-  switch (simScenario) {
-    case 2:
-      s.weekend = true;
-      simFill(s.last, "QUALI", 'Q', false);
-      simFill(s.next, "SPRINT", 'S', false);
-      s.next.start = ultime::now() + 20 * 3600;
-      strlcpy(s.coming[0].name, "SPRINT", sizeof(s.coming[0].name));
-      s.coming[0].start = s.next.start;
-      strlcpy(s.coming[1].name, "RACE", sizeof(s.coming[1].name));
-      s.coming[1].start = s.next.start + 24 * 3600;
-      s.comingCount = 2;
-      break;
-    case 8:
-      s.weekend = true;
-      simFill(s.last, "SQ", 'Q', false);
-      simFill(s.next, "SPRINT", 'S', false);
-      s.next.start = ultime::now() + 20 * 3600;
-      strlcpy(s.coming[0].name, "SPRINT", sizeof(s.coming[0].name));
-      s.coming[0].start = s.next.start;
-      strlcpy(s.coming[1].name, "RACE", sizeof(s.coming[1].name));
-      s.coming[1].start = s.next.start + 24 * 3600;
-      s.comingCount = 2;
-      break;
-    case 3:
-    case 4:
-    case 5:
-      s.weekend = true;
-      simFill(s.live, "RACE", 'R', true);
-      s.live.period = 32;
-      s.live.totalLaps = 57;  // without it the right side reads "L32/..." and the red flag label does not fit in the larger font
-      s.live.flag = simScenario == 4 ? 's' : simScenario == 5 ? 'r' : 0;
-      s.live.finished = (millis() / 7000) % 3 == 2;  // the chequered flag for the last seconds of each round
-      break;
-    case 6:
-      s.weekend = true;
-      simFill(s.live, "QUALI", 'Q', true);
-      strlcpy(s.live.clock, "4:12", sizeof(s.live.clock));
-      break;
-    case 9:  // the list holds all 22: only the 16 (Q2) or 10 (Q3) still in are shown
-    case 10:
-      s.weekend = true;
-      simFill(s.live, simScenario == 9 ? "Q2" : "Q3", 'Q', true);
-      strlcpy(s.live.clock, simScenario == 9 ? "8:20" : "6:45", sizeof(s.live.clock));
-      break;
-    case 7:
-      s.weekend = true;
-      simFill(s.live, "FP2", 'P', true);
-      strlcpy(s.live.clock, (millis() / 7000) % 3 == 2 ? "0:00" : "23:10", sizeof(s.live.clock));
-      break;
-  }
-}
 
 Clockface::Clockface(MatrixPanel_I2S_DMA* display) {
   _display = display;
@@ -135,14 +38,6 @@ void Clockface::setup(ClockTime *dateTime) {
   if (!f1Ticker) f1Ticker = new F1Ticker;
   f1Ticker->begin(dateTime);
 }
-
-const char *Clockface::simulateNext() {
-  simScenario = (simScenario + 1) % SIM_COUNT;
-  screens.reset();
-  return SIM_NAMES[simScenario];
-}
-
-const char *Clockface::simulate() { return simulateNext(); }
 
 // What the face shows, to the serial log and telnet: every 15 s and whenever the screen changes, so a session can be
 // followed without seeing the panel
@@ -242,11 +137,7 @@ void Clockface::update() {
   int hour = _dateTime->getHour(), minute = _dateTime->getMinute();
   bool intervals = (millis() / pageMs()) % 2 != 0;  // alternate at the results-page setting
   uint32_t version = f1Ticker->version();
-  if (simScenario) {
-    simSnapshot(snap);
-    snapVersion = version - 1;  // the real data comes back when the simulator stops
-    version = 0x80000000UL + simScenario + ((millis() / 7000) % 3) * 16;  // the sim order changes every 7 s
-  } else if (!snapKnown || version != snapVersion || intervals != snapIntervals || (snap.live.valid && millis() / 1000 != snapSecond)) {
+  if (!snapKnown || version != snapVersion || intervals != snapIntervals || (snap.live.valid && millis() / 1000 != snapSecond)) {
     f1Ticker->snapshot(snap, intervals);  // while live also every second, for the countdown
     snapIntervals = intervals;
     snapVersion = version;
@@ -260,7 +151,7 @@ void Clockface::update() {
 
   F1Screen view;
   int page;
-  ScreenInputs in = {_dateTime, hour, minute, version, intervals, simScenario};
+  ScreenInputs in = {_dateTime, hour, minute, version, intervals};
   bool draw = screens.advance(in, view, page);
   logShown((int)view, page);
   if (!draw) return;

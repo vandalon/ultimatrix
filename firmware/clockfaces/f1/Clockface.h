@@ -21,6 +21,4 @@ class Clockface: public IClockface {
     void invalidate();
     // Telnet S or N: the next made-up screen (idle, between sessions, race, safety car, red flag, qualifying,
     // practice, results, Q2, Q3, chequered flag), then back to the real data
-    const char *simulate();
-    const char *simulateNext();
 };

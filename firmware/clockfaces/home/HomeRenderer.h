@@ -80,6 +80,7 @@ struct Frame {
 };
 
 uint16_t tone(uint8_t tone);
+int deviceOverflow(const char *name);  // pixels of a Device problems name that stick out of its room (0: it fits)
 bool scrolls(const Frame &frame);  // a line of the frame is wider than its room: scrollTick has to run
 void draw(MatrixPanel_I2S_DMA &display, const Frame &frame);
 // Pages slide in from the right: progress 0..1000 (already eased); canSlide says whether two frames are two pages of the carousel

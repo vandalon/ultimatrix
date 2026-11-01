@@ -248,9 +248,9 @@ void tileIcon(MatrixPanel_I2S_DMA &d, uint8_t icon, int x, int y, uint16_t color
     case TI_PERSON: bitmap(d, kPerson, x + 1, y, color); break;
     case TI_BOLT: bitmap(d, kBolt, x + 2, y, color); break;
     case TI_RING: bitmap(d, kRing, x + 1, y + 1, color); break;
-    case TI_CAR: bitmap(d, kSmallCar, x + 3, y + 2, color); break;
-    case TI_CAR_CHARGING: bitmap(d, kSmallCar, x, y + 4, color); bitmap(d, kBoltBadge, x + 8, y, color); break;
-    case TI_CAR_PLUGGED: bitmap(d, kSmallCar, x, y + 4, color); bitmap(d, kPlugBadge, x + 8, y, color); break;
+    case TI_CAR: bitmap(d, kSmallCar, x + 3, y + 3, color); break;
+    case TI_CAR_CHARGING: bitmap(d, kSmallCar, x, y + 5, color); bitmap(d, kBoltBadge, x + 8, y + 1, color); break;
+    case TI_CAR_PLUGGED: bitmap(d, kSmallCar, x + 1, y + 5, color); bitmap(d, kPlugBadge, x + 8, y + 1, color); break;
     case TI_CO2: miniText(d, "CO2", x, y + 3, color); break;
     case TI_PRICE: {  // a ring with a lowercase e (4x5) inside
       const char *const e[] = {".##.", "#..#", "####", "#...", ".###"};
@@ -525,6 +525,7 @@ void weatherIcon(MatrixPanel_I2S_DMA &d, const char *condition, int x, int y) {
   const bool snow = !strcmp(condition, "snowy") || !strcmp(condition, "snowy-rainy") || !strcmp(condition, "hail");
   const bool storm = !strcmp(condition, "lightning") || !strcmp(condition, "lightning-rainy") || !strcmp(condition, "exceptional");
   if (!clear && !moon && !partly && strcmp(condition, "windy") && strcmp(condition, "windy-variant")) x += 2;  // the 9 px icons end in the same column as the rest
+  if (!clear && !moon) y += 1;  // the others hang a row too high next to the number (the sun and the moon are centred already)
   if (clear) { smallIcon(d, SI_SUN, x + 4, y + 3, tone(T_SUN)); return; }  // alone, the sun is centred on the number's height and sits next to it
   if (partly) smallIcon(d, SI_SUN, x, y + 1, tone(T_SUN));
   if (moon) {
@@ -539,11 +540,32 @@ void weatherIcon(MatrixPanel_I2S_DMA &d, const char *condition, int x, int y) {
   }
   if (partly || rain || snow || storm || !strcmp(condition, "cloudy")) {
     const char *const cloud[] = {"..####...", ".######..", "#########", ".#######."};
-    bitmap(d, cloud, x + (partly ? 2 : 0), y + (partly ? 7 : 1), tone(T_WHITE));
+    bitmap(d, cloud, x + (partly ? 2 : 0), y + (partly ? 7 : 3), tone(T_WHITE));  // a lone cloud is only 4 rows high: centred on the number
     if (rain) for (int i = 0; i < 3; i++) { put(d, x + i * 3 + 1, y + 7, tone(T_BLUE)); put(d, x + i * 3, y + 8, tone(T_BLUE)); }
     if (snow) { put(d, x + 2, y + 7, tone(T_WHITE)); put(d, x + 6, y + 9, tone(T_WHITE)); put(d, x + 8, y + 6, tone(T_WHITE)); }
     if (storm) { put(d, x + 5, y + 5, tone(T_SUN)); box(d, x + 4, y + 6, 2, 1, tone(T_SUN)); put(d, x + 4, y + 7, tone(T_SUN)); put(d, x + 3, y + 8, tone(T_SUN)); }
   } else homeText(d, "-", x + 3, y + 3, tone(T_MUTE));
+}
+
+// Where an icon's pixels lie in its 11 columns (first and last column drawn): the icons are shifted so that they are centred on each other
+void iconSpan(uint8_t icon, const char *condition, int &first, int &last) {
+  first = 2; last = 10;
+  switch (icon) {
+    case TI_THERMOMETER: case TI_DROP: case TI_BOLT: first = 4; break;
+    case TI_CAR: first = 3; break;
+    case TI_CAR_CHARGING: first = 0; break;
+    case TI_CAR_PLUGGED: first = 1; break;
+    case TI_CO2: first = 0; break;
+    case TI_RAIN: first = 0; break;
+    case TI_OUTDOOR_DROP: first = 3; break;
+    case TI_WEATHER:
+      if (!strcmp(condition, "sunny")) first = 4;
+      else if (!strcmp(condition, "clear-night")) { first = 3; last = 8; }
+      else if (!strcmp(condition, "partlycloudy")) first = 0;
+      else if (!strcmp(condition, "windy") || !strcmp(condition, "windy-variant")) first = 1;
+      break;
+    default: break;  // person, ring, price: 2 to 10
+  }
 }
 
 void tileValue(MatrixPanel_I2S_DMA &d, const char *text, int x, int y, uint16_t color) {
@@ -565,10 +587,20 @@ void homeScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
   for (int k = 0; k < n; k++) {
     const int i = shown[k], row = k / perRow, inRow = k % perRow, y = top + row * (11 + gap);
     const bool alone = perRow == 1 || (row == rows - 1 && n % 2 == 1);
-    const int x = alone ? (64 - (13 + textWidth(f.tileText[i]))) / 2 : (inRow ? 33 : 0);
-    if (f.tileIcon[i] == TI_WEATHER) weatherIcon(d, f.weather[i], x, y - 1);
-    else tileIcon(d, f.tileIcon[i], x, y, tone(T_MUTE));  // one muted colour for the icons, white values: the colour is kept for what needs attention
-    tileValue(d, f.tileText[i], x + 13, y + 2, tone(T_WHITE));
+    const bool mirrored = !alone && inRow;  // the right column is the left one mirrored: the value, then the icon at the right edge
+    const int x = alone ? (64 - (13 + textWidth(f.tileText[i]))) / 2 : mirrored ? 53 : 0;
+    int first, last, shift = 0;
+    iconSpan(f.tileIcon[i], f.weather[i], first, last);
+    if (!alone) shift = (10 - (first + last)) / 2;  // centred in its 11 columns
+    if (f.tileIcon[i] == TI_WEATHER) weatherIcon(d, f.weather[i], x + shift, y - 1);
+    else tileIcon(d, f.tileIcon[i], x + shift, y, tone(T_MUTE));  // one muted colour for the icons, white values: the colour is kept for what needs attention
+    int valueX = x + 13;
+    if (mirrored) {  // ends 2 columns before the icon, as the left value starts 2 columns after its icon
+      const char *text = f.tileText[i];
+      const int width = textWidth(text) <= 18 ? textWidth(text) : homeWidth(text) <= 18 ? homeWidth(text) : homeWidth("-");
+      valueX = x - 2 - width;
+    }
+    tileValue(d, f.tileText[i], valueX, y + 2, tone(T_WHITE));
   }
   box(d, 0, 46, 64, 1, kDivider);
   // The state icons are all 9 px wide: equal gaps between them and to the edges, however many are shown
@@ -654,16 +686,21 @@ bool barPixel(const Frame &f, int x, int yy) {
 const char *const kTinySlash[5] = {"..#", "..#", ".#.", "#..", "#.."};
 const char *const kTinyP[5] = {"##.", "#.#", "##.", "#..", "#.."};
 const char *const kTinyX[5] = {"#.#", "#.#", ".#.", "#.#", "#.#"};
+const char *const kTinyW[5] = {"#...#", "#...#", "#.#.#", "#.#.#", ".#.#."};
+const char *const kTinyH[5] = {"#..", "#..", "##.", "#.#", "#.#"};
 
-// The glyphs of the scale text, 5 rows each; returns how many and the total width (a gap of 1 between glyphs)
-int scaleGlyphs(int wh, const char *const *out[16], int &width) {
+// The glyphs of the scale text, 5 rows each; returns how many and the total width (a gap of 1 between glyphs).
+// form 0: "75Wh/PX" (when there is room), 1: "75/PX", 2: "75/P", 3: "75"
+int scaleGlyphs(int wh, const char *const *out[16], int &width, int form = 1) {
   char num[8];
   const int digits = snprintf(num, sizeof(num), "%d", wh);
   int n = 0;
   width = -1;
   auto add = [&](const char *const *g) { out[n++] = g; width += (int)strlen(g[0]) + 1; };
   for (int i = 0; i < digits; i++) add(kSmallDigit[num[i] - '0']);
-  add(kTinySlash); add(kTinyP); add(kTinyX);
+  if (form < 1) { add(kTinyW); add(kTinyH); }
+  if (form < 3) { add(kTinySlash); add(kTinyP); }
+  if (form < 2) add(kTinyX);
   return n;
 }
 
@@ -674,7 +711,8 @@ bool scaleLabel(MatrixPanel_I2S_DMA &d, const Frame &f, int top, int strip, cons
   if (!f.whPerPx) return true;
   const char *const *glyph[16];
   int width;
-  const int n = scaleGlyphs(f.whPerPx, glyph, width), h = 5, base = f.baseY ? f.baseY : 61;
+  int n = scaleGlyphs(f.whPerPx, glyph, width);
+  const int h = 5, base = f.baseY ? f.baseY : 61;
   auto busy = [&](int x, int y) {
     if (y < 0 || y > 63 || x < 0 || x > 63) return false;
     if (y == strip || barPixel(f, x, y)) return true;
@@ -682,19 +720,36 @@ bool scaleLabel(MatrixPanel_I2S_DMA &d, const Frame &f, int top, int strip, cons
     return false;
   };
   auto fits = [&](int x0, int y0) {  // the text and a clear pixel all round
+    if (y0 < 0 || y0 + h > 64 || x0 < 0 || x0 + width > 64) return false;  // all of the text on the panel
     for (int y = y0 - 1; y <= y0 + h; y++) for (int x = x0 - 1; x <= x0 + width; x++) if (busy(x, y)) return false;
     return true;
   };
   if (!f.negRows) {  // the top row of the graph, where Clockface found room for it
     if (dry) return true;
     const uint16_t color = rgb(46, 54, 70);
-    int x = f.scaleSpot == SCALE_RIGHT ? 64 - width : f.scaleSpot == SCALE_LEFT ? 0 : (64 - width) / 2;
     auto freeAt = [&](int x0) {  // the text and a pixel of room to its inner side are clear of the bars
+      if (x0 < 0 || x0 + width > 64) return false;
       for (int y = top; y < top + h; y++) for (int xx = x0 - 1; xx <= x0 + width; xx++) if (busy(xx, y)) return false;
       return true;
     };
-    if (f.scaleSpot == SCALE_RIGHT && freeAt(63 - width)) x = 63 - width;  // a pixel away from the side border when there is room
-    else if (f.scaleSpot == SCALE_LEFT && freeAt(1)) x = 1;
+    auto spot = [&](bool nudge) {  // where the text stands for this width: a pixel off the side border when there is room
+      const int edge = nudge ? 1 : 0;
+      return f.scaleSpot == SCALE_RIGHT ? 64 - width - edge : f.scaleSpot == SCALE_LEFT ? edge : (64 - width) / 2;
+    };
+    int x = spot(false);
+    const char *const *plain[16];
+    int plainWidth, plainN = n;
+    for (int g = 0; g < n; g++) plain[g] = glyph[g];
+    plainWidth = width;
+    n = scaleGlyphs(f.whPerPx, glyph, width, 0);  // with the unit when it is clear of the bars, else as laid out
+    if (freeAt(spot(true))) x = spot(true);
+    else if (freeAt(spot(false))) x = spot(false);
+    else {
+      n = plainN; width = plainWidth;
+      for (int g = 0; g < n; g++) glyph[g] = plain[g];
+      x = spot(false);
+      if (freeAt(spot(true))) x = spot(true);
+    }
     for (int g = 0; g < n; g++) {
       const int gw = (int)strlen(glyph[g][0]);
       for (int y = 0; y < h; y++) for (int xx = 0; xx < gw; xx++) if (glyph[g][y][xx] == '#') box(d, x + xx, top + y, 1, 1, color);
@@ -720,10 +775,13 @@ bool scaleLabel(MatrixPanel_I2S_DMA &d, const Frame &f, int top, int strip, cons
     px = useRight ? 64 - width : 0;
     py = y;
   };
-  for (int z = 0; z < count && px < 0; z++) tryRow(zones[z].bottom ? zones[z].y1 - h + 1 : zones[z].y0);  // a real corner first, at the edge the area is aligned to
-  for (int z = 0; z < count && px < 0; z++) tryRow(zones[z].bottom ? zones[z].y0 : zones[z].y1 - h + 1);  // then the corners at the other end of the area
-  for (int z = 0; z < count && px < 0; z++) {  // then along the same edge, away from what is in the way
-    for (int s = 0; s <= zones[z].y1 - zones[z].y0 - h + 1 && px < 0; s++) tryRow(zones[z].bottom ? zones[z].y1 - h + 1 - s : zones[z].y0 + s);
+  for (int form = 0; form < 4 && px < 0; form++) {  // with the unit when there is room, then "/PX", then without the X, then only the number
+    n = scaleGlyphs(f.whPerPx, glyph, width, form);
+    for (int z = 0; z < count && px < 0; z++) tryRow(zones[z].bottom ? zones[z].y1 - h + 1 : zones[z].y0);  // a real corner first, at the edge the area is aligned to
+    for (int z = 0; z < count && px < 0; z++) tryRow(zones[z].bottom ? zones[z].y0 : zones[z].y1 - h + 1);  // then the corners at the other end of the area
+    for (int z = 0; z < count && px < 0; z++) {  // then along the same edge, away from what is in the way
+      for (int s = 0; s <= zones[z].y1 - zones[z].y0 - h + 1 && px < 0; s++) tryRow(zones[z].bottom ? zones[z].y1 - h + 1 - s : zones[z].y0 + s);
+    }
   }
   if (px < 0) return false;
   if (dry) return true;
@@ -1017,6 +1075,7 @@ void backdrop(MatrixPanel_I2S_DMA &d, const Frame &f) {
 }
 
 bool scrolls(const Frame &f) { return needsScroll(f); }
+int deviceOverflow(const char *name) { return std::max(0, homeWidth(name) - (W - 6)); }
 
 void draw(MatrixPanel_I2S_DMA &d, const Frame &f) {
   d.fillScreen(0);

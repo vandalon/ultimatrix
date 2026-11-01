@@ -1336,10 +1336,6 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
   }, 50);
 })();
 
-document.querySelector('#nflDemo')?.addEventListener('click', async () => {
-  try { const r = await fetch('/api/nfl/demo', { method: 'POST', body: new URLSearchParams({ on: 1 }) }); if (!r.ok) throw new Error(await r.text()); message('Demo started: every screen once'); } catch (error) { message(error.message, true); }
-});
-
 {  // Display > Calibrate colours: the lowest panel brightness that keeps this panel's colours right (POST /api/dim-colour floor=); brightness 1 then means that level
   const card = document.querySelector('#calibrate-card');
   if (card) {

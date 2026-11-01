@@ -74,6 +74,7 @@ class Clockface: public IClockface {
     void fillDevices(home::Frame &frame, uint32_t now) const;
     int deviceRows() const;
     uint32_t devicesScrollMs() const;
+    uint32_t devicesNameScroll(uint32_t pageMs, uint32_t &stepMs) const;
 
   public:
     Clockface(MatrixPanel_I2S_DMA* display);

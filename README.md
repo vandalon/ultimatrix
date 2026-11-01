@@ -333,7 +333,7 @@ It accepts one client at a time and has no password or encryption. Enable it onl
 
 Use `help` for the available commands. Shared commands include `status`, `heap`, `log on`, `log off`, `reboot`, `update`, `update-status`, `birthday` and `quit`. Arrow-key history and tab completion are supported; `q` or Ctrl-D on an empty line closes the session.
 
-Mario and Luigi add `world list` and `world <name>`. F1 and MotoGP add `sim` and `next`. Football's simulated match controls have been removed.
+Mario and Luigi add `world list` and `world <name>`.
 
 `factory-reset yes` erases Wi-Fi credentials, settings, cached data and update history, then restarts into setup.
 
