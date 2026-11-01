@@ -136,7 +136,7 @@ unsigned long F1Ticker::fetchStandings() {
   char url[200];
   snprintf(url, sizeof(url), "%s/results/standings?seasonUuid=%s&categoryUuid=%s", kApi, seasonId, categoryId);
   StandingScan scan;
-  if (!getScan(url, StandingScan::leaf, &scan)) return kRetryMs;
+  if (!getScan(url, StandingScan::leaf, &scan)) { say("[MotoGP] championship download failed\n"); return kRetryMs; }
   scan.finish();
   std::lock_guard<std::mutex> guard(_lock);
   for (int i = 0; i < STANDINGS; i++) _snap.standings[i] = i < scan.count ? scan.rows[i] : Standing();
@@ -187,6 +187,7 @@ unsigned long F1Ticker::fetchWeekend() {
     SessionScan scan;
     if (!getScan(url, SessionScan::leaf, &scan)) return kRetryMs;
     scan.finish();
+    for (int i = 0; i < scan.count; i++) scan.found[i].start = circuitUtc(weekend->country, scan.found[i].start);
     if (!sessions) sessions = new (std::nothrow) Sess[kMaxSessions];
     if (!sessions) return kRetryMs;
     sessionCount = scan.count;
@@ -302,10 +303,11 @@ unsigned long F1Ticker::fetchWeekend() {
         last.finished = true;
         last.count = scan.count;
         memcpy(last.rows, scan.rows, sizeof(last.rows));
+        if ((tag == 'R' || tag == 'S') && last.count > 0) strlcpy(last.rows[0].time, "WINNER", sizeof(last.rows[0].time));  // the winner has taken the flag
         strlcpy(lastId, s.id, sizeof(lastId));
         lastReady = true;
         haveLast = true;
-        if (tag == 'R' || tag == 'S') _standingsAt = millis() + 10 * 60 * 1000UL;  // the championship has changed
+        if (tag == 'R' || tag == 'S') _standingsAt = _snap.standingsCount ? millis() + 10 * 60 * 1000UL : 0;  // the championship has changed; none yet: now
         say("[MotoGP] results of %s: %d riders\n", name, scan.count);
       } else {
         return kRetryMs;

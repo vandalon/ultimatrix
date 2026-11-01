@@ -399,7 +399,7 @@ static const char *const CLOCK_ROWS[10 * 18] = {
   "XXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXX", "XXX....XXX", "XXX....XXX", "XXX....XXX",
   "XXX....XXX", "XXX....XXX", "XXX....XXX", "XXX....XXX", "XXX....XXX", "XXX....XXX",
   "XXX....XXX", "XXX....XXX", "XXX....XXX", "XXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXX",  // 0
-  "....XXX...", "...XXXX...", "..XXXXX...", ".XX.XXX...", ".X..XXX...", "....XXX...",
+  "...XXXX...", "..XXXXX...", ".XXXXXX...", ".XX.XXX...", ".X..XXX...", "....XXX...",
   "....XXX...", "....XXX...", "....XXX...", "....XXX...", "....XXX...", "....XXX...",
   "....XXX...", "....XXX...", "....XXX...", ".XXXXXXXXX", ".XXXXXXXXX", ".XXXXXXXXX",  // 1
   "XXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXX", ".......XXX", ".......XXX", ".......XXX",
@@ -432,7 +432,7 @@ static const char *const BIG_ROWS[10 * 23] = {
   "XXXX.....XXXX", "XXXX.....XXXX", "XXXX.....XXXX", "XXXX.....XXXX", "XXXX.....XXXX", "XXXX.....XXXX",
   "XXXX.....XXXX", "XXXX.....XXXX", "XXXX.....XXXX", "XXXX.....XXXX", "XXXX.....XXXX", "XXXX.....XXXX",
   "XXXX.....XXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXX", "XXXXXXXXXXXXX",  // 0
-  ".....XXXX....", "....XXXXX....", "...XXXXXX....", "..XXXXXXX....", ".XXX.XXXX....", ".XX..XXXX....",
+  "....XXXXX....", "...XXXXXX....", "..XXXXXXX....", ".XXXXXXXX....", ".XXX.XXXX....", ".XX..XXXX....",
   ".X...XXXX....", ".....XXXX....", ".....XXXX....", ".....XXXX....", ".....XXXX....", ".....XXXX....",
   ".....XXXX....", ".....XXXX....", ".....XXXX....", ".....XXXX....", ".....XXXX....", ".....XXXX....",
   ".....XXXX....", ".XXXXXXXXXXXX", ".XXXXXXXXXXXX", ".XXXXXXXXXXXX", ".XXXXXXXXXXXX",  // 1
@@ -1585,7 +1585,7 @@ void drawResultList(MatrixPanel_I2S_DMA *d, const F1Ticker::Session &s, int hour
   const char *name = !strcmp(s.name, "QUALI") ? "Q" : !strcmp(s.name, "SPRINT") ? "SR" : !strcmp(s.name, "RACE") ? "RACE" : !strncmp(s.name, "FP", 2) ? s.name + 1 : s.name;  // FP1 is P1 here
   drawHeader(d, "", "", HEADER_NAVY, WHITE);
   drawWaitDot(d, s);
-  drawText(d, name, strcmp(name, "RACE") ? 0 : 2, 1, FASTEST, true);  // all the way to the left (RACE with 2 pixels), in the best-time purple,
+  facekit::tramText(*d, name, strcmp(name, "RACE") ? 0 : 2, 1, FASTEST);  // all the way to the left (RACE with 2 pixels), in the best-time purple,
   drawHeaderTime(d, hour, minute, W - 2 - dotShift, 1, MINUTES, HEADER_NAVY);  // and the time 2 pixels from the right edge and 1 from the top, in the clock's green
   drawPlace(d, 1, s.rows[0], 10, race, 0, isFavourite(s.rows[0].code));
 }
@@ -1601,6 +1601,22 @@ void drawBetween(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, int hour, int minu
   }
   // The winner stays; the places after it follow three at a time, so the whole classification gets its turn.
   // Those places go first: the part that slides out over the clock or the next session is wiped before those are drawn
+  if (page < 0) {  // the championship, in the place of the results: the same clock above, five places below
+    dimPlaces = snap.standingsStale;
+    slideBetween.cur = -1;  // the results start fresh when they come back
+    chequer(d, 0, 64);
+    int shown[6];
+    int places = standingsShown(shown, 5);
+    ChampionshipLayout layout = championshipLayout(shown, places);
+    for (int i = 0; i < places; i++) drawChampionshipRow(d, shown[i], 23 + i * 6, layout);
+    d->drawFastHLine(0, 20, W, RULE);
+    d->drawFastHLine(0, 54, W, RULE);
+    clockLeft = W - 1 - clockWidth();
+    drawClock(d, hour, minute, 1, true);
+    facekit::tramText(*d, "CH", 0, 11, rgb(205, 210, 220));
+    drawNextRow(d, dateTime);
+    return;
+  }
   bool race = snap.last.tag == 'R' || snap.last.tag == 'S';
   int n = filledRows(snap.last);
   int first = firstShown(n, page, 4);
@@ -1632,8 +1648,7 @@ void drawBetween(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, int hour, int minu
   // One letter (Q, R) sits right above the place number below it, flush with its right edge (columns 4 to 6); two (SR, P1) at the left
   if (snap.last.name[0]) {
     const char *label = shortSession(snap.last.name);
-    if (strlen(label) == 1) drawText(d, label, 7 - tallWidth(label), 12, rgb(205, 210, 220), true);
-    else facekit::tramText(*d, label, 1, 11, rgb(205, 210, 220));
+    facekit::tramText(*d, label, strlen(label) == 1 ? 7 - facekit::tramWidth(label) : !strcmp(label, "SR") ? 0 : 1, 11, rgb(205, 210, 220));
   }
   drawPlace(d, 1, snap.last.rows[0], 23, race, 0, isFavourite(snap.last.rows[0].code));
   drawNextRow(d, dateTime);

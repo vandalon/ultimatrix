@@ -41,10 +41,43 @@ time_t parseDay(const char *date) {  // "2026-10-09"
   return utcOf(y, m, d, 0, 0, 0);
 }
 
-time_t parseTime(const char *date) {  // "2026-10-11T15:00:00+00:00", in UTC
+time_t parseTime(const char *date) {  // "2026-10-11T15:00:00+00:00": the circuit's local time, though it says +00:00 (see circuitUtc)
   int y, m, d, h, mi;
   if (sscanf(date, "%d-%d-%dT%d:%d", &y, &m, &d, &h, &mi) != 5) return 0;
   return utcOf(y, m, d, h, mi, 0);
+}
+
+// The feed gives the circuit's local time marked +00:00 and no time zone: this turns it into real UTC from the country
+// (upper case). Daylight saving is judged by the date alone
+int weekdayOf(int y, int m, int d) { return (int)((utcOf(y, m, d, 0, 0, 0) / 86400 + 4) % 7); }  // 0 = Sunday
+
+int sundayOf(int y, int m, int nth) {  // nth Sunday of the month, 0 = the last one
+  if (nth > 0) return 1 + (7 - weekdayOf(y, m, 1)) % 7 + 7 * (nth - 1);
+  const int days = m == 3 || m == 10 ? 31 : 30;
+  return days - weekdayOf(y, m, days);
+}
+
+time_t circuitUtc(const char *country, time_t local) {
+  struct Zone { const char *name; int8_t hours; char rule; };  // rule: E Europe, U United States, A Australia
+  static const Zone zones[] = {
+    {"THAILAND", 7, 0}, {"BRAZIL", -3, 0}, {"UNITED STATES", -6, 'U'}, {"UNITED KINGDOM", 0, 'E'}, {"PORTUGAL", 0, 'E'},
+    {"JAPAN", 9, 0}, {"INDONESIA", 8, 0}, {"AUSTRALIA", 10, 'A'}, {"MALAYSIA", 8, 0}, {"QATAR", 3, 0},
+    {"SPAIN", 1, 'E'}, {"FRANCE", 1, 'E'}, {"ITALY", 1, 'E'}, {"HUNGARY", 1, 'E'}, {"CZECH", 1, 'E'}, {"NETHERLANDS", 1, 'E'},
+    {"GERMANY", 1, 'E'}, {"AUSTRIA", 1, 'E'}, {"SAN MARINO", 1, 'E'},
+  };
+  for (const Zone &z : zones) {
+    if (!strstr(country, z.name)) continue;
+    struct tm t;
+    gmtime_r(&local, &t);
+    const int y = t.tm_year + 1900;
+    const int key = (t.tm_mon + 1) * 100 + t.tm_mday;
+    bool dst = false;
+    if (z.rule == 'E') dst = key >= 300 + sundayOf(y, 3, 0) && key < 1000 + sundayOf(y, 10, 0);
+    else if (z.rule == 'U') dst = key >= 300 + sundayOf(y, 3, 2) && key < 1100 + sundayOf(y, 11, 1);
+    else if (z.rule == 'A') dst = key >= 1000 + sundayOf(y, 10, 1) || key < 400 + sundayOf(y, 4, 1);
+    return local - (z.hours + (dst ? 1 : 0)) * 3600;
+  }
+  return local;
 }
 
 // Upper case ASCII from UTF-8: accents are dropped, anything else unknown becomes a space
