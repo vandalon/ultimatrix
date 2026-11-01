@@ -90,7 +90,7 @@ body.settings-app{background:radial-gradient(1200px 500px at 70% -10%,#dff4fc 0,
 .welcome-only .card:not(#welcome),.welcome-only .save-bar,.welcome-only .sidebar nav a:not([href="#welcome"]){display:none!important}
 #notice{position:fixed;bottom:24px;right:16px;z-index:40;max-width:min(420px,calc(100vw - 32px));margin:0;box-shadow:0 8px 28px #0b2a3640;pointer-events:none;animation:update-in .3s cubic-bezier(.2,.8,.2,1)}
 .bday{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #edf2f5}.bday input,.bday select{padding:10px 8px;min-width:0}.bday .n{flex:1 1 80px}.bday .d{flex:0 0 56px}.bday .m{flex:0 0 68px}.bday .y{flex:0 0 62px}.bday .x{flex:0 0 auto;background:transparent;color:var(--muted);padding:4px 8px;font-size:22px;line-height:1}.bday .x:hover{background:#eaf2f5}#bday-add{margin-top:14px}
-#birthdays summary{cursor:pointer;list-style:none;align-items:center;justify-content:space-between;margin-bottom:0}#birthdays summary::-webkit-details-marker{display:none}#birthdays summary::after{content:'\25B8';color:var(--muted)}#birthdays details[open] summary::after{content:'\25BE'}#birthdays details[open] summary{margin-bottom:14px}#birthdays summary h2{margin:0}#birthdays .hint-inline{float:none;margin-left:8px}
+#birthdays summary{cursor:pointer;list-style:none;align-items:center;justify-content:space-between;margin-bottom:0}#birthdays summary::-webkit-details-marker{display:none}#birthdays details[open] summary{margin-bottom:14px}#birthdays summary h2{margin:0}#birthdays .hint-inline{float:none;margin-left:8px}
 
 .ha-row{display:grid;grid-template-columns:150px 74px 1fr 90px;gap:10px;align-items:center;margin-top:10px}.ha-row label.ha-auto{display:flex;align-items:center;gap:7px;font-size:12px;margin:0}.ha-group{margin-top:26px;border-top:1px solid var(--line);padding-top:18px}.ha-group h3{font-size:14px;margin:0 0 4px}.ha-group .hint{margin:0 0 6px}.ha-two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}.ha-three{grid-template-columns:repeat(3,auto);justify-content:start;gap:14px 36px}.ha-two label{display:block;font-size:12px;font-weight:600;margin-bottom:6px}@media(max-width:650px){.ha-three{grid-template-columns:1fr}.ha-row{grid-template-columns:minmax(0,1fr) auto}.ha-row>*{min-width:0}.ha-row select{width:100%}.ha-row>.ha-entities{grid-column:1/-1}.ha-row input[type=text]{grid-column:1/-1}.ha-two{grid-template-columns:1fr}.ha-ev-row{grid-template-columns:minmax(0,1fr) auto}.ha-ev-row>div{grid-column:1/-1;min-width:0}.ha-ev-row .hint{margin:0;align-self:center}.ha-ev-row .ha-refresh{justify-self:end}}
 .ha-popup{grid-template-columns:1fr auto auto auto}.ha-popup-name{font-size:13px;font-weight:600}@media(max-width:650px){.ha-popup{grid-template-columns:1fr 1fr}.ha-popup-name{grid-column:1/-1}}
@@ -104,3 +104,20 @@ body.settings-app{background:radial-gradient(1200px 500px at 70% -10%,#dff4fc 0,
 #brightness-value,#sensor-range,#nt-out{display:none}
 .range-nums.below{flex-direction:row;flex-wrap:wrap;gap:14px;margin-top:8px;align-items:flex-start}.range-nums.below label{align-items:flex-start}.range-nums.below input{text-align:left}
 @media(max-width:800px){html,body{overflow-x:clip;max-width:100%}.sidebar{box-sizing:border-box;max-width:100%;overflow:hidden}.sidebar nav{overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}.main{min-width:0;max-width:100%;box-sizing:border-box}.card,.field,.dual,.range-row{min-width:0;max-width:100%}}
+/* Single sliders: the blue fill runs to the middle of the thumb in every browser (the native fill stops short of a wide thumb); --f (0 to 1) is kept by settings.js */
+input[type=range]{--thumb:24px;--f:0;-webkit-appearance:none;appearance:none;background:none}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:linear-gradient(#2aa8d6,#2aa8d6) 0 0/calc(var(--thumb)/2 + var(--f)*(100% - var(--thumb))) 100% no-repeat,#d3e3ea}
+input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:#d3e3ea}
+input[type=range]::-moz-range-progress{height:6px;border-radius:3px;background:#2aa8d6}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:var(--thumb);height:var(--thumb);margin-top:-9px;border-radius:50%;border:3px solid #fff;background:#1a8fb8;box-shadow:0 1px 5px #0004}
+input[type=range]::-moz-range-thumb{box-sizing:border-box;width:var(--thumb);height:var(--thumb);border-radius:50%;border:3px solid #fff;background:#1a8fb8;box-shadow:0 1px 5px #0004}
+.dual input[type=range]::-webkit-slider-runnable-track{background:none;height:28px}
+/* Collapsible sections say so: a "Show ▸" / "Hide ▾" tag at the end of the heading */
+details>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px}
+details>summary::-webkit-details-marker{display:none}
+details>summary::after{content:'Show \25B8';flex:none;font-size:12px;font-weight:600;color:var(--muted)}
+details[open]>summary::after{content:'Hide \25BE'}
+details>summary:hover::after{color:var(--ink)}
+.settings-app .card>details>summary{cursor:pointer;margin-bottom:0}
+.settings-app .card>details[open]>summary{margin-bottom:14px}
+.settings-app .card>details>summary h2{margin:0}

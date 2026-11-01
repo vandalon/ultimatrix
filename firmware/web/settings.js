@@ -18,7 +18,25 @@ function payload(withRestart) {
 }
 function message(text, error = false) { clearTimeout(noticeTimer); notice.textContent = text; notice.classList.toggle('error', error); notice.hidden = false; }
 // Every slider also gets a number field beside it for precise tuning (not submitted: no name)
+// Collapsible sections remember open or closed in this browser (each section by its id, the inner ones by their title); a link to a closed section opens it
+{
+  const keyOf = d => 'um-open-' + ((d.closest('section[id]') || {}).id || '') + '-' + (d.parentElement.matches('section') ? '' : (d.querySelector(':scope>summary') || {}).textContent);
+  const all = () => document.querySelectorAll('details');
+  for (const d of all()) {
+    try { const v = localStorage.getItem(keyOf(d)); if (v !== null) d.open = v === '1'; } catch (_) {}
+    d.addEventListener('toggle', () => { try { localStorage.setItem(keyOf(d), d.open ? '1' : '0'); } catch (_) {} });
+  }
+  const reveal = () => { const target = location.hash.length > 1 ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null; const d = target && target.querySelector(':scope>details'); if (d) d.open = true; };
+  window.addEventListener('hashchange', reveal);
+  document.addEventListener('click', event => { const link = event.target.closest('a[href^="#"]'); if (!link) return; const target = document.getElementById(link.getAttribute('href').slice(1)); const d = target && target.querySelector(':scope>details'); if (d) d.open = true; });
+  reveal();
+}
 const rangeNums = [];
+// The blue fill of a single slider follows its value (see theme.css); values set from script fire no event, so it is refreshed twice a second too
+function syncFill() { for (const r of document.querySelectorAll('input[type=range]')) { const f = (r.value - r.min) / ((r.max || 100) - r.min || 1); r.style.setProperty('--f', Math.min(1, Math.max(0, f))); } }
+document.addEventListener('input', syncFill, true);
+setInterval(syncFill, 500);
+syncFill();
 function syncNums() { for (const [range, num] of rangeNums) if (document.activeElement !== num) num.value = range.value; }
 function addRangeNums() {
   const groups = new Map();
@@ -880,7 +898,7 @@ async function initHomeAssistant() {
   const [mediaBox, mediaLabel] = haCheck('Now playing page', state.pages & 4), [devicesBox, devicesLabel] = haCheck('Device problems page', state.pages & 8), [backdropBox, backdropLabel] = haCheck('Show the album art, dimmed, behind every page', state.pages & 16), [onlineBox, onlineLabel] = haCheck('Find missing album art online', state.pages & 32), [logoBox, logoLabel] = haCheck('Radio stations: show the song\'s album art when there is one (otherwise the station logo)', state.coverFirst), [offlineBox, offlineLabel] = haCheck('Device problems page only when a device is offline', state.pages & 128), [phonoBox, phonoLabel] = haCheck('Show the Line-in source as a record player (Phono)', state.phono), [bareBox, bareLabel] = haCheck('Skip Now playing when there is no song info', state.noinfo), [exportBox, exportLabel] = haCheck('Energy page: three rows (solar by day, battery at night) and a graph that also shows the power sent out', state.export), [thinBox, thinLabel] = haCheck('Time and date at the top in thin letters (1 px) instead of fat ones (2 px)', state.thin);
   const secs = haEl('input', {type: 'number', min: 3, max: 120, value: state.pageSecs});
   const weeks = haEl('input', {type: 'number', min: 1, max: 26, value: state.weeks || 13});
-  const pages = haGroup('Pages', 'The clock starts on the Energy page and rotates between the pages you tick. A page without data is skipped: the Energy page needs its entities below, Now playing needs something playing, and Device problems lists low batteries (20% or less) and offline devices, so it only shows while there are any. Find missing album art online: when the player has no picture of its own (or one outside Home Assistant), the clock searches Deezer, then iTunes, by artist and title, and downloads the cover. This sends the artist and song name to those services. Show the station logo: a radio stream without a cover shows the logo of its station instead of the placeholder, and also when the search finds nothing. The logo is found by station name in the radio-browser.info directory and resized by wsrv.nl, which sends them the station name and your country. The album art option needs a media player under Now playing; while it plays, its cover sits at a quarter brightness behind every other page.');
+  const pages = haGroup('Pages', 'The pages rotate in the order below; a page without data is skipped. Device problems lists low batteries (20% or less) and offline devices, and only shows while there are any.');
   const pageLabels = {E: energyLabel, H: homeLabel, M: mediaLabel, D: devicesLabel};
   const pageList = haEl('div', {className: 'choice-list'});
   for (const id of [...(state.order || 'EHMD')]) {
@@ -892,15 +910,15 @@ async function initHomeAssistant() {
   }
   const pageOrder = () => [...pageList.children].map(r => r.dataset.id).join('');
   haSortable(pageList, () => pageList.dispatchEvent(new Event('change', {bubbles: true})));
-  pages.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Page order, drag to change'}), pageList), haEl('div', {className: 'field'}, backdropLabel), haEl('div', {className: 'field'}, onlineLabel), haEl('div', {className: 'field'}, logoLabel), haEl('div', {className: 'field'}, offlineLabel), haEl('div', {className: 'field'}, phonoLabel), haEl('div', {className: 'field'}, bareLabel), haEl('div', {className: 'field'}, exportLabel), haEl('div', {className: 'field'}, thinLabel), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Seconds per page'}), secs), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Energy graph: weeks of history for the expected usage'}), weeks, haEl('small', {textContent: 'The expected usage of the coming hours is the average of the same weekday over this many weeks. Days with very low usage (holidays) are ignored, but with only a few weeks a holiday can still leave too little to go on, or skew the average: use at least 8 weeks if you travel a lot. Needs a house or grid power sensor with statistics.'})));
+  pages.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Page order, drag to change'}), pageList), haEl('div', {className: 'field'}, backdropLabel), haEl('div', {className: 'field'}, onlineLabel), haEl('div', {className: 'field'}, logoLabel), haEl('div', {className: 'field'}, offlineLabel), haEl('div', {className: 'field'}, phonoLabel), haEl('div', {className: 'field'}, bareLabel), haEl('div', {className: 'field'}, exportLabel), haEl('div', {className: 'field'}, thinLabel), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Seconds per page'}), secs), haEl('div', {className: 'field'}, haEl('label', {textContent: 'Energy graph: weeks of history for the expected usage'}), weeks, haEl('small', {textContent: 'The expected usage of the coming hours is the average of the same weekday over this many weeks. Use 8 or more if you travel a lot. Needs a house or grid power sensor with statistics.'})));
   body.append(pages);
-  const playing = haGroup('Now playing', 'Pick up to four rooms (media players). The page shows the title, the artist and the album art of the first of them that is playing: drag the rooms to change the order, and is skipped when none is. Album art needs a JPEG picture from Home Assistant; other pictures show a note.');
+  const playing = haGroup('Now playing', 'Pick up to four media players (drag to change the order). The page shows the first one that is playing and is skipped when none is. Album art needs a JPEG picture from Home Assistant.');
   const rooms = haTags((state.media || []).filter(Boolean).join(','), 'Type to find a media player…', () => 'media', 400, true);
   playing.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Rooms'}), rooms));
   body.append(playing);
 
   const rows = {tiles: [], icons: []};
-  const tiles = haGroup('Tiles (up to six)', 'Choose each visible reading; set a tile to Off to hide it. The tiles that are on spread evenly over the panel, in this order, left to right. EV charge, CO₂, rain and price need a sensor entity. Rain and price show the sensor’s value without a unit suffix or conversion. While a field is empty the clock uses everything it detects in Home Assistant (grey tags; ↻ detects again): outdoor humidity reads the weather entity, price the tariff of the Energy dashboard’s grid source, and temperature and humidity are averaged. To use your own instead, type an entity or remove a grey tag; temperature, humidity, people and power tiles accept several (averaged, or added up for power).');
+  const tiles = haGroup('Tiles (up to six)', 'Choose what each tile shows, or Off to hide it. The tiles that are on spread evenly over the panel, in this order. EV charge, CO₂, rain and price need a sensor. An empty entity field uses what the clock detects (grey tags; ↻ detects again); type an entity or remove a grey tag to use your own. Temperature and humidity tiles average several entities, the power tile adds them up, and the people tile counts how many of its entities are home.');
   state.tiles.forEach(slot => {
     const type = haSelect(HA_TILES, slot.type), autoBox = {checked: slot.auto}, entity = haTags(slot.type === 7 ? '' : slot.entity, 'Type to find an entity…', () => HA_TILE_KIND[type.value] || 'sensor'), unit = haInput(slot.unit, 'unit', {maxLength: 3});
     const auto = haAutoRow(type, autoBox, entity, value => value === '11', HA_TILE_AUTO, HA_TILE_DETECT, HA_TILE_NOTE);
@@ -915,7 +933,7 @@ async function initHomeAssistant() {
   });
   body.append(tiles);
 
-  const icons = haGroup('State icons', 'Low batteries counts devices at 20% or less (or reporting low battery). Offline counts devices with unavailable entities; entities without a device count separately. Heating uses actual heating activity. Select a group to limit what is counted. Lights with your own entities counts rooms with those lights on, not individual bulbs (lights without an area are left out); while the field is empty it counts every light. An empty field uses everything detected (grey tags; ↻ detects again); type an entity or remove a grey tag to use your own. Occupied rooms counts distinct Home Assistant areas with active motion or occupancy sensors; sensors without an area are left out. Lit when something of that kind is open, running or on. Alert after: flash a message once it has been lit that many minutes (doors, windows, garage), 0 for never.');
+  const icons = haGroup('State icons', 'An icon lights when something of that kind is open, running or on. Low batteries counts devices at 20% or less, Offline counts unavailable devices. Lights and Occupied rooms count rooms (areas), not bulbs or sensors; those without an area are left out. An empty field uses what the clock detects (grey tags; ↻ detects again); type an entity or remove a grey tag to use your own. Alert after: flash a message once an icon has been lit that many minutes (doors, windows, garage), 0 for never.');
   state.icons.forEach(slot => {
     const type = haSelect(HA_ICONS, slot.type), autoBox = {checked: slot.auto}, entity = haTags(slot.entity, 'Type to find an entity…', () => HA_ICON_KIND[type.value] || 'any', 1023), alert = haEl('input', {type: 'number', min: 0, max: 240, value: slot.alertMins, title: 'Alert after (minutes)'});
     const auto = haAutoRow(type, autoBox, entity, value => value === '8', HA_ICON_AUTO, HA_ICON_DETECT, HA_ICON_NOTE, false, true);
@@ -926,7 +944,7 @@ async function initHomeAssistant() {
   });
   body.append(icons);
 
-  const energy = haGroup('Energy page', 'Your power and energy sensors (watts or kilowatts are both fine; energy meters that count for ever are fine too: the clock shows their change since midnight). Start typing to get suggestions from Home Assistant; add several sensors to a row (for example two meters) and the clock adds them up. Leave a row empty to hide it. The middle row shows solar, or the battery while the battery powers the house and there is no solar.');
+  const energy = haGroup('Energy page', 'Your power and energy sensors (watts or kilowatts; meters that count forever are fine). Type to get suggestions, or use Fill from Home Assistant. The power and energy rows can hold several sensors, which are added up; Battery charge (%) takes one. Leave a row empty to hide it. The middle row shows solar, or the battery while it powers the house and there is no solar.');
   const energyFields = [];
   const energyInputs = state.energy.map((id, index) => { const input = haTags(id, 'Type to find ' + (HA_ENERGY_KIND[index] === 'battery' ? 'a battery' : 'a ' + HA_ENERGY_KIND[index]) + ' sensor…', () => HA_ENERGY_KIND[index]); const field = haEl('div', {className: 'field'}, haEl('label', {textContent: HA_ENERGY[index]}), input); energyFields.push(field); energy.append(field); return input; });
   const detectNote = haEl('p', {className: 'hint', textContent: ''});
@@ -1001,7 +1019,7 @@ async function initHomeAssistant() {
   energy.append(haEl('div', {className: 'ha-two'}, gridLabel, batteryLabel));
   body.append(energy);
 
-  const alerts = haGroup('Alerts', 'Alarm alerts need no setup: any alarm panel that triggers shows ALARM. Washer-done alerts work independently of the state icons. Dryer and charger alerts use their state icons.');
+  const alerts = haGroup('Alerts', 'The alarm needs no setup: any alarm panel that triggers shows ALARM. Washer alerts work on their own; dryer and charger alerts use their state icons.');
   const doorbell = haInput(state.doorbell, 'binary_sensor.doorbell');
   haBindSuggest(doorbell, () => 'binary');
   alerts.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Doorbell (turns on when pressed)'}), doorbell));
@@ -1010,7 +1028,7 @@ async function initHomeAssistant() {
   alerts.append(haEl('div', {className: 'field'}, haEl('label', {textContent: 'Washer running (popup when it finishes)'}), washer));
   body.append(alerts);
 
-  const popups = haGroup('Popups', 'What each popup does. Also at night: show it through the night clock. Full brightness: light the panel fully while it is up. Flash: flash the whole panel in the popup\'s colour.');
+  const popups = haGroup('Popups', 'Also at night: show it through the night clock. Full brightness: light the panel fully while it is up. Flash: flash the whole panel in the popup\'s colour.');
   const addPopup = (label, flags) => {
     const [night, nightLabel] = haCheck('Also at night', flags & 1), [bright, brightLabel] = haCheck('Full brightness', flags & 2), [flash, flashLabel] = haCheck('Flash', flags & 4);
     const name = haEl('span', {textContent: label, className: 'ha-popup-name'});

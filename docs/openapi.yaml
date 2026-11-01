@@ -1194,7 +1194,7 @@ components:
         sportsLead: { type: integer, description: 'Minutes before the start at which the clock switches to the sport' }
         sportsOthers: { type: boolean, description: 'Football: also switch for your favourite teams matches in competitions you do not follow (cups for example)' }
         sportsRacing: { type: boolean, description: 'Which F1 and MotoGP sessions switch the clock: 0 qualifying and races, 1 races only, 2 every session' }
-        sportsFav: { type: boolean, description: 'Football: switch only for your favourite teams. Off = every match in the competitions you follow' }
+        sportsFav: { type: boolean, description: 'Football, NBA, MLB and NFL: switch only for your favourite teams. Off = every game in the competitions you follow' }
         sportsMax: { type: integer, description: 'Maximum automatic switches into a sport per day' }
         sportsHold: { type: integer, description: 'Minutes the clock stays on a sport after it finished (end of the session or full time) before it goes home. 0 = at once' }
         sportsBridge: { type: integer, description: 'Minutes: when the same sport has another session starting within this time after one ends (for example FP1 and FP2) the clock stays. 0 = off' }
