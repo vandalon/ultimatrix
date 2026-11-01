@@ -43,6 +43,7 @@ class F1LiveState {
     int lap() const { return _lap; }
     int totalLaps() const { return _totalLaps; }
     int part() const { return _part; }  // qualifying: which part, 0 when not known
+    bool started() const { return _started; }  // the session's own status says it is running now (not yet over)
     bool finished() const { return _finished; }  // the session's own status says it is over: the chequered flag is out
     long finishedUtc() const { return _finishedUtc; }  // timestamp of the chequered flag, recovered from SessionData
     char flag() const { return _flag; }  // 'y' yellow, 's' safety car, 'v' virtual safety car, 'r' red, 0 clear
@@ -95,6 +96,7 @@ class F1LiveState {
     int _lap = 0, _totalLaps = 0, _part = 0;
     char _flag = 0;
     bool _finished = false;
+    bool _started = false;
     long _finishedUtc = 0;
     char _statusIndex[JsonScan::KEY] = "";
     long _statusUtc = 0;

@@ -6,6 +6,7 @@
 #include <BoldFont.h>
 #include <FaceKit.h>
 #include <MiniFont.h>
+#include <TramDot.h>
 #include <math.h>
 #include <string.h>
 #include <strings.h>
@@ -294,14 +295,14 @@ float gameProgress(const nba::Game &g) {
 void header(MatrixPanel_I2S_DMA &d, ClockTime *time, uint32_t ms, bool live, const char *label = "NBA") {
   char text[8];
   clockText(time, text, sizeof(text));
-  textThin(d, label, 2, 2, kOrange);  // the thin 5x7 capitals, one pixel clear of the favourite bar on the left edge
+  tramText(d, label, strlen(label) > 3 ? 0 : 2, 2, kOrange);  // TramDot, one pixel clear of the favourite bar on the left edge (a long label sits at the edge)
   // the label against the left edge and the time against the right (1 px margin), in the alternative number font at 6x10 (the colon two
   // dots, with two empty columns on each side)
   int width = 0;
   for (const char *c = text; *c; c++) width += *c == ':' ? 5 : 7;
   int x = W - width;  // the last digit's trailing gap is the margin
   if (live) {  // the red dot in the middle of the space between the label and the time
-    const int labelEnd = 2 + widthThin(label);
+    const int labelEnd = (strlen(label) > 3 ? 0 : 2) + tramWidth(label);
     box(d, labelEnd + (x - labelEnd - 3) / 2, 4, 3, 3, pulse(kRed, ms, 2000, 60));
   }
   for (const char *c = text; *c; c++) {
@@ -500,7 +501,7 @@ void drawGame(MatrixPanel_I2S_DMA &d, const nba::Game &g, ClockTime *time, uint3
     const bool leads = isHome ? home : away;
     if (flash) box(d, 3, y, W - 3, 18, dim(colour, 60 + (int)(40 * sinf(ms * 0.02f))));
     box(d, 0, y, 3, 18, colour);
-    textThin(d, isHome ? g.home : g.away, 5, y + 1, g.state == nba::Pre || leads || flash ? kText : kMid);
+    tramText(d, isHome ? g.home : g.away, 5, y + 1, g.state == nba::Pre || leads || flash ? kText : kMid);
     if (g.state == nba::Pre) {
       miniText(d, isHome ? g.homeRecord : g.awayRecord, 5, y + 11, kDim);
     } else {
@@ -571,9 +572,9 @@ void drawQuarters(MatrixPanel_I2S_DMA &d, const nba::Game &g, ClockTime *time, u
   const int top = roomy ? 24 : 22;
   if (roomy) {
     box(d, 0, 14, 2, 9, g.awayColor);
-    textThin(d, g.away, 4, 14, g.awayColor);
+    tramText(d, g.away, 3, 15, g.awayColor);
     box(d, 33, 14, 2, 9, g.homeColor);
-    textThin(d, g.home, 37, 14, g.homeColor);
+    tramText(d, g.home, 37, 15, g.homeColor);
   } else {
     box(d, 0, 15, 2, 5, g.awayColor);
     miniText(d, g.away, 4, 15, g.awayColor);
@@ -802,10 +803,10 @@ void drawUpcoming(MatrixPanel_I2S_DMA &d, const nba::Snapshot &snap, const char 
     if (changes && inTable < 200) {
       const float p = inTable / 200.0f, e = p * p * (3 - 2 * p);
       const int offset = (int)lroundf((kDividerX - 2) * e);
-      clipText(d, rankEast(snap, was) ? "EAST" : "WEST", 1 - offset, kRankTop - 1, kPastel, 0, kDividerX);
-      clipText(d, rankEast(snap, now) ? "EAST" : "WEST", 1 + (kDividerX - 2) - offset, kRankTop - 1, kPastel, 0, kDividerX);
+      tramText(d, rankEast(snap, was) ? "EAST" : "WEST", 1 - offset, kRankTop - 3, kPastel, 0, kDividerX);
+      tramText(d, rankEast(snap, now) ? "EAST" : "WEST", 1 + (kDividerX - 2) - offset, kRankTop - 3, kPastel, 0, kDividerX);
     } else {
-      clipText(d, rankEast(snap, now) ? "EAST" : "WEST", 1, kRankTop - 1, kPastel, 0, kDividerX);
+      tramText(d, rankEast(snap, now) ? "EAST" : "WEST", 1, kRankTop - 3, kPastel, 0, kDividerX);
     }
     box(d, 0, kRankTop + 5, kDividerX, 1, rgb(24, 20, 24));  // a line between the title and the rows
     if (slidingRows) {
@@ -874,12 +875,10 @@ void drawClock(MatrixPanel_I2S_DMA &d, ClockTime *time, uint32_t ms, const char 
     static const char *const months[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
     // thin 5x9 capitals and digits, both lines against the right edge (1 px margin)
     const char *weekday = days[local.tm_wday % 7], *month = months[local.tm_mon % 12];
-    textThin(d, weekday, W - 1 - widthThin(weekday), 2, kOrange);
-    char day[4];
-    snprintf(day, sizeof(day), "%d", local.tm_mday);
-    const int dayWidth = widthThin(day), dateWidth = dayWidth + 3 + widthThin(month), left = W - 1 - dateWidth;
-    textThin(d, day, left, 13, kMid);
-    textThin(d, month, left + dayWidth + 3, 13, kMid);
+    tramText(d, weekday, W - tramWidth(weekday), 3, kOrange);
+    char date[12];
+    snprintf(date, sizeof(date), "%d %s", local.tm_mday, month);
+    tramText(d, date, W - tramWidth(date), 14, kMid);
   }
   // The ball plays thirteen rounds in turn. Most dribble in from the left (steady, crossing over, slowly, rolling or in small hops), shoot
   // from a different spot and arc each time, and either drop through the net or hit the rim; the bounces get lower and quicker, and it
@@ -1061,7 +1060,7 @@ void drawBasket(MatrixPanel_I2S_DMA &d, const nba::Game &g, bool home, int point
   }
   // the team and its new score, the other side small
   const int baseY = 44;
-  textThin(d, abbr, 3, baseY + 2, colour);  // the thin 5x9 capitals, centred on the score
+  tramText(d, abbr, 3, baseY + 3, colour);  // the thin 5x9 capitals, centred on the score
   // the score: the old one until the ball goes in, then it rolls up into the new one
   if (t < flight || points <= 0) {
     scoreRows(d, score - points, W - 3, baseY - 2, 0, dim(kText, 120));
@@ -1074,7 +1073,7 @@ void drawBasket(MatrixPanel_I2S_DMA &d, const nba::Game &g, bool home, int point
   }
   char other[16];
   snprintf(other, sizeof(other), "%s %d", home ? g.away : g.home, otherScore);
-  miniText(d, other, 4, 58, kDim);
+  tramText(d, other, 4, 55, kDim);
 }
 
 }  // namespace nbaview

@@ -56,6 +56,11 @@ bool F1Live::fresh() {
   return _lastData && millis() - _lastData <= FRESH_MS && _state.hasOrder();
 }
 
+bool F1Live::onAir() {
+  std::lock_guard<std::mutex> guard(_lock);
+  return _lastData && millis() - _lastData <= FRESH_MS && _state.started() && !_state.finished();
+}
+
 bool F1Live::get(char tag, F1LiveState::Row *rows, int &count, int &lap, int &totalLaps, char &flag, bool &finished, long &finishedUtc, bool intervals) {
   std::lock_guard<std::mutex> guard(_lock);
   if (!_lastData || millis() - _lastData > FRESH_MS || !_state.hasOrder()) return false;
@@ -341,6 +346,7 @@ void F1Live::run() {
   unsigned long unwantedSince = 0;
   unsigned clockSeen = 0;
   uint32_t shownHash = 0;
+  int partSeen = 0;
   while (!stream.failed) {
     f1At("live parse");
     bool data = _state.applyStream(WsStream::nextChar, &stream, &_lock);
@@ -353,6 +359,10 @@ void F1Live::run() {
       if (shown != shownHash) {
         shownHash = shown;
         _updates++;
+      }
+      if (_state.part() != partSeen) {
+        partSeen = _state.part();
+        liveLog("[F1 live] qualifying part %d\n", partSeen);
       }
       if (_state.clockMessages() != clockSeen) {
         clockSeen = _state.clockMessages();

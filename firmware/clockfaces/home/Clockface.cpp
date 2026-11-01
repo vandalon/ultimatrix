@@ -688,7 +688,7 @@ void Clockface::fillMedia(Frame &frame, uint32_t now) {
   }
   const uint16_t *cover = nullptr;
   uint16_t id = 0;
-  if (ha::media::art(p, (ha::config().pages & ha::PAGE_ART_ONLINE) != 0, (ha::config().pages & ha::PAGE_STATION_LOGO) != 0, &cover, &id) == ha::media::ART_READY) { frame.art = cover; frame.artVersion = id; }
+  if (ha::media::art(p, (ha::config().pages & ha::PAGE_ART_ONLINE) != 0, true, &cover, &id) == ha::media::ART_READY) { frame.art = cover; frame.artVersion = id; }
   // Nothing to show but the player's source (a Sonos on its TV input, Line-in...): a picture for it, or its name, and no text bars
   if (!frame.art && p.source[0] && !p.artist[0] && !p.station[0] && (!p.title[0] || !strcasecmp(p.title, p.source))) {
     strlcpy(frame.source, p.source, sizeof(frame.source));
@@ -803,7 +803,7 @@ void Clockface::update() {
     if ((ha::config().pages & ha::PAGE_ART_BACKDROP) && frame.page != SCREEN_MEDIA && _media.count) {
       const uint16_t *cover = nullptr;
       uint16_t id = 0;
-      if (ha::media::art(_media.player[0], (ha::config().pages & ha::PAGE_ART_ONLINE) != 0, (ha::config().pages & ha::PAGE_STATION_LOGO) != 0, &cover, &id) == ha::media::ART_READY) { frame.art = cover; frame.artVersion = id; frame.backdrop = 1; }
+      if (ha::media::art(_media.player[0], (ha::config().pages & ha::PAGE_ART_ONLINE) != 0, true, &cover, &id) == ha::media::ART_READY) { frame.art = cover; frame.artVersion = id; frame.backdrop = 1; }
     }
     if (_alert != ALERT_NONE) {
       frame.alert = _alert;

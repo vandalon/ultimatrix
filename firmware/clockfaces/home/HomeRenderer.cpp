@@ -689,6 +689,12 @@ bool scaleLabel(MatrixPanel_I2S_DMA &d, const Frame &f, int top, int strip, cons
     if (dry) return true;
     const uint16_t color = rgb(46, 54, 70);
     int x = f.scaleSpot == SCALE_RIGHT ? 64 - width : f.scaleSpot == SCALE_LEFT ? 0 : (64 - width) / 2;
+    auto freeAt = [&](int x0) {  // the text and a pixel of room to its inner side are clear of the bars
+      for (int y = top; y < top + h; y++) for (int xx = x0 - 1; xx <= x0 + width; xx++) if (busy(xx, y)) return false;
+      return true;
+    };
+    if (f.scaleSpot == SCALE_RIGHT && freeAt(63 - width)) x = 63 - width;  // a pixel away from the side border when there is room
+    else if (f.scaleSpot == SCALE_LEFT && freeAt(1)) x = 1;
     for (int g = 0; g < n; g++) {
       const int gw = (int)strlen(glyph[g][0]);
       for (int y = 0; y < h; y++) for (int xx = 0; xx < gw; xx++) if (glyph[g][y][xx] == '#') box(d, x + xx, top + y, 1, 1, color);
@@ -721,6 +727,8 @@ bool scaleLabel(MatrixPanel_I2S_DMA &d, const Frame &f, int top, int strip, cons
   }
   if (px < 0) return false;
   if (dry) return true;
+  if (px == 0 && fits(1, py)) px = 1;  // a pixel away from the side border when there is room
+  else if (px == 64 - width && fits(63 - width, py)) px = 63 - width;
   const uint16_t color = rgb(46, 54, 70);
   int x = px;
   for (int g = 0; g < n; g++) {

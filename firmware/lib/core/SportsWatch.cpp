@@ -146,14 +146,18 @@ struct BoardScan {
   }
 };
 
-// A team's next match: ESPN soccer/all/teams/<id>
+// A team's coming matches: ESPN soccer/all/teams/<id>/schedule?fixture=true. Unlike team.nextEvent it keeps the match that is
+// on (state "in") until it is over, so a match already running is seen on the first read
 struct TeamScan {
-  char date[24] = "", state[8] = "", name[14] = "";
+  struct Match { char date[24] = "", state[8] = "", name[14] = ""; } m[2];
   static void leaf(void *sink, const char (*path)[JsonScan::KEY], int n, const char *value, bool) {
     TeamScan &s = *(TeamScan *)sink;
-    if (jsonPathIs(path, n, "team.nextEvent.0.date")) strlcpy(s.date, value, sizeof(s.date));
-    else if (jsonPathIs(path, n, "team.nextEvent.0.competitions.0.status.type.state")) strlcpy(s.state, value, sizeof(s.state));
-    else if (jsonPathIs(path, n, "team.nextEvent.0.shortName")) strlcpy(s.name, value, sizeof(s.name));
+    if (n < 3 || strcmp(path[0], "events")) return;
+    const int k = atoi(path[1]);
+    if (k < 0 || k >= 2) return;
+    if (jsonPathIs(path, n, "events.*.date")) strlcpy(s.m[k].date, value, sizeof(s.m[k].date));
+    else if (jsonPathIs(path, n, "events.*.competitions.0.status.type.state")) strlcpy(s.m[k].state, value, sizeof(s.m[k].state));
+    else if (jsonPathIs(path, n, "events.*.shortName")) strlcpy(s.m[k].name, value, sizeof(s.m[k].name));
   }
 };
 
@@ -502,7 +506,7 @@ time_t SportsWatch::refreshFootball(const Config &cfg, time_t now) {
     }
   }
   if (cfg.othersFav && anyTeam) {  // favourites playing where no followed league lists them (cups, friendlies): ask per team
-    char url[96];
+    char url[128];
     int index = 0;
     for (const char *p = teams + 1; *p && index < 6; ++index) {
       char id[12];
@@ -512,12 +516,14 @@ time_t SportsWatch::refreshFootball(const Config &cfg, time_t now) {
       p += n + 1;
       if (!n) { --index; continue; }
       TeamScan scan;
-      snprintf(url, sizeof(url), "http://site.api.espn.com/apis/site/v2/sports/soccer/all/teams/%s", id);
+      snprintf(url, sizeof(url), "http://site.api.espn.com/apis/site/v2/sports/soccer/all/teams/%s/schedule?fixture=true", id);
       if (!get(url, TeamScan::leaf, &scan)) return kRetry;
-      const time_t start = parseEspnDate(scan.date);
-      if (start && start != _favStart[index] && _favStart[index] + 150 * 60 > now) addEvent(found, _favStart[index], 150 * 60, false, scan.name);  // ESPN moved on at kick-off
-      _favStart[index] = start;
-      if (start && strcmp(scan.state, "post")) { addEvent(found, start, 150 * 60, !strcmp(scan.state, "in"), scan.name); ahead = true; }
+      for (const auto &m : scan.m) {
+        const time_t start = parseEspnDate(m.date);
+        if (!start || !strcmp(m.state, "post")) continue;
+        addEvent(found, start, 150 * 60, !strcmp(m.state, "in"), m.name);
+        ahead = true;
+      }
     }
   }
   if (!ahead && !cfg.favouritesOnly) {  // a break: the boards show no coming match. Ask for the next four weeks, now and then

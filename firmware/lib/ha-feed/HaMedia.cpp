@@ -493,7 +493,7 @@ void fetchTask(void *) {
     else if (picture[0] == '~') ok = stationLogo(picture + 1, pixels);  // "~station": nothing but the station to go on
     else if (picture[0] == '?') ok = lookup(picture + 1, pixels);  // "?artist|title": no picture of its own, search for one
     else ok = downloadPublic(picture, pixels);
-    if (!ok && picture[0] != '?' && query[0]) {  // the player's own picture is missing, wrong or not a baseline JPEG: search for the cover
+    if (!ok && picture[0] != '?' && query[0]) {  // the player's own picture (or the station's logo) is missing, wrong or not a baseline JPEG: search for the cover
       consoleLog("[HA] album art: picture failed, searching %.40s\n", query);
       ok = lookup(query, pixels);
     }
@@ -729,7 +729,8 @@ ArtState art(const Player &player, bool online, bool logo, const uint16_t **pixe
   char key[kPicture];  // what the cover is cached under: the picture, or "?artist|title" for one found online
   const bool home = picture[0] == '/';
   const bool outside = !strncmp(picture, "http://", 7) || !strncmp(picture, "https://", 8);
-  if (home || (outside && online)) strlcpy(key, picture, sizeof(key));
+  if (logo && player.station[0] && !radioCoverFirst()) snprintf(key, sizeof(key), "~%s", player.station);  // a radio station: its logo, the track's cover only when no logo is found (unless the cover is preferred)
+  else if (home || (outside && online)) strlcpy(key, picture, sizeof(key));
   else if (online && player.artist[0] && player.title[0]) snprintf(key, sizeof(key), "?%s|%s", player.artist, player.title);
   else if (logo && player.station[0]) snprintf(key, sizeof(key), "~%s", player.station);  // no cover to be had: the station's logo
   else {

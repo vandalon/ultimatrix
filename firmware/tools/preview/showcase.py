@@ -131,7 +131,7 @@ def render(face, work):
     command = [os.environ.get("CXX", "c++"), "-std=c++17", "-O2", "-DARDUINO=100", "-w"]
     command += {"f1": ["-DSHOWCASE_F1", "-DUM_PIXEL_DEPTH_BITS=8"], "motogp": ["-DSHOWCASE_F1", "-DUM_MOTOGP", "-DUM_PIXEL_DEPTH_BITS=8"],
                 "tetris": ["-DSHOWCASE_TETRIS"]}.get(face, ["-DUM_FOOTBALL_ONLY"])
-    for include in (HERE / "shim", work / face if face == "motogp" else work, gfx, folder, library, FIRMWARE / "lib/motogp-feed", common):
+    for include in (HERE / "shim", work / face if face == "motogp" else work, gfx, folder, library, FIRMWARE / "lib/motogp-feed", FIRMWARE / "lib/faces", common):
         command += ["-I", str(include)]
     command += [str(HERE / "showcase.cpp"), str(folder / "Clockface.cpp"), str(gfx / "Adafruit_GFX.cpp")]
     if face in ("f1", "motogp"):

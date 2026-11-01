@@ -69,7 +69,8 @@ bool F1Screens::advance(const ScreenInputs &in, F1Screen &viewOut, int &pageOut)
   } else if (snap.last.valid && snap.last.id != endId) {
     endId = snap.last.id;
     int minutes = snap.last.tag == 'R' ? 120 : snap.last.tag == 'S' ? 40 : snap.last.name[0] == 'S' ? 45 : 60;
-    endUtc = wasLive ? nowUtc : snap.last.start + minutes * 60;
+    time_t guessed = snap.last.start + minutes * 60;
+    endUtc = wasLive && nowUtc < guessed ? nowUtc : guessed;  // a feed that replays after a reboot must not restart the window
     wasLive = false;
   }
   bool resultsOn = false;
@@ -87,7 +88,10 @@ bool F1Screens::advance(const ScreenInputs &in, F1Screen &viewOut, int &pageOut)
   int page = view != LIVE && (shortPanel() || view == BETWEEN || view == LIST) ? scene.page(millis(), pageMs()) : 0;
   if (view == BETWEEN && !shortPanel()) {
     int others = filledRows(snap.last) - 1;
-    page = others > 4 ? page % ((others + 3) / 4) : 0;  // four places at a time; the key only changes with the page
+    int pages = others > 4 ? (others + 3) / 4 : 1;  // four places at a time; the key only changes with the page
+    if (snap.standingsCount >= 3) pages++;  // and the championship after the last of them
+    page = page % pages;
+    if (snap.standingsCount >= 3 && page == pages - 1) page = -1;  // -1: the championship page
   }
   if (view == LIST && qualiList(snap.last)) page = (scene.page(millis(), pageMs())) % scrollPages(snap.last);
   else if (view == LIST) {

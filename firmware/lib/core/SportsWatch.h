@@ -49,6 +49,5 @@ class SportsWatch {
     sportsplan::Events _wide;  // football: the next matches of the followed leagues when the board shows none, read at most every 6 hours
     time_t _wideAt = 0;
     struct Season { time_t at = 0, tried = 0; char name[20] = ""; } _season[sportsplan::SPORTS];  // the next season's first event, looked up every 12 hours while nothing is coming
-    time_t _favStart[6] = {};  // each favourite's last seen next match: ESPN moves on to the following match at kick-off, this keeps the one that is on
     volatile bool _running = false, _stop = true, _dirty = true;  // stopped until a sport is chosen
 };

@@ -324,11 +324,40 @@ bool HaClient::session(uint32_t version) {
   int predictedDay = -1, predictedNextDay = -1, forecastDay = -1;
   uint32_t lastPredict = 0, lastForecast = 0, forecastId = 0, lastPeak = 0, peakId = 0;
   int peakDay = -1;
-  // Last year's daily usage, to see how the usage moves from the last weeks to the coming ones at this time of year
-  uint32_t yearId = 0, yearFirst = 0;
-  bool yearDue = false;
-  int yearDay = -1, yearCount = 0;
-  char yearIds[kHistoryAsks][ha::kEntity] = {};
+  // Last year's weekly usage (one statistic at a time), to bring each earlier week to today's season level: airco weeks of the summer count less in the autumn
+  constexpr int kSeasonDays = 7 * (kMaxWeeks + 2) + 14;
+  struct SeasonData { float sum[kSeasonDays], one[kSeasonDays]; bool have[kSeasonDays]; char ids[kHistoryAsks][ha::kEntity], ask[420]; float sign[kHistoryAsks]; };  // all on the heap: the task's stack is small
+  std::unique_ptr<SeasonData> season;
+  uint32_t seasonId = 0, seasonFirst = 0, seasonAt = 0;
+  int seasonDay = -1, seasonTried = -1, seasonIdx = 0, seasonCount = 0;  // seasonDay: the day the data is for
+  auto askSeason = [&]() {  // the weekly mean of statistic seasonIdx, from just over the longest history back, a year ago
+    const time_t from = time(nullptr) - (365 + 7 * (kMaxWeeks + 2)) * 86400, to = from + (time_t)kSeasonDays * 86400;
+    struct tm a, b;
+    gmtime_r(&from, &a);
+    gmtime_r(&to, &b);
+    seasonFirst = (uint32_t)(from / 86400 * 86400);
+    char *ask = season->ask;
+    snprintf(ask, sizeof(season->ask), "{\"id\":%u,\"type\":\"recorder/statistics_during_period\",\"start_time\":\"%04d-%02d-%02dT00:00:00+00:00\",\"end_time\":\"%04d-%02d-%02dT00:00:00+00:00\",\"period\":\"week\",\"types\":[\"mean\"],\"units\":{\"power\":\"kW\"},\"statistic_ids\":[\"%s\"]}",
+             (unsigned)(seasonId = ++lastId), a.tm_year + 1900, a.tm_mon + 1, a.tm_mday, b.tm_year + 1900, b.tm_mon + 1, b.tm_mday, season->ids[seasonIdx]);
+    seasonAt = millis();
+    consoleLog("[HA] season: asking for %s\n", season->ids[seasonIdx]);
+    socket.text(ask);
+  };
+  // The usage level of last year's week around the day that was `secsBack` before now (-1: no data)
+  auto seasonLevel = [&](time_t secsBack) -> float {
+    if (!season || seasonDay < 0) return -1.f;
+    const long idx = (long)((time(nullptr) - secsBack - 365 * 86400 - seasonFirst) / 86400);
+    for (int k = 0; k < 7; k++) {
+      const long i = idx - k;
+      if (i < 0 || i >= kSeasonDays || !season->have[i]) continue;
+      float v[3] = {season->sum[i]};  // the middle of this week and its neighbours, so one odd week (a holiday, an outage) does not swing the factor
+      int n = 1;
+      for (const long j : {i - 7, i + 7}) if (j >= 0 && j < kSeasonDays && season->have[j]) v[n++] = season->sum[j];
+      if (n == 3) return fmaxf(fminf(v[0], v[1]), fminf(fmaxf(v[0], v[1]), v[2]));
+      return n == 2 ? (v[0] + v[1]) / 2 : v[0];
+    }
+    return -1.f;
+  };
   char peakIds[kHistoryAsks][ha::kEntity] = {};
   int peakCount = 0;
   // All meters of a field added up: use (the house, or what grid, solar and battery deliver together) and solar
@@ -520,8 +549,28 @@ bool HaClient::session(uint32_t version) {
         historyAsked = true;
         lastHistory = millis();
       }
+      // Last year's weekly usage first, once a day
+      if (seasonId && millis() - seasonAt > 20000) { seasonId = 0; consoleLog("[HA] season: no answer\n"); }  // go on without it
+      if (live && !hist && !weekAsk && !seasonId && time(nullptr) > 1700000000 && seasonTried != dayKey(time(nullptr)) &&
+          (predictedDay != dayKey(time(nullptr)) || predictedNextDay != dayKey(time(nullptr)))) {
+        seasonTried = dayKey(time(nullptr));
+        seasonCount = 0;
+        season.reset(new (std::nothrow) SeasonData{});
+        if (season) {  // the house sensor, or without one what the grid, the solar panels and the battery deliver together (weekly means add up the same way)
+          const bool house = config->energy[ha::E_USAGE][0];
+          const int groups[3] = {house ? ha::E_USAGE : ha::E_GRID, ha::E_SOLAR, ha::E_BATTERY};
+          const float signs[3] = {house ? 1.f : (config->gridImportPositive ? 1.f : -1.f), 1.f, config->batteryDischargePositive ? 1.f : -1.f};
+          for (int g = 0; g < (house ? 1 : 3); g++)
+            for (const char *list = config->energy[groups[g]]; seasonCount < kHistoryAsks && ha::nextListed(list, season->ids[seasonCount], ha::kEntity);) season->sign[seasonCount++] = signs[g];
+        }
+        if (!seasonCount) season.reset();
+        if (!season) consoleLog("[HA] season: no usage statistics or no memory\n");
+        seasonDay = -1;
+        seasonIdx = 0;
+        if (season) askSeason();
+      }
       // The expected usage of today: the same weekday of the last weeks, once a day, one week at a time
-      if (live && !hist && !weekAsk && time(nullptr) > 1700000000 && (!lastPredict || millis() - lastPredict >= 600000) &&
+      if (live && !hist && !weekAsk && !seasonId && seasonTried == dayKey(time(nullptr)) && time(nullptr) > 1700000000 && (!lastPredict || millis() - lastPredict >= 600000) &&
           (config->energy[ha::E_USAGE][0] || config->energy[ha::E_GRID][0]) && (predictedDay != dayKey(time(nullptr)) || predictedNextDay != dayKey(time(nullptr)))) {
         lastPredict = millis();
         std::unique_ptr<WeekAsk> next(new (std::nothrow) WeekAsk{});
@@ -565,29 +614,6 @@ bool HaClient::session(uint32_t version) {
           if (peakCount) socket.text(ask.get()); else peakId = 0;
         } else {
           peakId = 0;
-        }
-      }
-      // Last year's daily usage from 4 weeks before this day to 2 weeks after it, once the prediction is in
-      if (live && yearDue && !yearId && !weekAsk) {
-        yearDue = false;
-        std::unique_ptr<char[]> ask(new (std::nothrow) char[900]);
-        if (ask) {
-          const time_t from = time(nullptr) - (365 + 28) * 86400, to = from + 42 * 86400;
-          struct tm a, b;
-          gmtime_r(&from, &a);
-          gmtime_r(&to, &b);
-          yearFirst = (uint32_t)(from / 86400 * 86400);
-          yearDay = dayKey(time(nullptr));
-          int at = snprintf(ask.get(), 900, "{\"id\":%u,\"type\":\"recorder/statistics_during_period\",\"start_time\":\"%04d-%02d-%02dT00:00:00+00:00\",\"end_time\":\"%04d-%02d-%02dT00:00:00+00:00\",\"period\":\"day\",\"types\":[\"mean\"],\"units\":{\"power\":\"kW\"},\"statistic_ids\":[",
-                            (unsigned)(yearId = ++lastId), a.tm_year + 1900, a.tm_mon + 1, a.tm_mday, b.tm_year + 1900, b.tm_mon + 1, b.tm_mday);
-          yearCount = 0;
-          char id[ha::kEntity];
-          for (const char *list = config->energy[ha::E_USAGE]; ha::nextListed(list, id, sizeof(id)) && yearCount < kHistoryAsks && at < 800;) {
-            strlcpy(yearIds[yearCount], id, ha::kEntity);
-            at += snprintf(ask.get() + at, 900 - at, "%s\"%s\"", yearCount++ ? "," : "", id);
-          }
-          snprintf(ask.get() + at, 900 - at, "]}");
-          if (yearCount) socket.text(ask.get()); else yearId = 0;
         }
       }
       // The solar forecast of the Energy dashboard, when there are solar panels
@@ -713,6 +739,16 @@ bool HaClient::session(uint32_t version) {
           // Days with very low usage are left out as well: below 60% of what the busier half of the days used
           float total[kMaxWeeks];
           int days = w.good;
+          {  // each earlier day to today's season level, by how last year's weeks compare (the airco of the summer does not count in the autumn)
+            const float now = seasonLevel((time_t)-w.shift * 86400);
+            for (int k = 0; k < days && now > 0; k++) {
+              const float then = seasonLevel((time_t)(7 * (w.age[k] + 1) - w.shift) * 86400);
+              if (then <= 0) continue;
+              const float factor = fminf(2.5f, fmaxf(0.4f, now / then));
+              for (int i = 0; i < ha::kHistoryBars; i++) w.use[k][i] *= factor;
+              consoleLog("[HA] season: week %d x%.2f\n", w.age[k] + 1, factor);
+            }
+          }
           for (int k = 0; k < days; k++) {
             float sum = 0;
             for (int i = 0; i < ha::kHistoryBars; i++) if (w.mask[k] >> i & 1) sum += w.use[k][i];
@@ -742,6 +778,14 @@ bool HaClient::session(uint32_t version) {
           consoleLog("[HA] prediction: %d usable days, %d kept, %s\n", days, kept, mask ? "ready" : "not enough");
           const int forDay = w.day;
           const bool tomorrow = w.shift != 0;
+          float ahead = 1.f;  // today only: how last year's level moved from this week to the next two (the season turning), from the same weekly levels
+          if (!tomorrow) {
+            const float here = seasonLevel(0), next = seasonLevel(-3 * 86400), later = seasonLevel(-10 * 86400);
+            if (here > 0 && next > 0 && later > 0) {
+              ahead = fminf(1.25f, fmaxf(0.8f, (next + later) / 2 / here));
+              consoleLog("[HA] season: ahead x%.2f\n", ahead);
+            }
+          }
           weekAsk.reset();
           std::lock_guard<std::mutex> guard(_lock);
           if (tomorrow) {  // the coming day: no level correction or yearly trend, just the usual weekday
@@ -756,37 +800,27 @@ bool HaClient::session(uint32_t version) {
             predictedDay = forDay;
             lastPredict = 0;  // tomorrow follows at once
             memcpy(_outlook.use, mean, sizeof(mean));
+            if (ahead != 1.f) for (float &v : _outlook.use) v *= ahead;
             memcpy(_outlook.out, sent, sizeof(sent));
             _outlook.outMask = sentMask;
             _outlook.useMask = mask; _outlook.useDay = forDay; _outlook.useDays = (uint32_t)kept;
             _outlookVersion++;
-            yearDue = mask != 0;  // then last year's trend
           }
         }
       }
-    } else if (yearId && (uint32_t)idOf(text) == yearId) {  // last year's daily usage: how much the usage moves from the last 4 weeks to the coming 2
-      yearId = 0;
-      if (!strstr(text, "\"success\":false")) {
-        float sum[42] = {};
-        int have[42] = {};
-        for (int k = 0; k < yearCount; k++) {
-          float one[42];
-          for (float &v : one) v = -1.f;
-          ha::parseDaily(text, yearIds[k], yearFirst, 42, one);
-          for (int i = 0; i < 42; i++) if (one[i] >= 0) { sum[i] += one[i]; have[i]++; }
-        }
-        float before = 0, after = 0;
-        int nb = 0, na = 0;
-        for (int i = 0; i < 28; i++) if (have[i]) { before += sum[i]; nb++; }
-        for (int i = 28; i < 42; i++) if (have[i]) { after += sum[i]; na++; }
-        if (nb >= 14 && na >= 7 && before > 0) {
-          const float ratio = fminf(1.25f, fmaxf(0.8f, (after / na) / (before / nb)));
-          std::lock_guard<std::mutex> guard(_lock);
-          if (_outlook.useDay == yearDay) {
-            for (int i = 0; i < ha::kHistoryBars; i++) _outlook.use[i] *= ratio;
-            _outlookVersion++;
-          }
-        }
+    } else if (seasonId && (uint32_t)idOf(text) == seasonId) {  // one statistic of last year's weekly usage
+      seasonId = 0;
+      consoleLog("[HA] season: answer %s\n", strstr(text, "\"success\":false") ? "failed" : "ok");
+      if (season && !strstr(text, "\"success\":false")) {
+        float *one = season->one;
+        for (int i = 0; i < kSeasonDays; i++) one[i] = -1.f;
+        ha::parseDaily(text, season->ids[seasonIdx], seasonFirst, kSeasonDays, one);
+        for (int i = 0; i < kSeasonDays; i++) if (one[i] >= 0) { season->sum[i] += season->sign[seasonIdx] * one[i]; season->have[i] = true; }
+      }
+      if (season && ++seasonIdx < seasonCount) askSeason();
+      else if (season) {
+        seasonDay = dayKey(time(nullptr));
+        consoleLog("[HA] season: last year's weekly usage read\n");
       }
     } else if (peakId && (uint32_t)idOf(text) == peakId) {  // the monthly maxima of the house sensor(s)
       peakId = 0;

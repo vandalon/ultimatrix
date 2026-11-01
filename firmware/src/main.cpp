@@ -101,13 +101,16 @@ static bool hiddenWifiSaved() {
 // True when no network is saved yet (the normal first start) or the saved name shows up in a scan; the pulse keeps going meanwhile.
 static bool savedNetworkVisible() {
   WiFi.mode(WIFI_STA);
-  const String saved = WiFi.SSID();
+  wifi_config_t conf = {};  // WiFi.SSID() is empty until a connection starts, the stored config is not
+  const String saved = esp_wifi_get_config(WIFI_IF_STA, &conf) == ESP_OK ? String((const char *)conf.sta.ssid) : String();
+  consoleLog("[WiFi] Saved network \"%s\"\n", saved.c_str());
   if (saved.isEmpty()) return true;
   for (int attempt = 0; attempt < 2; attempt++) {  // twice: one scan can miss a network that is there
     WiFi.scanNetworks(true);
     uint32_t until = millis() + 8000;
     while (WiFi.scanComplete() == WIFI_SCAN_RUNNING && (int32_t)(millis() - until) < 0) { bootTick(); delay(20); }
     const int found = WiFi.scanComplete();
+    consoleLog("[WiFi] Scan %d found %d networks\n", attempt + 1, found);
     bool seen = false;
     for (int i = 0; i < found && !seen; i++) seen = WiFi.SSID(i) == saved;
     WiFi.scanDelete();
@@ -1542,7 +1545,7 @@ static void haState() {
   String json;
   json.reserve(2600);
   json = "{\"host\":" + jsonText(c.host) + ",\"port\":" + String(c.port) + ",\"tls\":" + String(c.tls ? "true" : "false");
-  json += ",\"tokenSet\":" + String(c.token[0] ? "true" : "false") + ",\"pages\":" + String(c.pages) + ",\"phono\":" + String(ha::lineInAsPhono() ? "true" : "false") + ",\"noinfo\":" + String(ha::hideBareMedia() ? "true" : "false") + ",\"weeks\":" + String(ha::predictWeeks()) + ",\"export\":" + String(ha::exportGraph() ? "true" : "false") + ",\"thin\":" + String(ha::thinClock() ? "true" : "false") + ",\"order\":" + jsonText(ha::pageOrder()) + ",\"pageSecs\":" + String(c.pageSecs);
+  json += ",\"tokenSet\":" + String(c.token[0] ? "true" : "false") + ",\"pages\":" + String(c.pages) + ",\"phono\":" + String(ha::lineInAsPhono() ? "true" : "false") + ",\"noinfo\":" + String(ha::hideBareMedia() ? "true" : "false") + ",\"coverFirst\":" + String(ha::radioCoverFirst() ? "true" : "false") + ",\"weeks\":" + String(ha::predictWeeks()) + ",\"export\":" + String(ha::exportGraph() ? "true" : "false") + ",\"thin\":" + String(ha::thinClock() ? "true" : "false") + ",\"order\":" + jsonText(ha::pageOrder()) + ",\"pageSecs\":" + String(c.pageSecs);
   json += ",\"gridImportPositive\":" + String(c.gridImportPositive ? "true" : "false") + ",\"batteryDischargePositive\":" + String(c.batteryDischargePositive ? "true" : "false");
   json += ",\"state\":" + String((int)HaClient::instance().state()) + ",\"status\":" + jsonText(status) + ",\"art\":" + jsonText(artNote) + ",\"tiles\":[";
   for (int i = 0; i < ha::kHomeTiles; i++) json += (i ? "," : "") + haSlotJson(ha::tileSlot(c, i), ha::tileSlot(c, i).entity);
@@ -1691,6 +1694,7 @@ static void haSave() {
   }
   if (server.hasArg("phono")) ha::lineInAsPhono() = server.arg("phono") == "1";
   if (server.hasArg("noinfo")) ha::hideBareMedia() = server.arg("noinfo") == "1";
+  if (server.hasArg("coverFirst")) ha::radioCoverFirst() = server.arg("coverFirst") == "1";
   if (server.hasArg("export")) ha::exportGraph() = server.arg("export") == "1";
   if (server.hasArg("thin")) ha::thinClock() = server.arg("thin") == "1";
   if (server.hasArg("weeks")) {
@@ -1896,8 +1900,9 @@ static void saveDimColour() {
 }
 static void sendDimColour() {
   char out[320];
-  int n = snprintf(out, sizeof(out), "{\"search\":%d,\"guard\":%d,\"restore\":%d,\"brightness\":%.3f,\"extra\":%u,\"limit\":%u,\"guardMin\":%.3f,\"floor\":%u,\"night\":%u", dimColour.search, dimColour.guard, dimColour.restore, dimColour.brightness, dimColour.kx, dimColour.limit, dimColour.guardMin / 64.f, dimColour.floorB, dimColour.nightB);
+  int n = snprintf(out, sizeof(out), "{\"search\":%d,\"guard\":%d,\"restore\":%d,\"brightness\":%.3f,\"extra\":%u,\"limit\":%u,\"guardMin\":%.3f,\"floor\":%u,\"night\":%u", dimColour.search, dimColour.guard, dimColour.restore, dimColour.brightness, dimColour.kx, dimColour.limit, dimColour.guardMin / 64.f, dimColour.floorB, dimColour.nightB == 255 ? 0u : (unsigned)dimColour.nightB);
   for (int i = 0; i < 8 && n > 0 && n < (int)sizeof(out); i++) n += snprintf(out + n, sizeof(out) - n, ",\"%s\":%.3f", kDimNames[i], dimColour.w[i]);
+  if (n > 0 && dimColour.nightB == 255 && n < (int)sizeof(out) - 20) n += snprintf(out + n, sizeof(out) - n, ",\"nightOff\":true");
   if (n > 0 && n < (int)sizeof(out) - 2) { out[n++] = '}'; out[n] = 0; }
   server.send(200, "application/json", String(out));
 }
@@ -2094,7 +2099,7 @@ static const char *const kKnownKeys[] = {
   "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "f1Chequers", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
-  "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder", "haPhono", "haNoInfo", "haWeeks", "haExport", "haThin",  // HaConfig.cpp
+  "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder", "haPhono", "haNoInfo", "haCover", "haWeeks", "haExport", "haThin",  // HaConfig.cpp
   "dimColour",                                                                                                             // main.cpp (low-light settings)
   "btPad",                                                                                                                 // Gamepad.cpp
   "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5",
@@ -2386,7 +2391,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/api/dim-colour", HTTP_GET, sendDimColour);
   postRoute("/api/dim-colour", []() {  // search/guard/restore 0|1, brightness, extra, limit, floor (0-200, the calibrated lowest panel brightness), wg wb gg gb og ob bg bb; save=0 only applies until a restart; reset=1 restores the defaults
     if (server.arg("reset").toInt()) { const uint8_t keep = dimColour.floorB, night = dimColour.nightB; dimColour = kDimDefault; dimColour.floorB = keep; dimColour.nightB = night; }  // the calibrated floor and night level survive a reset; floor=0 / night=0 clear them
-    if (server.hasArg("night")) { const long v = server.arg("night").toInt(); if (v >= 0 && v <= 255) dimColour.nightB = (uint8_t)v; }  // the panel brightness in night mode (0 = follow the Minimum slider)
+    if (server.hasArg("night")) { const long v = server.arg("night").toInt(); if (v >= 0 && v <= 255) dimColour.nightB = v == 0 ? 255 : (uint8_t)std::min<long>(v, 254); }  // the panel brightness in night mode (0 = panel dark, stored as 255)
     if (server.hasArg("floor")) { const long v = server.arg("floor").toInt(); if (v >= 0 && v <= 200) dimColour.floorB = (uint8_t)v; }
     auto flag = [](const char *name, uint8_t &value) { if (server.hasArg(name)) value = server.arg(name).toInt() != 0; };
     flag("search", dimColour.search); flag("guard", dimColour.guard); flag("restore", dimColour.restore);
@@ -2439,7 +2444,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/night-test", []() {  // b = the red night clock's panel brightness (1-255, 0 stops), secs = how long (default 90, at most 600); the clock then shows its night clock at that level
     const int b = server.arg("b").toInt(), secs = server.arg("secs").toInt();
     nightTest.brightness = (uint8_t)std::min(255, std::max(0, b));
-    nightTest.until = b > 0 ? millis() + std::min(600, secs > 0 ? secs : 90) * 1000u : 0;
+    nightTest.until = (b > 0 || server.hasArg("off")) ? millis() + std::min(600, secs > 0 ? secs : 90) * 1000u : 0;
     nightClock.reset(); if (face) face->invalidate();
     server.send(204);
   });
@@ -2592,7 +2597,7 @@ void loop() {
     if (nightTest.until && !nightTesting) nightTest.until = 0;
     const bool nightMode = nightTesting || displayControl.nightDimmed(face && face->handlesNight());  // the night schedule or a dark room: the red night clock, or the face when the night clock is off
     if (nightTesting) brightness = nightTest.brightness;
-    else if (nightMode && dimColour.nightB) brightness = dimColour.nightB;  // the tuned night mode level; without it night mode follows the Minimum slider
+    else if (nightMode && dimColour.nightB) brightness = dimColour.nightB == 255 ? 0 : dimColour.nightB;  // the tuned night mode level; without it night mode follows the Minimum slider
     if ((face && face->alertFullBrightness()) || notice::fullBrightness(now)) brightness = 255;  // a popup that asked for full brightness
     const bool hueTesting = hueTest.until && (int32_t)(hueTest.until - now) > 0;
     if (hueTest.until && !hueTesting) hueTest.until = 0;

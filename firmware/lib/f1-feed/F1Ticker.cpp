@@ -588,6 +588,20 @@ unsigned long F1Ticker::fetchWeekend() {
         snap.live.valid ? snap.live.rows[0].code : "", snap.last.valid ? snap.last.name : "-",
         snap.next.valid ? snap.next.name : "-");
 
+  // ESPN can call a session over (or not started) while it runs: practice and qualifying start early and run long with red flags.
+  // The live feed's own status wins: the session ESPN just closed stays live until the feed says it is over
+  if (!snap.live.valid && snap.last.valid && snap.last.start && nowUtc - snap.last.start < 4 * 3600 && _live.onAir()) {
+    static uint32_t keptId = 0;
+    if (keptId != snap.last.id) {
+      keptId = snap.last.id;
+      f1log("[F1] the live feed says %s is still on: keeping it live\n", snap.last.name);
+    }
+    snap.live = snap.last;
+    snap.live.valid = true;
+    snap.live.live = true;
+    snap.last = Session();
+  }
+
   {
     std::lock_guard<std::mutex> guard(_lock);
     keepTimes(snap.live, _snap.live);
@@ -605,7 +619,7 @@ unsigned long F1Ticker::fetchWeekend() {
   }
 
   // The live feed runs from shortly before a session until a few minutes after it; a delayed one has to wait for ESPN to say it is on
-  _live.setWanted(!F1_LIVE_FEED_OFF && (snap.live.valid || (snap.weekend && snap.next.valid && snap.next.status != 'd' && snap.next.start - nowUtc < 10 * 60)));
+  _live.setWanted(!F1_LIVE_FEED_OFF && (snap.live.valid || _live.onAir() || (snap.weekend && snap.next.valid && snap.next.status != 'd' && snap.next.start - nowUtc < 10 * 60)));
 
   // Times and gaps cost a request per driver: only for the drivers shown, the last session once
   if (snap.live.valid && !_live.fresh() && !_live.connected()) {  // the live feed has them otherwise

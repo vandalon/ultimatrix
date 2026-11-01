@@ -10,6 +10,7 @@
 #include <math.h>
 #include <functional>
 #include <new>
+#include <TramDot.h>
 
 namespace fbview {
 
@@ -460,10 +461,10 @@ static void drawMatch(MatrixPanel_I2S_DMA *d, const MatchRow &m, bool roomy, int
   kitColors(m.homeKit, m.awayKit, homeColor, awayColor);
   drawShirt(d, 1, shirtY, homeColor, trimColor(m.homeKit, homeColor));
   drawShirt(d, 49, shirtY, awayColor, trimColor(m.awayKit, awayColor));
-  // The names in the 5x7 font, 17 wide, each under its shirt
+  // The names in TramDot, the home name and the away name each one dot from its edge
   String home = m.home, away = m.away;
-  drawText5(d, home, 8 - textWidth5(home) / 2, nameY, TEAM_NAME);
-  drawText5(d, away, 55 - textWidth5(away) / 2, nameY, TEAM_NAME);
+  facekit::tramText(*d, home.c_str(), 1, nameY, TEAM_NAME);
+  facekit::tramText(*d, away.c_str(), W - 1 - facekit::tramWidth(away.c_str()), nameY, TEAM_NAME);
   if (halfTime(m)) drawCentered(d, "HT", nameY + 2, HALF_TIME);
   else if (!m.live) drawCentered(d, m.penalties() && showingPenalties() ? "PEN" : "FT", nameY + 2, HALF_TIME);
   drawScoreArea(d, m, shirtY, settled);
@@ -1034,21 +1035,21 @@ football::FixtureRow slotOld[2];
 unsigned long slotElapsed[2] = {SLOT_SLIDE_MS, SLOT_SLIDE_MS};
 bool slideRoll = false;
 
-// One slot: the day and time centred over the kit bars and names, x 43..62
+// One slot: the day and time centred over the kit bars and names, x 42..61
 static void drawSlot(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, const football::FixtureRow &u, int y) {
   uint32_t today = dateTime->localNow() / 86400;
   time_t local = dateTime->utcToLocal(u.kickoff);
   uint32_t day = local / 86400;
   String dayName = day == today ? String("TODAY") : String(DAYS[(day + 4) % 7]);  // 1 Jan 1970 was a Thursday
   String kickoff = twoDigits(local % 86400 / 3600) + ":" + twoDigits(local % 3600 / 60);
-  drawText(d, dayName, 43 + (20 - textWidth(dayName)) / 2, y, DATE);
-  drawText(d, kickoff, 43 + (20 - textWidth(kickoff)) / 2, y + 6, MINUTES);
+  drawText(d, dayName, 42 + (20 - textWidth(dayName)) / 2, y, DATE);
+  drawText(d, kickoff, 42 + (20 - textWidth(kickoff)) / 2, y + 6, MINUTES);
   uint16_t homeColor, awayColor;
   kitColors(u.home.kit, u.away.kit, homeColor, awayColor);
-  fill(d, 43, y + 12, 2, 7, homeColor);
-  drawText5(d, String(u.home.code), 46, y + 12, TEAM_NAME);
-  fill(d, 43, y + 20, 2, 7, awayColor);
-  drawText5(d, String(u.away.code), 46, y + 20, TEAM_NAME);
+  fill(d, 41, y + 12, 1, 7, homeColor);
+  facekit::tramText(*d, u.home.code, 43, y + 12, TEAM_NAME);
+  fill(d, 41, y + 20, 1, 7, awayColor);
+  facekit::tramText(*d, u.away.code, 43, y + 20, TEAM_NAME);
 }
 
 
@@ -1060,7 +1061,7 @@ static int rankingStartY(const RankingPage &page) {
 static void drawRankingClock(MatrixPanel_I2S_DMA *d) {
   const int digitWidth = 8, digitHeight = 14, pitch = 10;
   const GlyphSet glyphs = {digitWidth, digitHeight, nullptr};
-  int x = (CLOCK_RIGHT - (4 * digitWidth + 3 * (pitch - digitWidth))) / 2;
+  int x = (CLOCK_RIGHT - (4 * digitWidth + 3 * (pitch - digitWidth))) / 2 - 1;  // the left part is one dot from the left edge
   for (int i = 0; i < 4; i++, x += pitch) {
     bool waiting = tileProgress[i] < 0;
     flipSame = flipAll && i == 3;
@@ -1074,11 +1075,11 @@ static void drawRankingClock(MatrixPanel_I2S_DMA *d) {
 static void drawRankingRows(MatrixPanel_I2S_DMA *d, const RankingPage &page, int y) {
   for (size_t i = 0; page.valid && i < page.count; i++, y += RANKING_ROW_STEP) {
     String place = String(page.firstPosition + i);
-    drawText(d, place, 1 + (7 - textWidth(place)) / 2, y, DATE);
-    drawText(d, String(page.teams[i]), 10, y, TEAM_NAME);
+    drawText(d, place, (7 - textWidth(place)) / 2, y, DATE);
+    drawText(d, String(page.teams[i]), 9, y, TEAM_NAME);
     if (page.points[i] != INT16_MIN) {
       String points = String(page.points[i]);
-      drawText(d, points, 40 - textWidth(points), y, MINUTES);
+      drawText(d, points, 39 - textWidth(points), y, MINUTES);
     }
   }
 }
@@ -1090,10 +1091,10 @@ static void drawRankingTitle(MatrixPanel_I2S_DMA *d, const char *name, int y, un
   for (unsigned i = 0; i < strlen(name); i++) {
     const uint8_t *rows = glyph3x5(toupper((unsigned char)name[i]));
     if (!rows) continue;
-    int x = 1 + (int)i * 4 - offset + shift;
+    int x = (int)i * 4 - offset + shift;
     for (int row = 0; row < 5; row++)
       for (int px = 0; px < 3; px++)
-        if (x + px >= 1 && x + px < CLOCK_RIGHT - 1 && (rows[row] >> (2 - px) & 1))
+        if (x + px >= 0 && x + px < CLOCK_RIGHT - 2 && (rows[row] >> (2 - px) & 1))
           fill(d, x + px, y + row, 1, 1, DATE);
   }
 }
@@ -1115,7 +1116,7 @@ static void drawRankings(MatrixPanel_I2S_DMA *d, unsigned long now) {
   }
   clipTop = 0;
   clipBottom = 64;
-  fill(d, 0, currentY - 2, CLOCK_RIGHT, 1, MAIN_DIVIDER);
+  fill(d, 0, currentY - 2, CLOCK_RIGHT - 1, 1, MAIN_DIVIDER);
   clipTop = currentY;
   clipBottom = RANKING_BOTTOM;
   unsigned long slidePhase = now;
@@ -1160,8 +1161,8 @@ void drawMain(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, int hour, int minute,
     drawRankings(d, now);
     if (rankingPage.count) {
       size_t last = rankingPage.count - 1;
-      const int ballX = 24;  // after the four-letter team column
-      int pointsLeft = 40;
+      const int ballX = 23;  // after the four-letter team column
+      int pointsLeft = 39;
       if (rankingPage.points[last] != INT16_MIN)
         pointsLeft -= textWidth(String(rankingPage.points[last]));
       if (pointsLeft >= ballX + 7) {
@@ -1173,7 +1174,7 @@ void drawMain(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, int hour, int minute,
     }
   } else {
     const GlyphSet &clockGlyphs = numericfont::enabled() ? BLOCK_CLOCK_GLYPHS : MAIN_GLYPHS;
-    const int clockX = (CLOCK_RIGHT - 33) / 2;  // two 16 px tiles and the pixel between them
+    const int clockX = (CLOCK_RIGHT - 33) / 2 - 1;  // two 16 px tiles and the pixel between them
     drawFlipPair(d, clockGlyphs, 0, clockX, 1, 16, 25, CLOCK, WHITE_SOFT);
     drawFlipPair(d, clockGlyphs, 2, clockX, 28, 16, 25, MINUTES, GREEN_SOFT);
   }
@@ -1208,7 +1209,6 @@ void drawMain(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, int hour, int minute,
       }
     }
   }
-  fill(d, CLOCK_RIGHT, 0, 1, 64, MAIN_DIVIDER);
 }
 
 // A single LED in the very top right corner, in every view: how the downloads are going. Amber pulsing until the
