@@ -86,6 +86,7 @@ bool &exportGraph() { static bool on = false; return on; }
 bool &thinClock() { static bool on = false; return on; }
 int &predictWeeks() { static int weeks = 13; return weeks; }
 bool &hideBareMedia() { static bool hide = false; return hide; }
+bool &radioCoverFirst() { static bool cover = false; return cover; }
 bool &lineInAsPhono() { static bool phono = false; return phono; }
 char (*mediaPlayers())[kEntity] { return rooms.id; }
 size_t iconEntityCopy(int index, char *out, size_t size) {
@@ -123,6 +124,7 @@ void load() {
     if (p.isKey("haOrder")) p.getString("haOrder", order, sizeof(order));
     lineInAsPhono() = p.getBool("haPhono", false);
     hideBareMedia() = p.getBool("haNoInfo", false);
+    radioCoverFirst() = p.getBool("haCover", false);
     exportGraph() = p.getBool("haExport", false);
     thinClock() = p.getBool("haThin", false);
     predictWeeks() = constrain((int)p.getUChar("haWeeks", 13), 1, 26);
@@ -249,6 +251,10 @@ bool save() {
   if (ok) {
     if (hideBareMedia()) ok = p.putBool("haNoInfo", true) > 0;
     else if (p.isKey("haNoInfo")) ok = p.remove("haNoInfo");
+    if (ok) {
+      if (radioCoverFirst()) ok = p.putBool("haCover", true) > 0;
+      else if (p.isKey("haCover")) ok = p.remove("haCover");
+    }
     if (!ok) failedStep = "media filter";
   }
   if (ok) {

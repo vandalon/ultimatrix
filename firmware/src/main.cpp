@@ -1545,7 +1545,7 @@ static void haState() {
   String json;
   json.reserve(2600);
   json = "{\"host\":" + jsonText(c.host) + ",\"port\":" + String(c.port) + ",\"tls\":" + String(c.tls ? "true" : "false");
-  json += ",\"tokenSet\":" + String(c.token[0] ? "true" : "false") + ",\"pages\":" + String(c.pages) + ",\"phono\":" + String(ha::lineInAsPhono() ? "true" : "false") + ",\"noinfo\":" + String(ha::hideBareMedia() ? "true" : "false") + ",\"weeks\":" + String(ha::predictWeeks()) + ",\"export\":" + String(ha::exportGraph() ? "true" : "false") + ",\"thin\":" + String(ha::thinClock() ? "true" : "false") + ",\"order\":" + jsonText(ha::pageOrder()) + ",\"pageSecs\":" + String(c.pageSecs);
+  json += ",\"tokenSet\":" + String(c.token[0] ? "true" : "false") + ",\"pages\":" + String(c.pages) + ",\"phono\":" + String(ha::lineInAsPhono() ? "true" : "false") + ",\"noinfo\":" + String(ha::hideBareMedia() ? "true" : "false") + ",\"coverFirst\":" + String(ha::radioCoverFirst() ? "true" : "false") + ",\"weeks\":" + String(ha::predictWeeks()) + ",\"export\":" + String(ha::exportGraph() ? "true" : "false") + ",\"thin\":" + String(ha::thinClock() ? "true" : "false") + ",\"order\":" + jsonText(ha::pageOrder()) + ",\"pageSecs\":" + String(c.pageSecs);
   json += ",\"gridImportPositive\":" + String(c.gridImportPositive ? "true" : "false") + ",\"batteryDischargePositive\":" + String(c.batteryDischargePositive ? "true" : "false");
   json += ",\"state\":" + String((int)HaClient::instance().state()) + ",\"status\":" + jsonText(status) + ",\"art\":" + jsonText(artNote) + ",\"tiles\":[";
   for (int i = 0; i < ha::kHomeTiles; i++) json += (i ? "," : "") + haSlotJson(ha::tileSlot(c, i), ha::tileSlot(c, i).entity);
@@ -1694,6 +1694,7 @@ static void haSave() {
   }
   if (server.hasArg("phono")) ha::lineInAsPhono() = server.arg("phono") == "1";
   if (server.hasArg("noinfo")) ha::hideBareMedia() = server.arg("noinfo") == "1";
+  if (server.hasArg("coverFirst")) ha::radioCoverFirst() = server.arg("coverFirst") == "1";
   if (server.hasArg("export")) ha::exportGraph() = server.arg("export") == "1";
   if (server.hasArg("thin")) ha::thinClock() = server.arg("thin") == "1";
   if (server.hasArg("weeks")) {
@@ -2098,7 +2099,7 @@ static const char *const kKnownKeys[] = {
   "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "f1Chequers", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
-  "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder", "haPhono", "haNoInfo", "haWeeks", "haExport", "haThin",  // HaConfig.cpp
+  "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder", "haPhono", "haNoInfo", "haCover", "haWeeks", "haExport", "haThin",  // HaConfig.cpp
   "dimColour",                                                                                                             // main.cpp (low-light settings)
   "btPad",                                                                                                                 // Gamepad.cpp
   "haIcn0", "haIcn1", "haIcn2", "haIcn3", "haIcn4", "haIcn5",

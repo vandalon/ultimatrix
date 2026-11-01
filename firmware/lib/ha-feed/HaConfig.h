@@ -58,6 +58,7 @@ bool &thinClock();  // the time and date at the top in 1 px strokes instead of t
 bool &exportGraph();  // Energy page: three rows (the source of the moment in the middle) and a graph that also shows the power sent out; else four rows; separate NVS key haExport
 int &predictWeeks();  // Energy graph: weeks of history behind the expected usage (1..26, default 13); separate NVS key haWeeks
 bool &hideBareMedia();  // Now playing: a player with no title, artist or station (only a source) is left out; separate NVS key haNoInfo
+bool &radioCoverFirst();  // Now playing: a radio station shows the song's album art when there is one (the logo otherwise); false = the station logo first; separate NVS key haCover
 bool &lineInAsPhono();  // Now playing: a player whose source is Line-in shows the record player icon; separate NVS key haPhono
 Slot &extraTile(int index);  // tiles kTiles..kHomeTiles-1
 const Slot &tileSlot(const Config &c, int index);
