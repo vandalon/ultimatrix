@@ -10,6 +10,7 @@
 #include <math.h>
 #include <functional>
 #include <new>
+#include <TramDot.h>
 
 namespace fbview {
 
@@ -460,10 +461,10 @@ static void drawMatch(MatrixPanel_I2S_DMA *d, const MatchRow &m, bool roomy, int
   kitColors(m.homeKit, m.awayKit, homeColor, awayColor);
   drawShirt(d, 1, shirtY, homeColor, trimColor(m.homeKit, homeColor));
   drawShirt(d, 49, shirtY, awayColor, trimColor(m.awayKit, awayColor));
-  // The names in the 5x7 font, 17 wide, each under its shirt
+  // The names in TramDot, the home name at the left edge and the away name at the right edge
   String home = m.home, away = m.away;
-  drawText5(d, home, 8 - textWidth5(home) / 2, nameY, TEAM_NAME);
-  drawText5(d, away, 55 - textWidth5(away) / 2, nameY, TEAM_NAME);
+  facekit::tramText(*d, home.c_str(), 0, nameY, TEAM_NAME);
+  facekit::tramText(*d, away.c_str(), W - facekit::tramWidth(away.c_str()), nameY, TEAM_NAME);
   if (halfTime(m)) drawCentered(d, "HT", nameY + 2, HALF_TIME);
   else if (!m.live) drawCentered(d, m.penalties() && showingPenalties() ? "PEN" : "FT", nameY + 2, HALF_TIME);
   drawScoreArea(d, m, shirtY, settled);
@@ -1045,10 +1046,10 @@ static void drawSlot(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, const football
   drawText(d, kickoff, 43 + (20 - textWidth(kickoff)) / 2, y + 6, MINUTES);
   uint16_t homeColor, awayColor;
   kitColors(u.home.kit, u.away.kit, homeColor, awayColor);
-  fill(d, 43, y + 12, 2, 7, homeColor);
-  drawText5(d, String(u.home.code), 46, y + 12, TEAM_NAME);
-  fill(d, 43, y + 20, 2, 7, awayColor);
-  drawText5(d, String(u.away.code), 46, y + 20, TEAM_NAME);
+  fill(d, 41, y + 12, 1, 7, homeColor);
+  facekit::tramText(*d, u.home.code, 43, y + 12, TEAM_NAME);
+  fill(d, 41, y + 20, 1, 7, awayColor);
+  facekit::tramText(*d, u.away.code, 43, y + 20, TEAM_NAME);
 }
 
 

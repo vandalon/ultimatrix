@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <Settings.h>
+#include <TramDot.h>
 #include <Console.h>
 #include <esp_heap_caps.h>
 
@@ -363,7 +364,10 @@ static void drawHeader(MatrixPanel_I2S_DMA *d, const char *left, const char *rig
   if (tab) d->fillRect(0, 0, 2, h, tab);
   int x = tab ? 3 : 1;  // one pixel after the tab, or from the edge
   int edge = W - 1 - (dotShift ? dotShift - 1 : 0);  // one pixel from the right edge, or from the red stripe of the failed times
-  if (x + headerTextWidth(left) + 3 + headerTextWidth(right) + (W - edge) <= W) {
+  if (left[0] && x + facekit::tramWidth(left) + 3 + headerTextWidth(right) + (W - edge) <= W) {  // the session name in TramDot, when it fits
+    facekit::tramText(*d, left, x, 1, leftInk);
+    drawHeaderMixed(d, right, edge - headerTextWidth(right), 1, rightInk, rightTime, fill);
+  } else if (x + headerTextWidth(left) + 3 + headerTextWidth(right) + (W - edge) <= W) {
     drawHeaderMixed(d, left, x, 1, leftInk);
     drawHeaderMixed(d, right, edge - headerTextWidth(right), 1, rightInk, rightTime, fill);
   } else if (x + headerTextWidth(left) + 3 + textWidth(right) + (W - edge) <= W) {  // the left in the larger font, only the right small
@@ -1400,6 +1404,17 @@ static void drawLoadingLabel(MatrixPanel_I2S_DMA *d, int y) {
   for (int i = 0; i < dots; i++) d->drawPixel(x + 29 + i * 4, y + 4, GREY);
 }
 
+// A TramDot text that scrolls when it is wider than its room, like drawMarquee
+static void drawTramMarquee(MatrixPanel_I2S_DMA *d, const char *text, int x, int y, int right, uint16_t color) {
+  int overflow = facekit::tramWidth(text) - (right - x);
+  if (overflow <= 0) {
+    facekit::tramText(*d, text, x, y, color, 0, W);
+    return;
+  }
+  marqueeMax = max(marqueeMax, overflow);
+  facekit::tramText(*d, text, x - marqueeOffset(overflow), y, color, x, right);
+}
+
 // Both clock views use the same upcoming weekend and local date/time.
 static void drawRaceWeekend(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, int x, int y, int right) {
   time_t nowUtc = ultime::now();
@@ -1410,8 +1425,8 @@ static void drawRaceWeekend(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, int x, 
     int room = right - timeWidth(when) - 2;
     const F1Ticker::Race &race = snap.upcoming[i];
     // The locality (the circuit's own place) when the Grand Prix's name does not fit but it does
-    const char *name = tallWidth(race.city) > room - x && race.place[0] && tallWidth(race.place) <= room - x ? race.place : race.city;
-    drawMarquee(d, name, x, y - 1, room, WHITE, true);
+    const char *name = facekit::tramWidth(race.city) > room - x && race.place[0] && facekit::tramWidth(race.place) <= room - x ? race.place : race.city;
+    drawTramMarquee(d, name, x, y - 1, room, WHITE);
     drawTimeRight(d, when, right, y, MINUTES);  // one pixel either side of the colon
     return;
   }
@@ -1495,7 +1510,8 @@ static void drawComing(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, int index, i
   if (status == 'd') strcpy(when, "DELAYED");
   else if (today) snprintf(when, sizeof(when), "%02d:%02d", t.hour, t.minute);
   else snprintf(when, sizeof(when), "%s %02d:%02d", DAYS[t.weekday], t.hour, t.minute);
-  drawNarrowText(d, name, 1, y, WHITE);
+  if (1 + facekit::tramWidth(name) + 3 <= W - 1 - timeWidth(when)) facekit::tramText(*d, name, 1, y, WHITE);
+  else drawNarrowText(d, name, 1, y, WHITE);
   drawTimeRight(d, when, W - 1, y + 1, status == 'd' ? DELAYED : status == 'n' ? NEW_TIME : MINUTES);  // 5 rows in the middle of the name's 7
 }
 
@@ -1616,7 +1632,8 @@ void drawBetween(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, int hour, int minu
   // One letter (Q, R) sits right above the place number below it, flush with its right edge (columns 4 to 6); two (SR, P1) at the left
   if (snap.last.name[0]) {
     const char *label = shortSession(snap.last.name);
-    drawText(d, label, strlen(label) == 1 ? 7 - tallWidth(label) : 1, 12, rgb(205, 210, 220), true);
+    if (strlen(label) == 1) drawText(d, label, 7 - tallWidth(label), 12, rgb(205, 210, 220), true);
+    else facekit::tramText(*d, label, 1, 11, rgb(205, 210, 220));
   }
   drawPlace(d, 1, snap.last.rows[0], 23, race, 0, isFavourite(snap.last.rows[0].code));
   drawNextRow(d, dateTime);

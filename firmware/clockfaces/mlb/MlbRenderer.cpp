@@ -6,6 +6,7 @@
 #include <BoldFont.h>
 #include <FaceKit.h>
 #include <MiniFont.h>
+#include <TramDot.h>
 #include <PacmanColors.h>
 #include <algorithm>
 #include <math.h>
@@ -169,14 +170,14 @@ float gameProgress(const mlb::Game &g) {
 void header(MatrixPanel_I2S_DMA &d, ClockTime *time, uint32_t ms, bool live, const char *label = "MLB") {
   char text[8];
   clockText(time, text, sizeof(text));
-  textThin(d, label, 2, 2, kBlue);  // the thin 5x7 capitals, one pixel clear of the favourite bar on the left edge
+  tramText(d, label, 2, 2, kBlue);  // TramDot, one pixel clear of the favourite bar on the left edge
   // the label against the left edge and the time against the right (1 px margin), in the alternative number font at 6x10 (the colon two
   // dots, with two empty columns on each side)
   int width = 0;
   for (const char *c = text; *c; c++) width += *c == ':' ? 5 : 7;
   int x = W - width;  // the last digit's trailing gap is the margin
   if (live) {  // the red dot in the middle of the space between the label and the time
-    const int labelEnd = 2 + widthThin(label);
+    const int labelEnd = 2 + tramWidth(label);
     box(d, labelEnd + (x - labelEnd - 3) / 2, 4, 3, 3, pulse(kRed, ms, 2000, 60));
   }
   for (const char *c = text; *c; c++) {
@@ -524,7 +525,7 @@ void drawGame(MatrixPanel_I2S_DMA &d, const mlb::Game &g, ClockTime *time, uint3
     const bool leads = isHome ? home : away;
     if (flash) box(d, 3, y, W - 3, 17, dim(colour, 60 + (int)(40 * sinf(ms * 0.02f))));
     box(d, 0, y, 3, 17, colour);
-    textThin(d, isHome ? g.home : g.away, 5, y + 1, g.state == mlb::Pre || leads || flash ? kText : kMid);
+    tramText(d, isHome ? g.home : g.away, 5, y + 2, g.state == mlb::Pre || leads || flash ? kText : kMid);
     if (g.state == mlb::Pre) {
       miniText(d, isHome ? g.homeRecord : g.awayRecord, 5, y + 11, kDim);
     } else {
@@ -568,7 +569,7 @@ void drawGame(MatrixPanel_I2S_DMA &d, const mlb::Game &g, ClockTime *time, uint3
     char text[16];
     uint16_t colour;
     status(g, time, text, sizeof(text), colour, false);
-    centered(d, text, 53, colour);
+    tramText(d, text, (W - tramWidth(text)) / 2, 52, colour);
   }
   // The inning bar: nine segments that fill as the game goes
   const float progress = gameProgress(g);
@@ -672,7 +673,7 @@ void drawLineScore(MatrixPanel_I2S_DMA &d, const mlb::Game &g, ClockTime *time, 
       countDots(d, 38, 57, 3, g.outs, kOrange);
     }
   } else {
-    textThin(d, g.state == mlb::Final ? "FINAL" : "SOON", 33, 44, colour == kDim ? kMid : colour);
+    tramText(d, g.state == mlb::Final ? "FINAL" : "SOON", 30, 45, colour == kDim ? kMid : colour);
     if (g.state == mlb::Final && g.inning > 9) {
       snprintf(text, sizeof(text), "%d INN", g.inning);
       miniText(d, text, 33, 55, kDim);
@@ -907,13 +908,13 @@ void drawMatchup(MatrixPanel_I2S_DMA &d, const mlb::Snapshot &snap, ClockTime *t
 // The playoff series for the left column of the next-up page (in place of the league table): the round, both teams with the games they have
 // won, a box for each game of the series and which game is next
 void drawSeriesCard(MatrixPanel_I2S_DMA &d, const mlb::Series &series) {
-  titleText(d, series.round, 1, kRankTop - 2, kPastel, kDividerX);
+  tramText(d, series.round, 1, kRankTop - 3, kPastel, 0, kDividerX);
   box(d, 0, kRankTop + 5, kDividerX, 1, rgb(24, 20, 24));
   const uint16_t colours[2] = {teamColour(series.first, series.firstColor), teamColour(series.second, series.secondColor)};
   for (int i = 0; i < 2; i++) {
     const int y = 29 + i * 13, wins = i ? series.secondWins : series.firstWins, other = i ? series.firstWins : series.secondWins;
     box(d, 0, y, 1, 10, colours[i]);
-    textThin(d, i ? series.second : series.first, 3, y, wins >= other ? kText : kMid);
+    tramText(d, i ? series.second : series.first, 3, y + 1, wins >= other ? kText : kMid);
     blockNumber(d, wins, kDividerX - 9, y, 6, 10, wins >= other ? colours[i] : dim(colours[i], 150));
   }
   for (int g = 0; g < series.bestOf; g++) {
@@ -998,10 +999,10 @@ void drawUpcoming(MatrixPanel_I2S_DMA &d, const mlb::Snapshot &snap, const char 
     if (changes && inTable < 200) {
       const float p = inTable / 200.0f, e = p * p * (3 - 2 * p);
       const int offset = (int)lroundf((kDividerX - 2) * e);
-      titleText(d, rankAmerican(snap, was) ? "AL" : "NL", 1 - offset, kRankTop - 2, kPastel, kDividerX);
-      titleText(d, rankAmerican(snap, now) ? "AL" : "NL", 1 + (kDividerX - 2) - offset, kRankTop - 2, kPastel, kDividerX);
+      tramText(d, rankAmerican(snap, was) ? "AL" : "NL", 1 - offset, kRankTop - 3, kPastel, 0, kDividerX);
+      tramText(d, rankAmerican(snap, now) ? "AL" : "NL", 1 + (kDividerX - 2) - offset, kRankTop - 3, kPastel, 0, kDividerX);
     } else {
-      titleText(d, rankAmerican(snap, now) ? "AL" : "NL", 1, kRankTop - 2, kPastel, kDividerX);
+      tramText(d, rankAmerican(snap, now) ? "AL" : "NL", 1, kRankTop - 3, kPastel, 0, kDividerX);
     }
     box(d, 0, kRankTop + 5, kDividerX, 1, rgb(24, 20, 24));  // a line between the title and the rows
     if (slidingRows) {
@@ -1328,7 +1329,7 @@ void drawRun(MatrixPanel_I2S_DMA &d, const mlb::Game &g, bool home, int runs, ui
   }
   // the team and its new score, the other side small
   const int baseY = 44;
-  textThin(d, abbr, 3, baseY + 2, colour);  // the thin 5x9 capitals, centred on the score
+  tramText(d, abbr, 3, baseY + 3, colour);  // the thin 5x9 capitals, centred on the score
   // the score: the old one until the ball is over, then it rolls up into the new one
   if (t < flight || runs <= 0) {
     scoreRows(d, score - runs, W - 3, baseY - 2, 0, dim(kText, 120));

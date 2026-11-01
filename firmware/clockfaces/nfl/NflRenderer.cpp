@@ -7,6 +7,7 @@
 #include <FaceKit.h>
 #include <MiniFont.h>
 #include <PacmanColors.h>
+#include <TramDot.h>
 #include <algorithm>
 #include <math.h>
 #include <string.h>
@@ -510,10 +511,11 @@ void drawGame(MatrixPanel_I2S_DMA &d, const nfl::Game &g, ClockTime *time, uint3
   uint16_t colour;
   statusLabel(g, time, label, sizeof(label), colour);
   if (g.state == nfl::Live && !g.halftime && !g.delayed) {
-    text3(d, label, 2, 1, kGold);
+    tramText(d, label, 2, 0, kGold);
     time7(d, g.clock, W - 2, 1, kText);
   } else {
-    text3(d, label, 2, 2, colour == kDim ? kMid : colour);
+    if (g.state == nfl::Pre) text3(d, label, 2, 2, colour == kDim ? kMid : colour);
+    else tramText(d, label, 2, 1, colour == kDim ? kMid : colour);
   }
   if (favourite) box(d, 0, 0, 1, 8, kFav);
   box(d, 0, 8, W, 1, kLine);
@@ -527,13 +529,13 @@ void drawGame(MatrixPanel_I2S_DMA &d, const nfl::Game &g, ClockTime *time, uint3
     const bool leads = isHome ? home : away;
     if (flash) box(d, 3, y, W - 3, 14, dim(team, 60 + (int)(40 * sinf(ms * 0.02f))));
     box(d, 1, y, 2, 14, team);
-    titleText(d, isHome ? g.home : g.away, 5, y + 4, g.state == nfl::Pre || leads || flash ? kText : kMid);
+    tramText(d, isHome ? g.home : g.away, 5, y + 3, g.state == nfl::Pre || leads || flash ? kText : kMid);
     if (g.state == nfl::Pre) {
       text3Right(d, isHome ? g.homeRecord : g.awayRecord, W - 2, y + 5, kDim);
     } else {
       const int width = blockNumber(d, score, 0, 0, 8, 12, 0, true);
       blockNumber(d, score, W - 2 - width, y + 1, 8, 12, flash ? kText : leads || g.state == nfl::Live ? kText : kDim);
-      if (g.state == nfl::Live && g.possession == (isHome ? 2 : 1)) football(d, 26.0f, y + 8.0f, 0.0f);
+      if (g.state == nfl::Live && g.possession == (isHome ? 2 : 1)) football(d, 29.0f, y + 8.0f, 0.0f);
     }
   }
   if (g.state == nfl::Live && !g.delayed && !g.halftime) {
@@ -551,9 +553,8 @@ void drawGame(MatrixPanel_I2S_DMA &d, const nfl::Game &g, ClockTime *time, uint3
     if (g.state == nfl::Final) snprintf(text, sizeof(text), g.quarter > 4 ? "FINAL OT" : "FINAL");
     else if (g.state == nfl::Live) snprintf(text, sizeof(text), g.halftime ? "HALFTIME" : "DELAY");
     else kickoff(time, g.start, text, sizeof(text));
-    const int width = g.state == nfl::Pre ? time7Width(text) : miniWidth(text);
-    if (g.state == nfl::Pre) time7(d, text, (W + width) / 2 - 1, 51, kMid);
-    else text3(d, text, (W - width) / 2, 52, g.state == nfl::Final ? kMid : kGold);
+    if (g.state == nfl::Pre) time7(d, text, (W + time7Width(text)) / 2 - 1, 51, kMid);
+    else tramText(d, text, (W - tramWidth(text)) / 2, 51, g.state == nfl::Final ? kMid : kGold);
   }
 }
 
@@ -562,7 +563,8 @@ void drawLineScore(MatrixPanel_I2S_DMA &d, const nfl::Game &g, ClockTime *time, 
   char label[16];
   uint16_t colour;
   statusLabel(g, time, label, sizeof(label), colour);
-  text3(d, label, 2, 2, colour == kDim ? kMid : colour);
+  if (g.state == nfl::Pre) text3(d, label, 2, 2, colour == kDim ? kMid : colour);
+  else tramText(d, label, 2, 1, colour == kDim ? kMid : colour);
   if (g.state == nfl::Live && !g.halftime && !g.delayed) text3Right(d, g.clock, W - 2, 2, kText);
   box(d, 0, 8, W, 1, kLine);
   static const int rightEdges[4] = {25, 35, 45, 54};
@@ -768,10 +770,10 @@ void drawUpcoming(MatrixPanel_I2S_DMA &d, const nfl::Snapshot &snap, const char 
     if (changes && inTable < 200) {
       const float p = inTable / 200.0f, e = p * p * (3 - 2 * p);
       const int offset = (int)lroundf((kDividerX - 2) * e);
-      titleText(d, rankAfc(snap, was) ? "AFC" : "NFC", 1 - offset, kRankTop - 2, kPastel, kDividerX);
-      titleText(d, rankAfc(snap, now) ? "AFC" : "NFC", 1 + (kDividerX - 2) - offset, kRankTop - 2, kPastel, kDividerX);
+      tramText(d, rankAfc(snap, was) ? "AFC" : "NFC", 1 - offset, kRankTop - 3, kPastel, 0, kDividerX);
+      tramText(d, rankAfc(snap, now) ? "AFC" : "NFC", 1 + (kDividerX - 2) - offset, kRankTop - 3, kPastel, 0, kDividerX);
     } else {
-      titleText(d, rankAfc(snap, now) ? "AFC" : "NFC", 1, kRankTop - 2, kPastel, kDividerX);
+      tramText(d, rankAfc(snap, now) ? "AFC" : "NFC", 1, kRankTop - 3, kPastel, 0, kDividerX);
     }
     box(d, 0, kRankTop + 5, kDividerX, 1, rgb(24, 20, 24));
     if (slidingRows) {
@@ -787,7 +789,7 @@ void drawUpcoming(MatrixPanel_I2S_DMA &d, const nfl::Snapshot &snap, const char 
 void drawStandings(MatrixPanel_I2S_DMA &d, const nfl::Table &table, bool afc, const char *favourites, int page, ClockTime *time, uint32_t ms) {
   (void)time;
   backdrop(d, afc ? BgAfc : BgNfc, ms);
-  titleText(d, afc ? "AFC" : "NFC", 1, 1, kPastel);
+  tramText(d, afc ? "AFC" : "NFC", 1, 0, kPastel);
   box(d, 0, 8, W, 1, rgb(24, 20, 24));
   const int first = std::min(page * kStandingsPerPage, std::max(0, (int)table.count - kStandingsPerPage));
   for (int row = 0; row < kStandingsPerPage && first + row < table.count; row++) {
