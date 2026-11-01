@@ -724,6 +724,8 @@ void release() {
   haveFor[0] = 0;
 }
 
+bool fetchBusy() { return fetching; }
+
 ArtState art(const Player &player, bool online, bool logo, const uint16_t **pixels, uint16_t *id) {
   const char *picture = player.picture;
   char key[kPicture];  // what the cover is cached under: the picture, or "?artist|title" for one found online

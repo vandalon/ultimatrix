@@ -155,6 +155,12 @@ async function sportsPlan() {
     return '<tr><td>' + names[r.id] + '</td><td>' + (r.n || '') + '</td><td>' + time(r.s, true) + '</td><td>' + status + '</td></tr>';
   });
   const upcoming = id => (d.sports[id]?.events || []).some(e => e.e + d.hold > d.now);
+  document.querySelectorAll('#sportsPrep option').forEach(o => {  // the face waiting in the spare slot is marked (bold where the browser allows it, and with text)
+    o.dataset.label ??= o.textContent;
+    const ready = !!d.spare && o.value === d.spare;
+    o.textContent = o.dataset.label + (ready ? ' (ready)' : '');
+    o.style.fontWeight = ready ? 'bold' : '';
+  });
   const seasons = d.order.filter(id => !upcoming(id) && d.sports[id]?.next > d.now).map(id => names[id] + ' ' + (d.sports[id].nextName ? d.sports[id].nextName + ', ' : '') + time(d.sports[id].next));
   const checked = Math.max(0, ...Object.values(d.sports).map(x => x.checked || 0));
   box.innerHTML = (lines.length ? '<table class="plan"><thead><tr><th>Sport</th><th>What</th><th>Starts</th><th>Plan</th></tr></thead><tbody>' + lines.join('') + '</tbody></table>' : 'Nothing found yet. The clock reads the schedules every few minutes.')
@@ -238,6 +244,7 @@ function sportsInit(settings) {
   home.replaceChildren(new Option('Stay on the sports face', ''), ...[...document.querySelectorAll('#faces [data-face]')].map(b => new Option(b.querySelector('b').textContent, b.dataset.face)));
   home.value = settings.sportsHome || '';
   document.querySelector('#sportsPrep').replaceChildren(...[...document.querySelectorAll('#faces [data-face]')].map(b => new Option(b.querySelector('b').textContent, b.dataset.face)));
+  sportsPlan();  // marks the prepared face in the list
   render();
 }
 

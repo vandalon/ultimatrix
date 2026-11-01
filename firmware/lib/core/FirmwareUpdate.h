@@ -26,6 +26,7 @@ public:
   bool checkDue();
   // After a low-memory failure: remember the face in NVS; the caller restarts, and the update starts on the next boot.
   void scheduleAfterReboot(const char *mode);
+  bool stagingOnly() const { return _stageOnly; }  // the latest request only prepared the spare slot
   const char *target() const { return _target; }  // the face of the latest install request
   // At boot: true (and mode filled) when an update was scheduled. The flag is cleared on read.
   static bool takeScheduled(char *mode, size_t size);

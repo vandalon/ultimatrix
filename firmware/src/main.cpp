@@ -1263,6 +1263,9 @@ static sportsplan::Log sportsLog;
 static void sportsStageAhead(uint32_t now, time_t wall, const sportsplan::Config &plan, const sportsplan::Events (&events)[sportsplan::SPORTS], const sportsplan::Log &log) {
   static uint32_t nextTry = 0, day = 0, stagedToday = 0;
   if ((int32_t)(now - nextTry) < 0 || liveDataActive() || FirmwareUpdate::pendingVerification()) return;
+#ifdef UM_HOME
+  if (ha::media::fetchBusy()) { nextTry = now + 60000; return; }  // a cover is downloading: it needs the memory, so preparing waits a minute
+#endif
   nextTry = now + 10 * 60000;
   if (day != (uint32_t)(wall / 86400)) { day = (uint32_t)(wall / 86400); stagedToday = 0; }
   if (stagedToday >= 6) return;  // flash wear: a few writes a day at most
@@ -1970,8 +1973,11 @@ static void background() {
   }
   {
     FirmwareUpdate::Latest check; firmwareUpdate.latest(check);
-    updateChecking = check.checking;
+    FirmwareUpdate::Status prep; firmwareUpdate.status(prep);
+    const bool preparing = prep.busy && firmwareUpdate.stagingOnly();  // a face being prepared in the spare slot needs the same room as a check
+    updateChecking = check.checking || preparing;
     if (updateChecking && mdnsStarted) { MDNS.end(); mdnsStarted = false; mdnsRetryAt = now; }  // restarts by itself once the check is over
+    if (preparing && telnetStarted) { telnet.stop(); telnetStarted = false; telnetLow = true; }  // and comes back by itself once memory is free
   }
   {  // telnet needs heap of its own: it goes while memory is short and comes back once there is room again
     static uint32_t lowSince = 0;
@@ -2011,9 +2017,9 @@ static void background() {
     if (!updateStatus.busy && !updateStatus.ready) updateOnly = false;  // the install failed: start the face as usual
   }
   static bool retriedInstall = false;
-  if (!retriedInstall && !bootWasScheduled && !restartAt && updateStatus.failed && !updateStatus.busy && !updateStatus.ready &&
+  if (!retriedInstall && !firmwareUpdate.stagingOnly() && !bootWasScheduled && !restartAt && updateStatus.failed && !updateStatus.busy && !updateStatus.ready &&
       !strstr(updateStatus.message, "already been used") && !strstr(updateStatus.message, "not a matching")) {
-    // Any failed install gets one more go after a restart, with no face loaded and the whole heap free
+    // Any failed install (not a failed preparing of the spare slot: that must not switch the face) gets one more go after a restart, with no face loaded and the whole heap free
     retriedInstall = true;
     consoleLog("[Firmware] Install failed (%s) Restarting to install without the face loaded.\n", updateStatus.message);
     firmwareUpdate.scheduleAfterReboot(firmwareUpdate.target());
