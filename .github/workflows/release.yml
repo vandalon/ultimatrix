@@ -105,7 +105,7 @@ jobs:
         with:
           name: signed-release
           path: dist/release
-      - name: Publish the beta's release notes (a pre-release without files: the settings page links to it)
+      - name: Publish the beta's release notes as a pre-release without files (the settings page links to it)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
