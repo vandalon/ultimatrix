@@ -96,6 +96,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 14 clock fa
 - idf.sh, setup-idf.sh: per-mode IDF command wrapper and SDK setup
 - build-bridge.sh: builds/packages the migration bridge image
 - build-webflasher.sh: merges full-flash images and ESP Web Tools manifests into web-flasher/firmware/ (generated)
+- release-notes.py: release notes for a tag from the commit messages since the previous tag (stable: previous stable); CI puts them on the GitHub release (beta tags get a file-less pre-release); the settings update banner links to it
 - package-firmware.py: packages application images and signed OTA manifests into dist/ (generated)
 - check-nvs-keys.py: fails when a key stored in the "ultimatrix" NVS namespace is missing from kKnownKeys (main.cpp) or the Home cleanup list; runs in CI
 - check-static-ram.py: post-build check that fails a face above the 62 KB static RAM budget (hooked in firmware/CMakeLists.txt)

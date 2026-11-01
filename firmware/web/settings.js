@@ -564,6 +564,7 @@ async function refreshFirmware() {
     const bar = document.querySelector('#update-banner-progress'); bar.hidden = !state.busy || !state.total; bar.value = state.total ? state.received / state.total * 100 : 0;
     document.querySelector('#update-banner-text').textContent = state.busy ? state.message : 'Version ' + state.latest + ' is ready. You are on ' + state.version + '.';
     install.hidden = state.busy || state.ready;
+    { const notes = document.querySelector('#update-banner-notes'); const tag = (state.latest || '').replace(/-[a-z]+$/, ''); notes.hidden = !tag || state.busy; if (tag) notes.href = 'https://github.com/vandalon/ultimatrix/releases/tag/' + encodeURIComponent(tag); }  // the release notes of the version on offer (the tag is the version without the face name)
     document.querySelector('#nav-update-dot').hidden = !state.available;
     document.querySelector('#firmware-check').disabled = state.busy || state.checking;
     if (state.checking && !updatePolling) setTimeout(refreshFirmware, 1500);

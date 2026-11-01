@@ -16,6 +16,7 @@ body.ultimatrix-portal{background:var(--paper)!important;color:var(--ink)!import
 .warn-icon{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:#ffb74d33;color:#ffd699;font-size:22px;font-weight:700}
 .warn-banner .update-text small{color:#f0cf9f}
 .update-icon{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:#46d2ff33;color:#9fe6ff;font-size:22px;font-weight:700;animation:update-bob 1.8s ease-in-out infinite}
+.update-notes{position:relative;z-index:1;align-self:flex-start;margin-top:2px;font-size:12px;font-weight:600;color:#d8f4ff;text-decoration:underline}.update-notes[hidden]{display:none}
 .update-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.update-text strong{font-size:15px}.update-text small{font-size:12px;color:#a9dcee;overflow-wrap:anywhere}
 .update-banner button{flex:none;border:0;border-radius:30px;padding:11px 18px;font-weight:600;font-size:13px;font-family:inherit;color:#050809;background:#d8f4ff;cursor:pointer;position:relative;z-index:1}
 .warn-banner button{flex:none;border:0;border-radius:30px;padding:11px 18px;font-weight:600;font-size:13px;font-family:inherit;color:#050809;background:#d8f4ff;cursor:pointer;position:relative;z-index:1}

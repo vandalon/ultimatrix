@@ -5,6 +5,7 @@ Updates are signed application images. The clock never accepts an unsigned or ol
 ## Default: GitHub
 
 - Push a tag (`git tag v0.3.0 && git push origin v0.3.0`). `.github/workflows/release.yml` builds all eleven faces, signs the manifests and creates a GitHub release. It also publishes the browser flasher (`https://vandalon.github.io/ultimatrix/`) and a mirror of the update files (`/updates/`) to GitHub Pages.
+- Release notes: `firmware/tools/release-notes.py <tag>` builds them from the commit messages (`FEATURE:`/`BUG:`/... lines and their paragraphs) since the previous tag (the previous stable tag for a stable release). A stable tag puts them on its GitHub release; a beta tag creates a file-less pre-release with them. The settings page's update banner links its "What's new" to `https://github.com/vandalon/ultimatrix/releases/tag/<version>`.
 - Clocks fetch `https://github.com/<repo>/releases/latest/download/<face>-manifest.json` (plus `.sig` and the image). The repo is `kUpdateRepo` in `firmware/lib/core/UpdateTrust.h`.
 - One-time setup (done): `kUpdateRepo` is `vandalon/ultimatrix`, Pages source is GitHub Actions, and the private key is stored:
   `gh secret set UPDATE_SIGNING_KEY < .tools/update-signing.pem`

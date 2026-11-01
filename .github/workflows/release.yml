@@ -98,10 +98,20 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0  # the release notes come from the commits since the previous tag
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: signed-release
           path: dist/release
+      - name: Publish the beta's release notes (a pre-release without files: the settings page links to it)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 firmware/tools/release-notes.py "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" --prerelease --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md" \
+            || gh release edit "$GITHUB_REF_NAME" --prerelease --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
       - name: Replace the beta branch (one commit, so old betas do not pile up in the repository)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -126,6 +136,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0  # the release notes come from the commits since the previous stable tag
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: build-*
@@ -137,7 +149,9 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/release/* --title "$GITHUB_REF_NAME" --generate-notes
+        run: |
+          python3 firmware/tools/release-notes.py "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" dist/release/* --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
       - name: Mirror the signed update files on Pages
         run: |
           mkdir -p web-flasher/updates
