@@ -53,6 +53,7 @@ void artNote(char *out, size_t size);  // what the last album art fetch did, in 
 // looked up from artist and title on iTunes or Deezer.
 // logo: a player with a station name and no cover gets the station's logo (looked up by name on radio-browser.info), also after a failed search.
 ArtState art(const Player &player, bool online, bool logo, const uint16_t **pixels, uint16_t *id);
+bool fetchBusy();  // a cover is being downloaded right now (its memory is needed for that)
 void release();  // frees the cover (8 KB) once nothing plays; the caller no longer draws from the pointer
 
 }  // namespace media

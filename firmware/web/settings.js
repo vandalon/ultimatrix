@@ -142,7 +142,10 @@ async function sportsPlan() {
   const on = r => r.l || (d.now >= r.s - d.lead && d.now < r.e);
   const lines = rows.filter(r => r.e + d.hold > d.now).map(r => {
     const from = r.s - d.lead, until = r.e;
-    const rival = rows.find(o => o !== r && o.rank < r.rank && o.s - d.lead < until && Math.max(o.e, o.l ? d.now : 0) > from);  // only one that is on at the same time
+    const overlaps = rows.filter(o => o !== r && o.rank < r.rank && o.s - d.lead < until && Math.max(o.e, o.l ? d.now : 0) > from);  // higher-ranked events on during this one
+    const before = overlaps.find(o => o.s - d.lead <= from);  // already on when this one would start
+    const later = overlaps.filter(o => o.s - d.lead > from).sort((x, y) => x.s - y.s)[0];  // takes over part-way
+    const rival = before && Math.max(before.e, before.l ? d.now : 0) >= until ? before : null;  // covers all of it: never shown
     let status;
     const finished = r.e <= d.now && !r.l;
     const next = finished && rows.find(o => o.id === r.id && o.s >= r.e && o.s - r.e <= d.bridge);
@@ -150,15 +153,46 @@ async function sportsPlan() {
     else if (finished) status = d.mode === r.id ? 'Finished, home at ' + time(r.e + d.hold) : 'Finished';
     else if (d.paused > from) status = 'Paused: you chose a face by hand';
     else if (rival) status = 'Skipped: ' + names[rival.id] + ' ' + rival.n + ' is on';
+    else if (before && later) status = 'From ' + clock(before.e) + ' (after ' + names[before.id] + '), until ' + names[later.id] + ' ' + later.n + ' at ' + clock(later.s - d.lead);
+    else if (before) status = 'From ' + clock(before.e) + ', after ' + names[before.id] + ' ' + before.n;
+    else if (later) status = (on(r) ? 'On now' : 'Switches at ' + time(from)) + ', until ' + names[later.id] + ' ' + later.n + ' at ' + clock(later.s - d.lead);
     else if (on(r)) status = d.mode === r.id ? 'On now' : 'On now, switching';
     else status = 'Switches at ' + time(from);
     return '<tr><td>' + names[r.id] + '</td><td>' + (r.n || '') + '</td><td>' + time(r.s, true) + '</td><td>' + status + '</td></tr>';
   });
   const upcoming = id => (d.sports[id]?.events || []).some(e => e.e + d.hold > d.now);
+  sportsPrepWatch();  // a face the clock prepares by itself shows its progress too
+  document.querySelectorAll('#sportsPrep option').forEach(o => {  // the face waiting in the spare slot is marked (bold where the browser allows it, and with text)
+    o.dataset.label ??= o.textContent;
+    const ready = !!d.spare && o.value === d.spare;
+    o.textContent = o.dataset.label + (ready ? ' (ready)' : '');
+    o.style.fontWeight = ready ? 'bold' : '';
+  });
   const seasons = d.order.filter(id => !upcoming(id) && d.sports[id]?.next > d.now).map(id => names[id] + ' ' + (d.sports[id].nextName ? d.sports[id].nextName + ', ' : '') + time(d.sports[id].next));
   const checked = Math.max(0, ...Object.values(d.sports).map(x => x.checked || 0));
   box.innerHTML = (lines.length ? '<table class="plan"><thead><tr><th>Sport</th><th>What</th><th>Starts</th><th>Plan</th></tr></thead><tbody>' + lines.join('') + '</tbody></table>' : 'Nothing found yet. The clock reads the schedules every few minutes.')
     + (seasons.length ? '<small>Next season: ' + seasons.join('; ') + '.</small> ' : '') + '<small>' + (checked ? 'Schedules read ' + time(checked) + '. ' : '') + d.today + ' of ' + d.max + ' automatic switches used today. ' + (d.spare ? 'Ready in the spare slot: ' + (SPORTS.find(s => s[0] === d.spare)?.[1] || d.spare) + ' (a switch to it takes seconds).' : 'Nothing is prepared in the spare slot yet.') + (d.home ? '' : ' No home face: the clock stays on the sport face after the event.') + '</small>';
+}
+// Progress of a face being prepared (also one the clock started by itself): message and bar under the button, the list locked meanwhile
+let prepTimer = 0, prepSeenBusy = false, prepWatchUntil = 0;
+async function sportsPrepWatch() {
+  clearTimeout(prepTimer);
+  const bar = document.querySelector('#sportsPrepBar'), msg = document.querySelector('#sportsPrepMsg'), pick = document.querySelector('#sportsPrep'), go = document.querySelector('#sportsPrepGo');
+  if (!bar || document.hidden) return;
+  let d;
+  try { d = await (await fetch('/api/firmware', { cache: 'no-store' })).json(); } catch (_) { return; }
+  if (d.busy) {
+    prepSeenBusy = true;
+    msg.textContent = d.message;
+    bar.hidden = !d.total; bar.value = d.total ? d.received / d.total * 100 : 0;
+    pick.disabled = go.disabled = true;
+    prepTimer = setTimeout(sportsPrepWatch, 2000);
+    return;
+  }
+  pick.disabled = go.disabled = false;
+  bar.hidden = true;
+  if (prepSeenBusy) { prepSeenBusy = false; msg.textContent = d.failed ? d.message : 'Done. The face is ready in the spare slot.'; sportsPlan(); }
+  else if (Date.now() < prepWatchUntil) prepTimer = setTimeout(sportsPrepWatch, 2000);  // asked, but it has not started yet (it waits for an album cover)
 }
 document.querySelector('#sportsPrepGo')?.addEventListener('click', async () => {
   const msg = document.querySelector('#sportsPrepMsg'), mode = document.querySelector('#sportsPrep').value;
@@ -167,7 +201,7 @@ document.querySelector('#sportsPrepGo')?.addEventListener('click', async () => {
     const r = await fetch('/api/sports/prepare', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'mode=' + encodeURIComponent(mode) });
     const j = await r.json().catch(() => ({}));
     msg.textContent = j.message || (r.ok ? 'Done.' : 'The clock refused.');
-    if (r.status === 202) for (let i = 1; i <= 24; i++) setTimeout(sportsPlan, i * 5000);  // the plan footer shows when the spare slot is ready
+    if (r.status === 202) { prepWatchUntil = Date.now() + 180000; sportsPrepWatch(); }
   } catch (_) { msg.textContent = 'The clock did not answer.'; }
 });
 function sportsInit(settings) {
@@ -238,6 +272,7 @@ function sportsInit(settings) {
   home.replaceChildren(new Option('Stay on the sports face', ''), ...[...document.querySelectorAll('#faces [data-face]')].map(b => new Option(b.querySelector('b').textContent, b.dataset.face)));
   home.value = settings.sportsHome || '';
   document.querySelector('#sportsPrep').replaceChildren(...[...document.querySelectorAll('#faces [data-face]')].map(b => new Option(b.querySelector('b').textContent, b.dataset.face)));
+  sportsPlan();  // marks the prepared face in the list
   render();
 }
 
@@ -1335,10 +1370,6 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
     }
   }, 50);
 })();
-
-document.querySelector('#nflDemo')?.addEventListener('click', async () => {
-  try { const r = await fetch('/api/nfl/demo', { method: 'POST', body: new URLSearchParams({ on: 1 }) }); if (!r.ok) throw new Error(await r.text()); message('Demo started: every screen once'); } catch (error) { message(error.message, true); }
-});
 
 {  // Display > Calibrate colours: the lowest panel brightness that keeps this panel's colours right (POST /api/dim-colour floor=); brightness 1 then means that level
   const card = document.querySelector('#calibrate-card');

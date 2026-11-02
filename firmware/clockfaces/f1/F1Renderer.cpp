@@ -781,7 +781,7 @@ static void flagFill(MatrixPanel_I2S_DMA *d, int x, int y, int w, int h) {
 }
 
 
-// The favourite drivers of the settings, in the simulator too
+// The favourite drivers of the settings
 static bool isFavourite(const char *code) {
   const String &favs = Settings::getInstance()->f1Drivers;
   return code[0] && favs.indexOf(code) >= 0;
@@ -1689,7 +1689,5 @@ void drawIdle(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, int hour, int minute,
   drawBottomChequers(d);
   drawRaceWeekend(d, dateTime, 1, 57, W - 1);
 }
-
-// Made-up screens for the telnet simulator, so every look can be checked outside a race weekend
 
 }  // namespace f1view

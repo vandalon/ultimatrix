@@ -715,6 +715,26 @@ uint32_t Clockface::devicesScrollMs() const {
   return extra > 0 ? kDevicesRest + extra * 7 * kDevicesPixelMs : 0;
 }
 
+// The long names scroll to their end and back. The speed (ms per pixel) is chosen so that one whole trip, with its rests at both ends (kRest in
+// HomeRenderer's pingPong), fits in the page time; only when even the fastest speed does not fit is the page kept longer. Returns the page time.
+uint32_t Clockface::devicesNameScroll(uint32_t pageMs, uint32_t &stepMs) const {
+  constexpr int kRest = 10;
+  constexpr uint32_t kFastest = 40, kSlowest = 90, kTail = 400;
+  stepMs = kSlowest;
+  int overflow = 0;
+  char name[sizeof(home::Frame::device[0])];
+  const int shown = _devices.offlineShown + _devices.lowShown;
+  for (int k = 0; k < shown; k++) {
+    if (k < _devices.offlineShown) ha::devices::nameAt(_devices.offline, k, name, sizeof(name));
+    else ha::devices::nameAt(_devices.low, k - _devices.offlineShown, name, sizeof(name));
+    overflow = std::max(overflow, home::deviceOverflow(name));
+  }
+  if (!overflow) return pageMs;
+  const uint32_t trip = 2 * (kRest + overflow), room = pageMs > kNamesRest + kTail ? pageMs - kNamesRest - kTail : 0;
+  stepMs = std::min(kSlowest, std::max(kFastest, room / trip));
+  return std::max(pageMs, kNamesRest + trip * stepMs + kTail);
+}
+
 void Clockface::fillDevices(Frame &frame, uint32_t now) const {
   const int rows = deviceRows(), extra = std::max(0, rows - 8);
   int first = 0, dy = 0;
@@ -736,7 +756,12 @@ void Clockface::fillDevices(Frame &frame, uint32_t now) const {
     frame.deviceKind[n] = kind;
   }
   for (int i = 0; i < 9; i++)  // a name wider than the panel scrolls, from its beginning, once the page has rested
-    if (strlen(frame.device[i]) > 12) { frame.scrollTick = 1 + (now - _pageSince < kNamesRest ? 0 : (now - _pageSince - kNamesRest) / 70) % 60000; break; }
+    if (strlen(frame.device[i]) > 12) {
+      uint32_t stepMs;
+      devicesNameScroll((uint32_t)ha::config().pageSecs * 1000 + devicesScrollMs(), stepMs);
+      frame.scrollTick = 1 + 2 * (now - _pageSince < kNamesRest ? 0 : (now - _pageSince - kNamesRest) / stepMs) % 60000;  // two ticks to the pixel, as pingPong counts
+      break;
+    }
 }
 
 void Clockface::update() {
@@ -771,7 +796,8 @@ void Clockface::update() {
   uint8_t pages[4];
   const int count = pagesAvailable(pages);
   if (_pageIndex >= count) _pageIndex = 0;
-  const uint32_t pageMs = (uint32_t)ha::config().pageSecs * 1000 + (pages[_pageIndex] == SCREEN_DEVICES ? devicesScrollMs() : 0);  // the list scrolls first
+  uint32_t pageMs = (uint32_t)ha::config().pageSecs * 1000 + (pages[_pageIndex] == SCREEN_DEVICES ? devicesScrollMs() : 0);  // the list scrolls first
+  if (pages[_pageIndex] == SCREEN_DEVICES) { uint32_t stepMs; pageMs = devicesNameScroll(pageMs, stepMs); }  // long names get their whole trip
   if (now - _pageSince >= pageMs) {  // with a single page the time starts over, so a long list scrolls again and again
     if (count > 1) _pageIndex = (_pageIndex + 1) % count;
     _pageSince = now;
