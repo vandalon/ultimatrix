@@ -15,7 +15,7 @@ The HUB75 panel driver is a memory-optimised fork of [ESP32-HUB75-MatrixPanel-DM
 
 Start with the [hardware setup guide](docs/HARDWARE.md), then [install from your browser](https://vandalon.github.io/ultimatrix/) (Chrome or Edge, USB cable that carries data). Details: [Install](#install).
 
-There are eleven clock faces, three of them [games](#playable-games). Each has its own firmware image, so the clock runs one face at a time. You can switch faces from the local settings page by installing another signed image over Wi-Fi.
+There are fourteen clock faces, three of them [games](#playable-games), six of them [sports faces](#sports-switching). Each has its own firmware image, so the clock runs one face at a time. You can switch faces from the local settings page by installing another signed image over Wi-Fi.
 
 ## Clock faces
 
@@ -32,6 +32,16 @@ There are eleven clock faces, three of them [games](#playable-games). Each has i
 - **Words** (`word`): The time in 16 languages, with a weekday, date and minute bar. Choose letter shuffle, letter lift, pixel dissolve, soft wipe, all four in rotation, or no transition.
 - **Mario** (`mario`): Mario in scrolling worlds, with clock blocks showing the time.
 - **Luigi** (`luigi`): A Luigi version of the scrolling-world clock.
+
+## Sports switching
+
+The sports faces are Football, Formula 1, MotoGP, NBA, MLB and NFL. They read their schedules and scores from public feeds and show them in the same style: live game or session pages, results, tables or standings, and a big clock between events. Under **Sports** in the settings the clock can also switch to a sport by itself, and go back to your home face when nothing is on.
+
+- **Which sports:** tick the sports that may take the panel and put them in order. When two are on at once, the top one wins, and a higher-ranked sport that starts later takes over from a lower-ranked one that is already showing. Nothing switches until you tick at least one sport.
+- **The plan:** a table shows every event the clock found and what it will do with it (switch at a time, stay until another sport starts, or skip it because a higher-ranked sport covers all of it).
+- **When it switches:** from 0 to 30 minutes before the start, and it stays until the event is over plus the **Stay after the end** time. **Stay between sessions** keeps the clock on a sport when its next session starts soon after (for example FP1 and FP2). **Favourite teams only** limits football, NBA, MLB and NFL to your teams. F1 and MotoGP can switch for qualifying and races, races only, or every session.
+- **Limits:** a face switch needs a restart, so at most 2, 4, 6 or 12 automatic switches a day are allowed (going home does not count). A face you choose by hand is left alone until the events that are on have finished.
+- **Spare slot:** the clock keeps a second copy of one face so the switch takes seconds. It prepares the face it will need within the next 6 hours by itself (at most 6 times a day) when nothing is live and enough memory is free; a failed attempt just tries again later and never changes the face. **Prepare a face now** does it on request: it shows a progress bar, waits for an album cover that is still loading, and marks the prepared face with (ready). Without a prepared face, a switch downloads it first, which takes about a minute.
 
 ## Playable games
 
@@ -258,7 +268,7 @@ Every face can be controlled from Home Assistant over MQTT. It is off until you 
 
 Canvas has a **Download picture** button for the current editor image. It exports a static 64×64 `.bmp`. Upload it in Home Assistant under Media, then pick the clock's media player (the DLNA Digital Media Renderer integration finds it automatically) and use Browse media > Play; the picture stays until Stop. You can also serve the file at a reachable HTTP(S) URL and use it in a notification's `image` field. Animation frames are not exported. A BMP played with Home Assistant's Play media has been checked on a real clock; PNG and JPEG over DLNA have not. Home Assistant's Internal URL must be reachable from the clock (when Home Assistant runs in Docker, use the Docker host's LAN address).
 
-- **Face** (Configuration): a dropdown of the eleven faces that shows the face now running. Choosing another one installs that face's signed image over Wi-Fi and restarts the clock, exactly like the **Faces** category on the settings page. Choosing the current face does nothing. It is refused while a live match or session is running, and the install needs a reachable update source; if memory is too short it restarts first and installs before the feeds start. Because one click downloads and installs another image, don't wire it to an automation unless you mean it, and keep your MQTT broker closed to untrusted clients. Only signed images are accepted.
+- **Face** (Configuration): a dropdown of the fourteen faces that shows the face now running. Choosing another one installs that face's signed image over Wi-Fi and restarts the clock, exactly like the **Faces** category on the settings page. Choosing the current face does nothing. It is refused while a live match or session is running, and the install needs a reachable update source; if memory is too short it restarts first and installs before the feeds start. Because one click downloads and installs another image, don't wire it to an automation unless you mean it, and keep your MQTT broker closed to untrusted clients. Only signed images are accepted.
 - **Saved picture** (with WLED enabled in the firmware): a dropdown of pictures and animations saved on the clock. Choose an item to show it, or **Off** to return to the clock face. WLED must be enabled in settings. This uses WLED playback, so the normal night/live-sports rules still apply. Items play until switched off, replaced, or the configured WLED idle timeout expires; animations loop.
 
   Save pictures in **Canvas**. To keep a played KLIPY GIF, open **Animations**, load it, enter a name and press **Save played GIF**. New saved animations are limited to the first **24 frames or 5 seconds**, whichever is shorter. Temporary imports can still play up to 64 frames. There are **8 shared slots** and 128 KiB of filesystem space shared with other clock data; saving checks available space and never overwrites an occupied slot. Saved items survive restarts. Use the saved list on Canvas or Animations to remove them. Cached data left by the faces can be cleared under **Advanced → Storage**. HA's dropdown refreshes within about five seconds; labels include the slot number so duplicate names remain distinct.
@@ -315,7 +325,7 @@ python3 firmware/tools/package-firmware.py
 
 It writes the built faces and signed manifests to `dist/firmware/`, in the folder layout expected by a private server. Keep the signing key private. Self-hosted face installation has been confirmed on a device.
 
-The [release workflow](.github/workflows/release.yml) builds all eleven faces when a `v*` tag is pushed. It signs the update manifests, creates a GitHub release and deploys the browser flasher and an update-file mirror to GitHub Pages. It needs the `UPDATE_SIGNING_KEY` repository secret and GitHub Pages configured for Actions. This workflow has not yet been checked end to end.
+The [release workflow](.github/workflows/release.yml) builds all fourteen faces when a `v*` tag is pushed. It signs the update manifests, creates a GitHub release and deploys the browser flasher and an update-file mirror to GitHub Pages. It needs the `UPDATE_SIGNING_KEY` repository secret and GitHub Pages configured for Actions. This workflow has not yet been checked end to end.
 
 ## Display quality
 
@@ -347,7 +357,7 @@ From the repository root:
 python3 firmware/tools/preview/refresh.py
 ```
 
-This refreshes all eleven face images, their animated previews, the overview and the boot replay. The README uses the same PNG files as the settings page. Rebuild and install the firmware to put new images on a clock.
+This refreshes all fourteen face images, their animated previews, the overview and the boot replay. The README uses the same PNG files as the settings page. Rebuild and install the firmware to put new images on a clock.
 
 For one animated preview, use `--face football` with `showcase.py`, or `--face pacman` with `faces.py`. The sports previews replay data from `firmware/tools/preview/showcase-data.json`; they show recorded results rather than current feeds. Tetris uses a fixed clock, and the other animated faces use scripted clock scenarios.
 
@@ -357,9 +367,9 @@ These images were rendered from the current code on 14 October 2026. They help r
 
 ## Development status
 
-As of 26 October 2026 (v0.8.1), the firmware builds with ESP-IDF and Arduino as a component. The shared runtime, local setup and settings, brightness and night display, signed updater, eleven faces, Home Assistant and MQTT control, the WLED overlay, Canvas and GIF saving, picture notifications and the Storage page are implemented. The drawing and feed code are still being cleaned up.
+As of 2 November 2026 (v0.9.2 betas), the firmware builds with ESP-IDF and Arduino as a component. The shared runtime, local setup and settings, brightness and night display, signed updater, fourteen faces, Home Assistant and MQTT control, the WLED overlay, Canvas and GIF saving, picture notifications and the Storage page are implemented. The drawing and feed code are still being cleaned up.
 
-The release workflow builds all eleven faces, and the v0.8.0 release built successfully. A build does not mean every face has been checked on a panel after every change. The recent Words transitions have been checked in native previews and browser mocks. Pac-Man is now the former Pac-Man Classic (the older random-maze Pac-Man is gone) and has been flashed and run on a panel. Space Invaders and Pong have been flashed and played on a panel during development; the Invaders update after the last changes (fonts, date backdrop, ship icons) has been flashed but not played through.
+The release workflow builds all fourteen faces, and the v0.8.0 release built successfully. A build does not mean every face has been checked on a panel after every change. The recent Words transitions have been checked in native previews and browser mocks. Pac-Man is now the former Pac-Man Classic (the older random-maze Pac-Man is gone) and has been flashed and run on a panel. Space Invaders and Pong have been flashed and played on a panel during development; the Invaders update after the last changes (fonts, date backdrop, ship icons) has been flashed but not played through.
 
 Football and Home have had device checks, including feeds, saved settings, telnet, picture notifications, GIF search, the Storage page. A clock has updated itself over Wi-Fi from a GitHub release. F1 has had a short device check of memory use, update checking and its cache.
 
