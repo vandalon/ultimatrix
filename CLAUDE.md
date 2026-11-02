@@ -17,6 +17,9 @@ When a change touches something the docs describe, update the docs in the same c
 ## Branches
 Work on a branch (`dev`), never directly on `main`: `main` only receives merges for stable releases. Beta tags are cut from the working branch. The branch `beta` is the update channel that CI force-pushes; never work in it.
 
+### Release flow (stable)
+Stable releases go through a PR: `dev` -> `main` with the release notes (`firmware/tools/release-notes.py`) as body, bound in the app (Auto-fix on), auto-merge on. After the merge: tag `vX.Y.Z` on `main` and push it from the local checkout (a tag pushed by `GITHUB_TOKEN` would not trigger the release workflow), then fast-forward `dev` to `main` and push. Betas are just a tag on `dev`, no PR.
+
 ## File map
 `.claude/filemap.md` indexes the repo (path + purpose per file/dir). Check it before exploring; read only the files the task needs. Update it when files are added, removed or repurposed.
 
