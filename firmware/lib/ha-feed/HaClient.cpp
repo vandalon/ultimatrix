@@ -310,10 +310,10 @@ bool HaClient::session(uint32_t version) {
   int heard = 0;
   const uint32_t began = millis();
   uint32_t lastPing = millis();
-  uint32_t lastId = 100, prefsId = 0, statsId = 0, histFirst = 0, lastStatistics = 0, lastHistory = 0;
+  uint32_t lastId = 100, prefsId = 0, statsId = 0, hourId = 0, histFirst = 0, lastStatistics = 0, lastHistory = 0;
   constexpr int kHistoryAsks = 8;
   constexpr uint8_t kGridOutField = 100;  // a history slot that holds a grid export meter (kWh per hour), not one of the power sensors
-  struct HistorySlot { char id[ha::kEntity]; uint8_t field; uint32_t mask; float v[ha::kHistoryBars]; };
+  struct HistorySlot { char id[ha::kEntity]; uint8_t field; bool meter; uint32_t mask; float v[ha::kHistoryBars]; };
   struct HistoryAsk { HistorySlot slot[kHistoryAsks]; int count; uint32_t hour; };
   std::unique_ptr<HistoryAsk> hist;  // the statistics asked for, one request each, until all have answered
   int histCount = 0, histGot = 0;
@@ -367,7 +367,7 @@ bool HaClient::session(uint32_t version) {
       for (int k = 0; k < count; k++) {
         const HistorySlot &one = slots[k];
         if (one.field != entity) continue;
-        for (int i = 0; i < ha::kHistoryBars; i++) if (one.mask >> i & 1) { into[i] += sign * one.v[i]; mask |= 1u << i; }
+        for (int i = 0; i < ha::kHistoryBars; i++) if (one.mask >> i & 1) { into[i] += (one.meter ? 1.f : sign) * one.v[i]; mask |= 1u << i; }  // a kWh meter counts up whichever way the power sensor points
       }
     };
     add(ha::E_SOLAR, 1, solar, solarMask);
@@ -412,6 +412,7 @@ bool HaClient::session(uint32_t version) {
   };
   bool historyAsked = false;  // Home Assistant wants every id higher than the one before
   bool statisticsAsked = false;
+  uint32_t hourStartAsked = 0;  // the hour the pending 5-minute answer is about
   char statisticsMidnight[sizeof(ha::Snapshot::midnight)] = "";
   bool resolving = false;
   uint32_t templateId = 0, mediaId = 0, devicesId = 0, pricesId = 0;
@@ -491,20 +492,35 @@ bool HaClient::session(uint32_t version) {
         char midnight[sizeof(ha::Snapshot::midnight)];
         { std::lock_guard<std::mutex> guard(_lock); strlcpy(midnight, _snapshot.midnight, sizeof(midnight)); }
         std::unique_ptr<char[]> ask(new (std::nothrow) char[640]);
-        int ids = 0;
-        if (ask && midnight[0]) {
-          statsId = ++lastId;
-          int at = snprintf(ask.get(), 640, "{\"id\":%u,\"type\":\"recorder/statistics_during_period\",\"start_time\":\"%s\",\"period\":\"day\",\"types\":[\"change\"],\"units\":{\"energy\":\"kWh\"},\"statistic_ids\":[", (unsigned)statsId, midnight);
+        // The same meters twice: their change per day since midnight, and (5-minute buckets, as the long-term hours only exist once the hour is over) since the top of this hour
+        auto sendStatistics = [&](uint32_t id, const char *start, const char *period) {
+          int ids = 0;
+          int at = snprintf(ask.get(), 640, "{\"id\":%u,\"type\":\"recorder/statistics_during_period\",\"start_time\":\"%s\",\"period\":\"%s\",\"types\":[\"change\"],\"units\":{\"energy\":\"kWh\"},\"statistic_ids\":[", (unsigned)id, start, period);
           for (int k = 0; k < 4; k++) {
             // A field can hold several meters: each is asked for, and the answers are added up
-            char id[ha::kEntity];
-            for (const char *list = config->energy[ha::E_USAGE_KWH + k]; ha::nextListed(list, id, sizeof(id)) && at < 540;)
-              at += snprintf(ask.get() + at, 640 - at, "%s\"%s\"", ids++ ? "," : "", id);
+            char meter[ha::kEntity];
+            for (const char *list = config->energy[ha::E_USAGE_KWH + k]; ha::nextListed(list, meter, sizeof(meter)) && at < 540;)
+              at += snprintf(ask.get() + at, 640 - at, "%s\"%s\"", ids++ ? "," : "", meter);
           }
-          char id[ha::kEntity];
-          for (const char *list = gridTo; ha::nextListed(list, id, sizeof(id)) && at < 540;)
-            at += snprintf(ask.get() + at, 640 - at, "%s\"%s\"", ids++ ? "," : "", id);
+          char meter[ha::kEntity];
+          for (const char *list = gridTo; ha::nextListed(list, meter, sizeof(meter)) && at < 540;)
+            at += snprintf(ask.get() + at, 640 - at, "%s\"%s\"", ids++ ? "," : "", meter);
           if (ids) { snprintf(ask.get() + at, 640 - at, "]}"); socket.text(ask.get()); }
+          return ids;
+        };
+        if (ask && midnight[0]) {
+          statsId = ++lastId;
+          sendStatistics(statsId, midnight, "day");
+          if (time(nullptr) > 1700000000) {
+            const time_t top = time(nullptr) / 3600 * 3600;
+            struct tm utc;
+            gmtime_r(&top, &utc);
+            char from[64];
+            snprintf(from, sizeof(from), "%04d-%02d-%02dT%02d:00:00+00:00", utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday, utc.tm_hour);
+            hourId = ++lastId;
+            hourStartAsked = (uint32_t)(top / 3600);
+            sendStatistics(hourId, from, "5minute");
+          }
         }
         statisticsAsked = true;
         lastStatistics = millis();
@@ -524,12 +540,16 @@ bool HaClient::session(uint32_t version) {
           const int power[4] = {ha::E_USAGE, ha::E_SOLAR, ha::E_GRID, ha::E_BATTERY};
           for (int e : power) {
             char id[ha::kEntity];
-            for (const char *list = config->energy[e]; ha::nextListed(list, id, sizeof(id)) && next->count < kHistoryAsks;) {
+            // Solar and grid: the Energy dashboard's kWh meters (their change per hour, as the dashboard shows) when there are any, else the power sensor's mean
+            const int kwh = e == ha::E_SOLAR ? ha::E_SOLAR_KWH : e == ha::E_GRID ? ha::E_GRID_KWH : -1;
+            const bool meter = kwh >= 0 && config->energy[kwh][0];
+            for (const char *list = config->energy[meter ? kwh : e]; ha::nextListed(list, id, sizeof(id)) && next->count < kHistoryAsks;) {
               HistorySlot &slot = next->slot[next->count++];
               strlcpy(slot.id, id, sizeof(slot.id));
               slot.field = (uint8_t)e;
-              snprintf(ask.get(), 360, "{\"id\":%u,\"type\":\"recorder/statistics_during_period\",\"start_time\":\"%04d-%02d-%02dT%02d:00:00+00:00\",\"period\":\"hour\",\"types\":[\"mean\"],\"units\":{\"power\":\"kW\"},\"statistic_ids\":[\"%s\"]}",
-                       (unsigned)++lastId, utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, id);
+              slot.meter = meter;
+              snprintf(ask.get(), 360, "{\"id\":%u,\"type\":\"recorder/statistics_during_period\",\"start_time\":\"%04d-%02d-%02dT%02d:00:00+00:00\",\"period\":\"hour\",\"types\":[\"%s\"],\"units\":{\"%s\":\"%s\"},\"statistic_ids\":[\"%s\"]}",
+                       (unsigned)++lastId, utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, meter ? "change" : "mean", meter ? "energy" : "power", meter ? "kWh" : "kW", id);
               socket.text(ask.get());
             }
           }
@@ -680,7 +700,7 @@ bool HaClient::session(uint32_t version) {
       }
     } else if (hist && (uint32_t)idOf(text) >= histFirst && (uint32_t)idOf(text) < histFirst + (uint32_t)histCount) {  // hourly power means of one statistic
       HistorySlot &slot = hist->slot[(uint32_t)idOf(text) - histFirst];
-      slot.mask = strstr(text, "\"success\":false") ? 0 : ha::parseHourly(text, slot.id, hist->hour, slot.v, slot.field == kGridOutField ? "change" : "mean");
+      slot.mask = strstr(text, "\"success\":false") ? 0 : ha::parseHourly(text, slot.id, hist->hour, slot.v, slot.field == kGridOutField || slot.meter ? "change" : "mean");
       if (++histGot >= histCount) {
         const uint32_t hour = hist->hour;
         float use[ha::kHistoryBars] = {}, solar[ha::kHistoryBars] = {}, battery[ha::kHistoryBars] = {}, grid[ha::kHistoryBars] = {};
@@ -691,6 +711,15 @@ bool HaClient::session(uint32_t version) {
         for (int k = 0; k < hist->count; k++) {
           if (hist->slot[k].field != kGridOutField) continue;
           for (int i = 0; i < ha::kHistoryBars; i++) if (hist->slot[k].mask >> i & 1) { gridOut[i] += fmaxf(0, hist->slot[k].v[i]); gridOutMask |= 1u << i; }
+        }
+        bool gridMeter = false;
+        for (int k = 0; k < hist->count; k++) gridMeter |= hist->slot[k].field == ha::E_GRID && hist->slot[k].meter;
+        if (gridMeter) {  // the import meter counts only what came in: what went out is taken off it, as the dashboard does, and the usage follows
+          for (int i = 0; i < ha::kHistoryBars; i++) {
+            if (!(gridMask >> i & 1)) continue;
+            if (gridOutMask >> i & 1) grid[i] -= gridOut[i];
+            if (!config->energy[ha::E_USAGE][0]) use[i] = fmaxf(0, grid[i] + (solarMask >> i & 1 ? fmaxf(0, solar[i]) : 0) + (batteryMask >> i & 1 ? battery[i] : 0));
+          }
         }
         hist.reset();
         histCount = histGot = 0;
@@ -850,7 +879,8 @@ bool HaClient::session(uint32_t version) {
           _outlookVersion++;
         }
       }
-    } else if (statsId && (uint32_t)idOf(text) == statsId) {  // recorder/statistics_during_period
+    } else if ((statsId && (uint32_t)idOf(text) == statsId) || (hourId && (uint32_t)idOf(text) == hourId)) {  // recorder/statistics_during_period (since midnight, or this hour)
+      const bool thisHour = hourId && (uint32_t)idOf(text) == hourId;
       float values[4] = {};
       uint8_t got = 0;
       if (!strstr(text, "\"success\":false")) {
@@ -874,12 +904,21 @@ bool HaClient::session(uint32_t version) {
         }
       }
       std::lock_guard<std::mutex> guard(_lock);
+      if (thisHour) {
+        for (int k = 0; k < 4; k++) _hour[k] = values[k];
+        _hourOk = got;
+        _hourStart = hourStartAsked;
+        _snapshot.hourOk = got; _snapshot.hourStart = hourStartAsked;
+        memcpy(_snapshot.hourKwh, values, sizeof(values));
+        _updates++;
+      } else {
       for (int k = 0; k < 4; k++) {
         _snapshot.energyOk &= ~(1 << (ha::E_USAGE_KWH + k));
         if (got >> k & 1) { _today[k] = values[k]; _snapshot.energy[ha::E_USAGE_KWH + k] = values[k]; _snapshot.energyOk |= 1 << (ha::E_USAGE_KWH + k); }
       }
       _todayOk = got;
       _updates++;
+      }
     } else if (typeIs(text, "result") && templateId && (uint32_t)idOf(text) == templateId) {
       if (strstr(text, "\"success\":false")) {
         char reason[48];
@@ -933,11 +972,14 @@ bool HaClient::session(uint32_t version) {
               // A new day (or connection) must not reuse the previous day's totals or pending reply.
               strlcpy(statisticsMidnight, value.midnight, sizeof(statisticsMidnight));
               _todayOk = 0;
-              statsId = 0;
+              _hourOk = 0;
+              statsId = hourId = 0;
               statisticsAsked = false;
             }
             for (int k = 0; k < 4; k++)  // today's kWh come from the statistics when they have an answer
               if (_todayOk >> k & 1) { value.energy[ha::E_USAGE_KWH + k] = _today[k]; value.energyOk |= 1 << (ha::E_USAGE_KWH + k); }
+            value.hourOk = _hourOk; value.hourStart = _hourStart;
+            memcpy(value.hourKwh, _hour, sizeof(_hour));
             _snapshot = value;
             _valid = true;
           }

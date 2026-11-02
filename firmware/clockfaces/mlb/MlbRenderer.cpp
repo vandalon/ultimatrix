@@ -1255,7 +1255,7 @@ void drawClock(MatrixPanel_I2S_DMA &d, ClockTime *time, uint32_t ms, const mlb::
     time_t now = (time_t)time->localNow();
     gmtime_r(&now, &local);
     char date[12], seconds[4];
-    snprintf(date, sizeof(date), "%d %s", local.tm_mday, months[local.tm_mon % 12]);
+    snprintf(date, sizeof(date), "%s %d", months[local.tm_mon % 12], local.tm_mday);
     snprintf(seconds, sizeof(seconds), "%02d", time->getSecond());
     text3(d, date, 2, 2, kPastel);
     text3Right(d, seconds, W - 2, 2, minutesInk);

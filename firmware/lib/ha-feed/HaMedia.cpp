@@ -526,6 +526,7 @@ void fetchTask(void *) {
     else { strlcpy(failedFor, picture, sizeof(failedFor)); failedAt = millis(); }
   }
   if (ok) setNote("Loaded");
+  consoleLog("[HA] album art: fetch done, %u bytes of its stack never used\n", (unsigned)uxTaskGetStackHighWaterMark(nullptr));
   fetching = false;
   vTaskDelete(nullptr);
 }
@@ -799,7 +800,7 @@ ArtState art(const Player &player, bool online, bool logo, const uint16_t **pixe
     if (!ready) { fetching = false; strlcpy(note, "Out of memory (cover buffer)", sizeof(note)); }
   }
   if (!fetching) return ART_LOADING;
-  if (xTaskCreatePinnedToCore(fetchTask, "haArt", config().tls || (key[0] != '/' && key[0] != '~') ? 12288 : 9216, nullptr, 1, nullptr, 0) != pdPASS) { fetching = false; setNote("Could not start the fetch"); }
+  if (xTaskCreatePinnedToCore(fetchTask, "haArt", 12288, nullptr, 1, nullptr, 0) != pdPASS) { fetching = false; setNote("Could not start the fetch"); }
   return ART_LOADING;
 }
 

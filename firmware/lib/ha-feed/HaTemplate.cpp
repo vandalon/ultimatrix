@@ -203,11 +203,11 @@ size_t buildTemplate(const Config &c, char *out, size_t capacity) {
 
   bool presence = false;
   for (const auto &slot : c.icons) presence |= slot.type == ICON_PRESENCE || slot.type == ICON_LIGHTS;
-  if (presence) o.add("{%- macro rooms(l) -%}{%- set n = namespace(ids=[]) -%}{%- for s in l -%}"
-                      // a group (an entity that lists members) has no area of its own: its members that are on count; one without an area counts as a room of its own
+  if (presence) o.add("{%- macro rooms(l,o) -%}{%- set n = namespace(ids=[]) -%}{%- for s in l -%}{%- if not (o and s.attributes.entity_id is defined and s.attributes.entity_id is not string) -%}"
+                      // a group (an entity that lists members) has no area of its own: its members that are on count; one without an area counts as a room of its own only when o is 1 (lights); presence ignores it; with o (lights) a group is ignored altogether
                       "{%- set ms = s.attributes.entity_id if s.attributes.entity_id is defined and s.attributes.entity_id is not string else [s.entity_id] -%}"
-                      "{%- for m in ms -%}{%- set a = area_id(m) or m -%}{%- if a and a not in n.ids and (m == s.entity_id or is_state(m,'on')) -%}"
-                      "{%- set n.ids = n.ids + [a] -%}{%- endif -%}{%- endfor -%}{%- endfor -%}{{ n.ids|count }}/0{%- endmacro -%}");
+                      "{%- for m in ms -%}{%- set a = area_id(m) or (m if o else '') -%}{%- if a and a not in n.ids and (m == s.entity_id or is_state(m,'on')) -%}"
+                      "{%- set n.ids = n.ids + [a] -%}{%- endif -%}{%- endfor -%}{%- endif -%}{%- endfor -%}{{ n.ids|count }}/0{%- endmacro -%}");
   bool devices = false, lowBattery = false;
   for (const auto &slot : c.icons) {
     devices |= slot.type == ICON_OFFLINE || slot.type == ICON_LOW_BATTERY;
@@ -248,7 +248,8 @@ size_t buildTemplate(const Config &c, char *out, size_t capacity) {
     const Slot &icon = c.icons[i];
     iconEntityCopy(i, entity.get(), kIconEntity);
     if (iconList(icon, entity.get(), list, kList, scratch.get())) {
-      snprintf(expression, kExpression, "%s(%s)", (icon.type == ICON_PRESENCE || icon.type == ICON_LIGHTS) ? "rooms" : icon.type == ICON_OFFLINE ? "devices" : icon.type == ICON_LOW_BATTERY ? "low" : "grp", list);
+      snprintf(expression, kExpression, "%s(%s%s)", (icon.type == ICON_PRESENCE || icon.type == ICON_LIGHTS) ? "rooms" : icon.type == ICON_OFFLINE ? "devices" : icon.type == ICON_LOW_BATTERY ? "low" : "grp", list,
+               icon.type == ICON_LIGHTS ? ",1" : icon.type == ICON_PRESENCE ? ",0" : "");
       o.field(expression);
     } else {
       o.add(";-");

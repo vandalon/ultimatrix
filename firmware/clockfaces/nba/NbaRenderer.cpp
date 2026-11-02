@@ -877,7 +877,7 @@ void drawClock(MatrixPanel_I2S_DMA &d, ClockTime *time, uint32_t ms, const char 
     const char *weekday = days[local.tm_wday % 7], *month = months[local.tm_mon % 12];
     tramText(d, weekday, W - tramWidth(weekday), 3, kOrange);
     char date[12];
-    snprintf(date, sizeof(date), "%d %s", local.tm_mday, month);
+    snprintf(date, sizeof(date), "%s %d", month, local.tm_mday);
     tramText(d, date, W - tramWidth(date), 14, kMid);
   }
   // The ball plays thirteen rounds in turn. Most dribble in from the left (steady, crossing over, slowly, rolling or in small hops), shoot

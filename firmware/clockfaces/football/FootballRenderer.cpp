@@ -1277,7 +1277,7 @@ void drawStadium(MatrixPanel_I2S_DMA *d, int level, bool withBoards, bool clockG
 
 void drawBigClock(MatrixPanel_I2S_DMA *d, ClockTime *dateTime, int second, int roll) {
   drawStadium(d);
-  String date = String(dateTime->getDay()) + " " + MONTHS[(dateTime->getMonth() - 1 + 12) % 12];  // "6 OCT", top left
+  String date = String(MONTHS[(dateTime->getMonth() - 1 + 12) % 12]) + " " + dateTime->getDay();  // "OCT 6", top left
   drawText(d, date, 2, 2, DATE);
   drawText(d, twoDigits(second), W - 2 - textWidth("00"), 2, MINUTES);  // the seconds, top right
   const GlyphSet &clockGlyphs = numericfont::enabled() ? BLOCK_CLOCK_GLYPHS : MAIN_GLYPHS;

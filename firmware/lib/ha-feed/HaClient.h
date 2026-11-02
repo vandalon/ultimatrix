@@ -65,6 +65,9 @@ class HaClient {
     EnergyPrefs _prefs;
     float _today[4] = {};      // today's kWh of usage, solar, battery and grid, from the recorder's statistics
     uint8_t _todayOk = 0;
+    float _hour[4] = {};       // the same for the hour in progress
+    uint8_t _hourOk = 0;
+    uint32_t _hourStart = 0;
     History _history;
     Outlook _outlook;
     std::atomic<uint32_t> _outlookVersion{0};

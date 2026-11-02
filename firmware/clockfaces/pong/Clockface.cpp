@@ -422,7 +422,7 @@ void drawDate(MatrixPanel_I2S_DMA &d, ClockTime *time) {
   if (Settings::getInstance()->pongDay)
     miniText(d, DAYS[weekday >= 0 && weekday < 7 ? weekday : 0], 3, Settings::getInstance()->pongDay == 2 ? BELOW_Y : ABOVE_Y, dim(kLeft, level));
   if (Settings::getInstance()->pongDate) {
-    snprintf(text, sizeof(text), "%d %s", time->getDay() % 100, MONTHS[month >= 1 && month <= 12 ? month - 1 : 0]);
+    snprintf(text, sizeof(text), "%s %d", MONTHS[month >= 1 && month <= 12 ? month - 1 : 0], time->getDay() % 100);
     miniText(d, text, 36, Settings::getInstance()->pongDate == 2 ? BELOW_Y : ABOVE_Y, dim(kRight, level));
   }
 }
