@@ -1064,10 +1064,10 @@ void Clockface::update() {
     snprintf(day, sizeof(day), "%d", _dateTime->getDay());
     const char *month = MONTHS[(_dateTime->getMonth() + 11) % 12];
     miniText(d, DAYS[_dateTime->getWeekday() % 7], 1, 1, theme.text);
-    // Right-aligned month; the day number sits one pixel farther left
-    const int monthX = W - 1 - miniWidth(month);
-    miniText(d, month, monthX, 1, theme.text);
-    miniText(d, day, monthX - 3 - miniWidth(day), 1, theme.text);
+    // Right-aligned day; the month sits left of it ("OCT 15", the same order on every face)
+    const int dayX = W - 1 - miniWidth(day);
+    miniText(d, day, dayX, 1, theme.text);
+    miniText(d, month, dayX - 3 - miniWidth(month), 1, theme.text);
   }
 
   // The coin counter between the weekday and the date

@@ -1,6 +1,8 @@
 // Project-authored portions: SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
 // See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
+#include <DateFormat.h>
+#include <Settings.h>
 #include "ColonBlink.h"
 #include "Clockface.h"
 
@@ -288,22 +290,31 @@ void Clockface::collectHours(int hourKey, int hour24, int minute) {
     if (_useTodayOk && _haveNow && (_now.energyOk >> ha::E_USAGE & 1)) _useToday += _now.energy[ha::E_USAGE] * minute / 60.0f;
   }
   if (!_haveNow) return;
+  const float elapsed = fmaxf(minute, 1) / 60.0f;  // the bar of the hour in progress is the energy so far (kWh, as the Energy dashboard shows it), not the mean power
   if (_now.energyOk >> ha::E_USAGE & 1) {
     _useSum += _now.energy[ha::E_USAGE];
-    _use[hour24] = _samples ? _useSum / (_samples + 1) : _now.energy[ha::E_USAGE];
+    _use[hour24] = (_samples ? _useSum / (_samples + 1) : _now.energy[ha::E_USAGE]) * elapsed;
   }
   if (_now.energyOk >> ha::E_SOLAR & 1) {
     _solarSum += _now.energy[ha::E_SOLAR];
-    _solar[hour24] = _samples ? _solarSum / (_samples + 1) : _now.energy[ha::E_SOLAR];
+    _solar[hour24] = (_samples ? _solarSum / (_samples + 1) : _now.energy[ha::E_SOLAR]) * elapsed;
   }
   if (_now.energyOk >> ha::E_BATTERY & 1) {
     _batterySum += _now.energy[ha::E_BATTERY] * (ha::config().batteryDischargePositive ? 1 : -1);
-    _battery[hour24] = _samples ? _batterySum / (_samples + 1) : _now.energy[ha::E_BATTERY] * (ha::config().batteryDischargePositive ? 1 : -1);
+    _battery[hour24] = (_samples ? _batterySum / (_samples + 1) : _now.energy[ha::E_BATTERY] * (ha::config().batteryDischargePositive ? 1 : -1)) * elapsed;
   }
   if (_now.energyOk >> ha::E_GRID & 1) {
     const float sign = ha::config().gridImportPositive ? 1.0f : -1.0f;
     _gridSum += _now.energy[ha::E_GRID] * sign;
-    _grid[hour24] = _samples ? _gridSum / (_samples + 1) : _now.energy[ha::E_GRID] * sign;
+    _grid[hour24] = (_samples ? _gridSum / (_samples + 1) : _now.energy[ha::E_GRID] * sign) * elapsed;
+  }
+  // The Energy dashboard's own kWh meters beat the scaled power: their change since the top of the hour (usage = grid import - export + solar, when there is no battery)
+  if (_now.hourOk && _now.hourStart == (uint32_t)(time(nullptr) / 3600)) {
+    const bool solarOk = _now.hourOk >> 1 & 1, gridOk = _now.hourOk >> 3 & 1;
+    if (solarOk) _solar[hour24] = _now.hourKwh[1];
+    if (gridOk) _grid[hour24] = _now.hourKwh[3];
+    if (_now.hourOk & 1) _use[hour24] = _now.hourKwh[0];
+    else if (gridOk && !ha::config().energy[ha::E_BATTERY][0]) _use[hour24] = fmaxf(0, _now.hourKwh[3] + (solarOk ? _now.hourKwh[1] : 0));
   }
   _samples++;
 }
@@ -811,9 +822,7 @@ void Clockface::update() {
   frame.pageCount = count;
   frame.pageIndex = _pageIndex;
   snprintf(frame.time, sizeof(frame.time), _dateTime->is24hFormat() ? "%02d:%02d" : "%d:%02d", _dateTime->getHour(), _dateTime->getMinute());
-  static const char *const kMonths[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
-  const int month = std::min(12, std::max(1, _dateTime->getMonth()));
-  snprintf(frame.date, sizeof(frame.date), "%s %d", kMonths[month - 1], std::min(31, std::max(1, _dateTime->getDay())));
+  dateformat::format(Settings::getInstance()->timezone.c_str(), std::min(31, std::max(1, _dateTime->getDay())), std::min(12, std::max(1, _dateTime->getMonth())), frame.date, sizeof(frame.date));  // in the country's order and with its separator
   if (const int install = firmwareInstallPercent.load(); install >= 0) {  // only a real install: a check or preparing a face ahead of time leaves the screen alone
     frame.page = SCREEN_STATUS;
     strlcpy(frame.line1, "UPDATING", sizeof(frame.line1));

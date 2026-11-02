@@ -57,9 +57,9 @@
 #include <AdminPin.h>
 #include <DlnaRenderer.h>
 #include <GzipAsset.h>
-#ifdef UM_SPORTS_SWITCH
 #include <Preferences.h>
-#include "CacheBlob.h"
+#include "CacheBlob.h"  // loadDimColour() uses it in every image, not only with the sports switch
+#ifdef UM_SPORTS_SWITCH
 #include <SportsWatch.h>
 #endif
 #include <nvs.h>
@@ -2061,9 +2061,14 @@ static void background() {
     FirmwareUpdate::Latest check; firmwareUpdate.latest(check);
     FirmwareUpdate::Status prep; firmwareUpdate.status(prep);
     const bool preparing = prep.busy && firmwareUpdate.stagingOnly();  // a face being prepared in the spare slot needs the same room as a check
-    updateChecking = check.checking || preparing;
+#ifdef UM_HOME
+    const bool cover = ha::media::fetchBusy();  // an album cover over TLS needs a 16 KB block: mDNS and telnet make room while it downloads
+#else
+    const bool cover = false;
+#endif
+    updateChecking = check.checking || preparing || cover;
     if (updateChecking && mdnsStarted) { MDNS.end(); mdnsStarted = false; mdnsRetryAt = now; }  // restarts by itself once the check is over
-    if (preparing && telnetStarted) { telnet.stop(); telnetStarted = false; telnetLow = true; }  // and comes back by itself once memory is free
+    if ((preparing || cover) && telnetStarted) { telnet.stop(); telnetStarted = false; telnetLow = true; }  // and comes back by itself once memory is free
   }
   {  // telnet needs heap of its own: it goes while memory is short and comes back once there is room again
     static uint32_t lowSince = 0;

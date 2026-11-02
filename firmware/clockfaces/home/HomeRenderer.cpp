@@ -9,6 +9,7 @@
 #include <strings.h>
 #include <utility>
 #include "FaceKit.h"
+#include "TramDot.h"
 #include "MiniFont.h"
 #include "NumericFont.h"
 #include "SourceArt.h"
@@ -486,11 +487,16 @@ void header(MatrixPanel_I2S_DMA &d, const Frame &f, int mono = -1, int dy = 1) {
   const View slide = view;  // the clock and date stay put while a page slides
   view = View();
   thinHeader = f.thinClock;
-  int timeX = 13 - clockWidth(f.time) / 2;
+  int timeX = 14 - tramWidth(f.time) / 2;  // TramDot, 7 rows: the 27 dots of "19:42" start in column 1
   for (const char *c = f.time; *c; ++c) {
     const uint16_t color = *c == ':' ? rgb(f.colonLevel, f.colonLevel, f.colonLevel) : tone(T_BLUE);
-    clockGlyph(d, *c, timeX, dy - 1, mono >= 0 ? mono : color);
-    timeX += (*c == ':' ? (thinHeader ? 1 : 2) : (thinHeader ? 4 : 5)) + 1;
+    const bool hideColon = *c == ':' && mono < 0 && f.art && (f.backdrop || f.page == SCREEN_MEDIA) && f.colonLevel < 64;  // over the album art a dark colon would show as black squares: it is left out until it is bright enough to be seen
+    const TramGlyph &glyph = tramGlyph(*c);
+    if (!hideColon)
+      for (int row = 0; row < 7; row++)
+        for (int col = 0; col < glyph.w; col++)
+          if (glyph.rows[row] >> (glyph.w - 1 - col) & 1) put(d, timeX + col, dy + row, mono >= 0 ? mono : color);
+    timeX += glyph.w + 1;
   }
   if (sliding && slideStation) { view = slide; view.x0 = 26; }  // the date or station goes with its page and passes behind the clock
   if (f.stationTop && f.station[0]) {  // the radio station in the date's place, cut to what fits right of the time
@@ -501,17 +507,21 @@ void header(MatrixPanel_I2S_DMA &d, const Frame &f, int mono = -1, int dy = 1) {
     const int width = boldTextWidth(upper), color = mono >= 0 ? mono : tone(T_PASTEL);
     if (width <= kStationRoom) boldText(d, upper, 62 - width, dy, color);
     else boldText(d, upper, 62 - kStationRoom - pingPong(f.scrollTick, width - kStationRoom), dy, color, 62 - kStationRoom, 63);
-  } else {  // "OCT 15", quieter than the time: the month in letters built like the digits, the day in the clock's digits, 2 px apart
-    const char *space = strchr(f.date, ' ');
+  } else {  // "28-11" (or "11/28"), quieter than the time: TramDot digits, right-aligned, the hyphen only 4 dots wide
     const uint16_t color = mono >= 0 ? mono : tone(T_MUTE);
-    if (space) {
-      char month[8];
-      strlcpy(month, f.date, std::min<size_t>(sizeof(month), space - f.date + 1));
-      const int dayX = 63 - clockWidth(space + 1);
-      int x = dayX - 2 - monthWidth(month);
-      for (const char *c = month; *c; ++c) { monthGlyph(d, toupper(*c), x, dy - 1, color); x += monthAdvance(toupper(*c)); }
-      x = dayX;
-      for (const char *c = space + 1; *c; ++c, x += thinHeader ? 5 : 6) clockGlyph(d, *c, x, dy - 1, color);
+    auto advance = [](char ch) { return ch == '-' ? 4 : (int)tramGlyph(ch).w; };
+    int width = 0;
+    for (const char *c = f.date; *c; ++c) width += advance(*c) + 1;
+    int x = 63 - (width ? width - 1 : 0);
+    for (const char *c = f.date; *c; ++c) {
+      if (*c == '-') box(d, x, dy + 3, 4, 1, color);
+      else {
+        const TramGlyph &glyph = tramGlyph(*c);
+        for (int row = 0; row < 7; row++)
+          for (int col = 0; col < glyph.w; col++)
+            if (glyph.rows[row] >> (glyph.w - 1 - col) & 1) put(d, x + col, dy + row, color);
+      }
+      x += advance(*c) + 1;
     }
   }
   view = slide;

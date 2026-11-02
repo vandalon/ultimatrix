@@ -25,6 +25,9 @@ struct Snapshot {
   uint8_t washerCount, washerOk;
   char weather[kHomeTiles][24];
   char midnight[32];          // the start of today in Home Assistant's time zone, ISO 8601
+  float hourKwh[4] = {};      // the kWh of usage, solar, battery and grid so far in the hour in progress (meters' 5-minute changes), set by HaClient
+  uint8_t hourOk = 0;
+  uint32_t hourStart = 0;     // that hour as UTC seconds / 3600
 };
 
 // Writes the template for the saved settings; returns its length, or 0 when it does not fit
