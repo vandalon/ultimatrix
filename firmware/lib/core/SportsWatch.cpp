@@ -282,7 +282,7 @@ time_t SportsWatch::refreshF1(const Config &cfg, time_t now) {
         secs = finishedAt(F1, start, secs, now) - start;
         if (start + secs + 2 * 3600 <= now) continue;
       } else ahead = true;
-      addEvent(found, start, secs, !over && !strcmp(s.state, "in"), s.abbr);
+      addEvent(found, start, secs, !over && !strcmp(s.state, "in"), !strcmp(s.abbr, "Qual") ? "Quali" : s.abbr);  // the feed's "Qual" reads better in full
     }
     if (pass || ahead) break;
     // The board still shows the weekend that has just ended: ask for the next four weeks

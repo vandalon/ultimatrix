@@ -14,6 +14,7 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <WiFiManager.h>
+#include <WifiNetworks.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
 #include <Clockface.h>
@@ -118,6 +119,72 @@ static bool savedNetworkVisible() {
   }
   return false;
 }
+// The first start after an update from a clock with one saved network: that network goes into the list of known ones
+static void seedKnownNetworks() {
+  wifinets::List known;
+  wifinets::load(known);
+  if (known.count) return;
+  WiFi.mode(WIFI_STA);
+  wifi_config_t conf = {};
+  if (esp_wifi_get_config(WIFI_IF_STA, &conf) == ESP_OK && conf.sta.ssid[0]) wifinets::remember((const char *)conf.sta.ssid, (const char *)conf.sta.password);
+}
+
+static bool waitForStation(uint32_t ms) {
+  const uint32_t until = millis() + ms;
+  while ((int32_t)(millis() - until) < 0) {
+    if (WiFi.status() == WL_CONNECTED) return true;
+    bootTick();
+    delay(20);
+  }
+  return WiFi.status() == WL_CONNECTED;
+}
+
+// Several known networks: the last one that worked first (10 s, 10 s, 20 s, like a single saved network), then the others in the
+// order of their signal (one try of 15 s each). A hidden network cannot be seen in a scan, so then the order is the last-used one.
+static bool connectKnownNetworks() {
+  wifinets::List known;
+  wifinets::load(known);
+  WiFi.mode(WIFI_STA);
+  int rssi[wifinets::kMax];
+  for (int i = 0; i < known.count; i++) rssi[i] = hiddenWifiSaved() ? -50 : -1000;
+  if (!hiddenWifiSaved()) {
+    for (int attempt = 0; attempt < 2; attempt++) {  // twice: one scan can miss a network that is there
+      WiFi.scanNetworks(true);
+      const uint32_t until = millis() + 8000;
+      while (WiFi.scanComplete() == WIFI_SCAN_RUNNING && (int32_t)(millis() - until) < 0) { bootTick(); delay(20); }
+      const int found = WiFi.scanComplete();
+      consoleLog("[WiFi] Scan %d found %d networks\n", attempt + 1, found);
+      bool all = true;
+      for (int i = 0; i < known.count; i++) {
+        for (int n = 0; n < found; n++) if (WiFi.SSID(n) == known.net[i].ssid && WiFi.RSSI(n) > rssi[i]) rssi[i] = WiFi.RSSI(n);
+        all = all && rssi[i] > -1000;
+      }
+      WiFi.scanDelete();
+      if (all) break;
+    }
+  }
+  int order[wifinets::kMax], count = 0;
+  for (int i = 0; i < known.count; i++) if (rssi[i] > -1000) order[count++] = i;
+  for (int a = 1; a < count; a++)  // by signal, the strongest first
+    for (int b = a; b > 0 && rssi[order[b]] > rssi[order[b - 1]]; b--) { const int x = order[b]; order[b] = order[b - 1]; order[b - 1] = x; }
+  // the one that connected last goes first
+  int best = 0;
+  for (int k = 1; k < count; k++) if (known.net[order[k]].seq > known.net[order[best]].seq) best = k;
+  if (count) { const int top = order[best]; for (int k = best; k > 0; k--) order[k] = order[k - 1]; order[0] = top; }
+  for (int k = 0; k < count; k++) {
+    const wifinets::Net &net = known.net[order[k]];
+    consoleLog("[WiFi] Trying \"%s\"\n", net.ssid);
+    const int tries = k == 0 ? 3 : 1;
+    for (int t = 0; t < tries; t++) {
+      if (t) for (int i = 0; i < 150; i++) { bootTick(); delay(20); }  // 3 s for the router to drop the failed session
+      WiFi.begin(net.ssid, net.pass);
+      if (waitForStation(k == 0 ? (t == 2 ? 20000 : 10000) : 15000)) return true;
+      WiFi.disconnect(false, false);
+    }
+  }
+  return false;
+}
+
 static uint32_t nextFrame = 0;
 static uint32_t restartAt = 0;
 static bool updateOnly = false;  // a restart made to install an update: no face, no feeds, just the update screen, so the whole heap is free for the download
@@ -1262,11 +1329,16 @@ static sportsplan::Log sportsLog;
 // home face while a sport face we switched to is running. Only when nothing is live and the running image has proved itself.
 static void sportsStageAhead(uint32_t now, time_t wall, const sportsplan::Config &plan, const sportsplan::Events (&events)[sportsplan::SPORTS], const sportsplan::Log &log) {
   static uint32_t nextTry = 0, day = 0, stagedToday = 0;
+  static char counted[16] = "";  // the face of the last attempt that was counted
   if ((int32_t)(now - nextTry) < 0 || liveDataActive() || FirmwareUpdate::pendingVerification()) return;
 #ifdef UM_HOME
   if (ha::media::fetchBusy()) { nextTry = now + 60000; return; }  // a cover is downloading: it needs the memory, so preparing waits a minute
 #endif
   nextTry = now + 10 * 60000;
+  if (counted[0]) {  // the last attempt did not end with the face in the spare slot: it does not count against the day
+    if (!firmwareUpdate.spareHolds(counted) && stagedToday) --stagedToday;
+    counted[0] = 0;
+  }
   if (day != (uint32_t)(wall / 86400)) { day = (uint32_t)(wall / 86400); stagedToday = 0; }
   if (stagedToday >= 6) return;  // flash wear: a few writes a day at most
   const char *want = nullptr;
@@ -1283,7 +1355,7 @@ static void sportsStageAhead(uint32_t now, time_t wall, const sportsplan::Config
   }
   if (!want && log.target[0] && !strcmp(log.target, UM_MODE_ID) && plan.home[0] && strcmp(plan.home, UM_MODE_ID)) want = plan.home;
   if (!want || !FirmwareUpdate::knownMode(want) || firmwareUpdate.spareHolds(want)) return;
-  if (firmwareUpdate.stage(want)) { ++stagedToday; consoleLog("[Sports] preparing %s ahead of time\n", want); }
+  if (firmwareUpdate.stage(want)) { ++stagedToday; strlcpy(counted, want, sizeof(counted)); consoleLog("[Sports] preparing %s ahead of time\n", want); }
 }
 
 static void sportsSwitch(uint32_t now) {
@@ -1375,6 +1447,7 @@ static void sportsSwitch(uint32_t now) {
 }
 
 // Settings > Sports > Prepare a face now: the same staging the clock does by itself ahead of an event
+static char prepareAfterCover[16] = "";  // a face asked for while a cover was downloading: started as soon as the cover is in
 static void sportsPrepare() {
   const String mode = server.arg("mode");
   if (!FirmwareUpdate::knownMode(mode.c_str())) { settingsResponse(400, "Choose a face."); return; }
@@ -1382,6 +1455,9 @@ static void sportsPrepare() {
   if (FirmwareUpdate::pendingVerification()) { settingsResponse(409, "The running version has not been confirmed yet; try again in a few minutes."); return; }
   if (firmwareUpdate.spareHolds(mode.c_str())) { settingsResponse(200, "That face is already prepared."); return; }
   if (liveDataActive()) { settingsResponse(409, "A live match or session is running; preparing waits until it has ended."); return; }
+#ifdef UM_HOME
+  if (ha::media::fetchBusy()) { strlcpy(prepareAfterCover, mode.c_str(), sizeof(prepareAfterCover)); settingsResponse(202, "Preparing as soon as the album cover is loaded."); return; }
+#endif
   if (firmwareUpdate.stage(mode.c_str())) { settingsResponse(202, "Preparing in the background. The feeds keep running."); return; }
   FirmwareUpdate::Status status; firmwareUpdate.status(status);
   settingsResponse(409, status.busy ? "An update or preparation is already running." : "Not enough free memory to prepare a face right now.");
@@ -1971,6 +2047,16 @@ static void background() {
     reconnectAt = now + reconnectDelay;
     reconnectDelay = std::min<uint32_t>(reconnectDelay * 2, 60000);
   }
+  if (WiFi.status() == WL_CONNECTED) {  // a network that connected is remembered (the oldest of five makes room for a new one)
+    static String noted;
+    const String ssid = WiFi.SSID();
+    if (ssid.length() && ssid != noted) {
+      noted = ssid;
+      char dropped[33];
+      wifinets::remember(ssid.c_str(), WiFi.psk().c_str(), dropped, sizeof(dropped));
+      if (dropped[0]) consoleLog("[WiFi] Five networks known: \"%s\" forgotten to make room for \"%s\"\n", dropped, ssid.c_str());
+    }
+  }
   {
     FirmwareUpdate::Latest check; firmwareUpdate.latest(check);
     FirmwareUpdate::Status prep; firmwareUpdate.status(prep);
@@ -2033,6 +2119,12 @@ static void background() {
   if (!playing(now)) autoUpdate(now);
 #ifdef UM_SPORTS_SWITCH
   if (!playing(now)) sportsSwitch(now);
+#ifdef UM_HOME
+  if (prepareAfterCover[0] && !ha::media::fetchBusy()) {  // the cover is in: the face asked for on the settings page starts now
+    if (!firmwareUpdate.stage(prepareAfterCover)) consoleLog("[Sports] could not prepare %s after the cover\n", prepareAfterCover);
+    prepareAfterCover[0] = 0;
+  }
+#endif
 #endif
   reportMemory();
   shedOnLowMemory();
@@ -2094,7 +2186,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
-  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "f1Chequers", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
+  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "wifiNets", "f1Chequers", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
   "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder", "haPhono", "haNoInfo", "haCover", "haWeeks", "haExport", "haThin",  // HaConfig.cpp
@@ -2339,7 +2431,8 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
     if (askPin && adminpin::validFormat(pinField.getValue()) && adminpin::set(pinField.getValue())) consoleLog("[WiFi] Admin PIN set during setup\n");
   });
   wifi.setWaitCallback(bootTick);  // keep the connecting pulse going while a saved network is tried
-  wifi.setConnectTimeout(40);  // seconds per attempt, as the core's own wait: without a timeout the wait does not call bootTick, so the pulse froze
+  wifi.setConnectTimeout(10);  // seconds per attempt, as the core's own wait: without a timeout the wait does not call bootTick, so the pulse froze
+  wifi.setLastConnectTimeout(20);  // 10 s, 10 s, 20 s
   wifi.setConnectRetries(3);  // three attempts before the setup portal: a router that is still starting after a power cut should not bring up the QR code
   Preferences setupPrefs;
   bool forceSetup = false;
@@ -2350,6 +2443,12 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   }
   if (forceSetup || setupRefreshRestart) wifi.startConfigPortal(kApName);  // after the restart for the fast display, go straight to the portal
   else {
+    seedKnownNetworks();
+    wifinets::List known;
+    wifinets::load(known);
+    if (known.count > 1) {  // several known networks: the last one that worked, then the strongest of the others; none connects: the setup portal
+      if (!connectKnownNetworks()) { consoleLog("[WiFi] No known network connected, opening the setup portal\n"); wifi.startConfigPortal(kApName); }
+    } else
     // A network that is gone (not seen in a scan) goes to the setup portal at once; a hidden one cannot be seen, so it gets the retries
     if (!hiddenWifiSaved() && !savedNetworkVisible()) {
       consoleLog("[WiFi] Saved network not seen in a scan, opening the setup portal\n");

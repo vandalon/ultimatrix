@@ -170,7 +170,7 @@ The page and its assets are stored in firmware flash. A new setting only appears
 
 **Who may open the clock** (Advanced) limits the settings pages, the APIs (including Home Assistant and the WLED app) and the telnet console to **private networks** (10.x, 172.16-31.x, 192.168.x; the default), **only the clock's own network**, or **everything that can reach it**. If the clock sits on a network with public addresses (some universities), private-only allows everything. Saving a choice that would lock out the computer you save from is refused. **Allow public host names** is off by default: the clock then refuses requests that arrive under a public domain name (a name under a real top-level domain), which stops a web page on the internet from steering your browser at the clock (DNS rebinding). Addresses, `.local`, `fritz.box` and internal names such as `joris.panel` keep working. Turn it on only if you reach the clock through a public name, for example a reverse proxy.
 
-**Change Wi-Fi** opens provisioning again. The saved network stays available until you choose another one.
+**Change Wi-Fi** opens provisioning again. The saved network stays available until you choose another one. The clock remembers up to five networks (for example home and work): at start it tries the one that connected last, then the strongest of the others. When a sixth is added, the one that connected longest ago is forgotten. If none connects, the setup portal opens.
 
 ### Brightness and night display
 

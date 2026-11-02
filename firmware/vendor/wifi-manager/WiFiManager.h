@@ -351,6 +351,7 @@ class WiFiManager
 
     // sets number of retries for autoconnect, force retry after wait failure exit
     void          setConnectRetries(uint8_t numRetries); // default 1
+    void          setLastConnectTimeout(unsigned long seconds); // Ultimatrix: the last retry may wait longer (0: as the others)
     
     //sets timeout for which to attempt connecting on saves, useful if there are bugs in esp waitforconnectloop
     void          setSaveConnectTimeout(unsigned long seconds);
@@ -577,6 +578,7 @@ class WiFiManager
     bool          _apHidden               = false; // store softap hidden value
     uint16_t      _httpPort               = 80; // port for webserver
     // uint8_t       _retryCount             = 0; // counter for retries, probably not needed if synchronous
+    unsigned long _lastConnectTimeout     = 0; // ms for the last retry, 0 = _connectTimeout
     uint8_t       _connectRetries         = 1; // number of sta connect retries, force reconnect, wait loop (connectimeout) does not always work and first disconnect bails
     bool          _aggresiveReconn        = false; // use an agrressive reconnect strategy, WILL delay conxs
                                                    // on some conn failure modes will add delays and many retries to work around esp and ap bugs, ie, anti de-auth protections

@@ -204,9 +204,9 @@ size_t buildTemplate(const Config &c, char *out, size_t capacity) {
   bool presence = false;
   for (const auto &slot : c.icons) presence |= slot.type == ICON_PRESENCE || slot.type == ICON_LIGHTS;
   if (presence) o.add("{%- macro rooms(l) -%}{%- set n = namespace(ids=[]) -%}{%- for s in l -%}"
-                      // a group (an entity that lists members) has no area of its own: its members that are on count
+                      // a group (an entity that lists members) has no area of its own: its members that are on count; one without an area counts as a room of its own
                       "{%- set ms = s.attributes.entity_id if s.attributes.entity_id is defined and s.attributes.entity_id is not string else [s.entity_id] -%}"
-                      "{%- for m in ms -%}{%- set a = area_id(m) -%}{%- if a and a not in n.ids and (m == s.entity_id or is_state(m,'on')) -%}"
+                      "{%- for m in ms -%}{%- set a = area_id(m) or m -%}{%- if a and a not in n.ids and (m == s.entity_id or is_state(m,'on')) -%}"
                       "{%- set n.ids = n.ids + [a] -%}{%- endif -%}{%- endfor -%}{%- endfor -%}{{ n.ids|count }}/0{%- endmacro -%}");
   bool devices = false, lowBattery = false;
   for (const auto &slot : c.icons) {

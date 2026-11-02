@@ -1068,7 +1068,12 @@ uint8_t WiFiManager::connectWifi(String ssid, String pass, bool connect) {
     // connect using saved ssid if there is one
     if (WiFi_hasAutoConnect()) {
       wifiConnectDefault();
-      connRes = waitForConnectResult();
+      if (_lastConnectTimeout && retry >= _connectRetries) {  // Ultimatrix: the last retry waits longer
+        const unsigned long normal = _connectTimeout;
+        _connectTimeout = _lastConnectTimeout;
+        connRes = waitForConnectResult();
+        _connectTimeout = normal;
+      } else connRes = waitForConnectResult();
     }
     else {
       #ifdef WM_DEBUG_LEVEL
@@ -2709,6 +2714,10 @@ void WiFiManager::setConfigPortalTimeout(unsigned long seconds) {
  */
 void WiFiManager::setConnectTimeout(unsigned long seconds) {
   _connectTimeout = seconds * 1000;
+}
+
+void WiFiManager::setLastConnectTimeout(unsigned long seconds) {
+  _lastConnectTimeout = seconds * 1000;
 }
 
 /**

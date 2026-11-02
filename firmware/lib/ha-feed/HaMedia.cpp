@@ -37,12 +37,29 @@ bool icyKnown = false;
 uint32_t icyFailedAt = 0;
 std::atomic<bool> icyFetching{false};
 
+// The station each room played last: an ad break has no title, artist or station, and the station is still the one it was on
+struct LastStation { char room[kRoom]; char name[kText]; uint32_t at; } lastStation[kRooms];
+constexpr uint32_t kAdBreakMs = 15 * 60000;
+
+void rememberStation(Player &p) {
+  LastStation *slot = nullptr;
+  for (auto &l : lastStation) if (!strcmp(l.room, p.room)) slot = &l;
+  if (p.station[0]) {
+    if (!slot) { slot = &lastStation[0]; for (auto &l : lastStation) if (!l.room[0] || l.at < slot->at) slot = &l; strlcpy(slot->room, p.room, sizeof(slot->room)); }
+    strlcpy(slot->name, p.station, sizeof(slot->name));
+    slot->at = millis();
+  } else if (slot && !p.title[0] && !p.artist[0] && !p.needsStation && millis() - slot->at < kAdBreakMs) {
+    strlcpy(p.station, slot->name, sizeof(p.station));  // the break: the logo stays
+  }
+}
+
 // What the Now playing page works from: the station filled in, a player with nothing to say (a radio ad break) left out
 void resolve(Snapshot &s) {
   int kept = 0;
   for (int i = 0; i < s.count; i++) {
     Player p = s.player[i];
     if (p.needsStation && icyKnown && !strcmp(icyFor, s.stream) && icyName[0]) { strlcpy(p.station, icyName, sizeof(p.station)); p.needsStation = 0; }
+    rememberStation(p);
     if (!p.title[0] && !p.artist[0] && p.station[0]) strlcpy(p.title, p.station, sizeof(p.title));
     if (!p.title[0] && !p.artist[0] && !p.picture[0]) continue;
     s.player[kept++] = p;
