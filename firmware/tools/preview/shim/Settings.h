@@ -4,6 +4,7 @@
 struct Settings {
   uint8_t matchSecs = 8;
   uint16_t resultMins = 120;
+  String timezone = "Europe/Amsterdam";
   bool ballRoll = true;
   uint8_t timeStyle = 2;
   uint8_t numberFont = 1;

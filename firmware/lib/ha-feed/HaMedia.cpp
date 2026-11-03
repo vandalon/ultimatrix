@@ -126,6 +126,7 @@ struct Fetch {
 
 // Up to size bytes from the connection: waits for data in flight, and only gives up when it ends or goes quiet for 5 s
 size_t readSome(Client *stream, uint8_t *buffer, size_t size) {
+  if (!stream) return 0;  // HTTPClient::getStreamPtr() is null once the server has hung up
   size_t got = 0;
   uint32_t last = millis();
   while (got < size) {
@@ -172,6 +173,7 @@ bool decodeStream(HTTPClient &http, uint16_t *out) {  // the JPEG being received
   if (!fetch || !work || !jd) { setNote("Out of memory (%uk free, block %uk)", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024), (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) / 1024)); return false; }
   fetch->out = out;
   fetch->stream = http.getStreamPtr();
+  if (!fetch->stream) { setNote("Connection closed before the picture"); return false; }  // getStreamPtr() is null once the server has hung up
   const int prepared = jd_prepare(jd.get(), readJpeg, work.get(), kWorkArea, fetch.get());
   bool ok = prepared == JDR_OK;
   if (!ok) setNote("Not a baseline JPEG (code %d)", prepared);
