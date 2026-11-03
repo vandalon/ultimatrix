@@ -10,6 +10,7 @@
 #include <utility>
 #include "FaceKit.h"
 #include "TramDot.h"
+#include "TramThin.h"
 #include "MiniFont.h"
 #include "NumericFont.h"
 #include "SourceArt.h"
@@ -46,7 +47,11 @@ const uint8_t kDigits[10][5] = {{12,18,18,18,12},{8,24,8,8,28},{12,2,12,16,30},{
 const uint8_t kDigitWidth[10] = {4,3,4,4,4,4,4,4,4,4};
 const uint8_t kLetterWidth[26] = {4,4,4,4,4,4,4,4,3,4,4,4,5,4,4,4,4,4,4,3,4,4,5,4,4,4};
 
+// The Home, Energy, Devices and Status pages keep the earlier letters and digits; the 1 px TramDot ones are for the Now playing page and the alerts. Set per page by drawPage().
+bool legacyFont = false;
+
 int letterWidth(char c) {
+  if (const ThinGlyph *t = legacyFont ? nullptr : thinGlyph(c)) return t->w;
   c = toupper(c);
   if (c >= '0' && c <= '9') return kDigitWidth[c - '0'];
   return c >= 'A' && c <= 'Z' ? kLetterWidth[c - 'A'] : 3;
@@ -58,7 +63,14 @@ int homeWidth(const char *s) {
   return n ? n - 1 : 0;
 }
 
-void homeGlyph(MatrixPanel_I2S_DMA &d, char c, int x, int y, uint16_t color) {
+void homeGlyph(MatrixPanel_I2S_DMA &d, char c, int x, int y, uint16_t color, int clipLeft = 0, int clipRight = 64) {
+  auto put = [&](MatrixPanel_I2S_DMA &dd, int px, int py, uint16_t col) { if (px >= clipLeft && px < clipRight) ::put(dd, px, py, col); };
+  if (const ThinGlyph *t = legacyFont ? nullptr : thinGlyph(c)) {  // the 1 px TramDot letters, their baseline on the old letters' last row
+    for (int j = 0; j < 8; j++)
+      for (int i = 0; i < t->w; i++)
+        if (t->rows[j] >> (t->w - 1 - i) & 1) put(d, x + i, y - 2 + j, color);
+    return;
+  }
   c = toupper(c);
   if (c >= 'A' && c <= 'Z') {
     for (int j = 0; j < 5; j++)
@@ -268,7 +280,7 @@ void tileIcon(MatrixPanel_I2S_DMA &d, uint8_t icon, int x, int y, uint16_t color
 
 // ---- Text in the block digits of the boot screen (4x7), letters from the 3x5 font ----
 int glyphWidth(char c) {
-  if (c >= '0' && c <= '9') return 4;
+  if (c >= '0' && c <= '9') return legacyFont ? 4 : thinGlyph(c)->w;
   if (c == '.' || c == ':') return 2;
   if (c == '`') return 3;
   if (c == '%') return 5;
@@ -283,9 +295,10 @@ int textWidth(const char *s) {
 
 void glyph(MatrixPanel_I2S_DMA &d, char c, int x, int y, uint16_t color) {
   if (c >= '0' && c <= '9') {
+    const ThinGlyph *t = legacyFont ? nullptr : thinGlyph(c);
     for (int j = 0; j < 7; j++)
-      for (int i = 0; i < 4; i++)
-        if (numericfont::smallPixel(c - '0', i, j)) put(d, x + i, y + j, color);
+      for (int i = 0; i < (t ? t->w : 4); i++)
+        if (t ? t->rows[j] >> (t->w - 1 - i) & 1 : numericfont::smallPixel(c - '0', i, j)) put(d, x + i, y + j, color);
   } else if (c == '.') {
     box(d, x, y + 5, 2, 2, color);
   } else if (c == ':') {
@@ -338,13 +351,13 @@ void blockOnPoint(MatrixPanel_I2S_DMA &d, const char *text, int dotX, int y, uin
 // Small numbers (status counts, the date): the clock's digits at their 3x5 size, other characters from the label font
 int countWidth(const char *s) {
   int width = 0;
-  for (; *s; ++s) width += (*s >= '0' && *s <= '9' ? 3 : letterWidth(*s)) + 1;
+  for (; *s; ++s) width += (legacyFont && *s >= '0' && *s <= '9' ? 3 : letterWidth(*s)) + 1;
   return width ? width - 1 : 0;
 }
 
 void countText(MatrixPanel_I2S_DMA &d, const char *s, int x, int y, uint16_t color) {
   for (; *s; ++s) {
-    if (*s >= '0' && *s <= '9') {
+    if (legacyFont && *s >= '0' && *s <= '9') {
       for (int j = 0; j < 5; j++)
         for (int i = 0; i < 3; i++)
           if (numericfont::tinyPixel(*s - '0', i, j)) put(d, x + i, y + j, color);
@@ -366,7 +379,9 @@ int pingPong(uint16_t tick, int overflow) {
   return cycle - at;
 }
 
-constexpr int kStationRoom = 35;  // top right: right of the time
+constexpr int kStationRoom = 33;  // top right: right of the time (TramDot ends in column 27)
+constexpr int kStationRoomThin = 37;  // the thin clock ends in column 23
+inline int stationRoom(const Frame &f) { return f.thinClock ? kStationRoomThin : kStationRoom; }
 
 // The station name at the top right: bold capitals and digits 7 rows tall with 2 px strokes (the arcade faces' look), as high as the clock
 struct BoldRows { char c; const char *row[7]; };
@@ -431,7 +446,8 @@ void clockGlyph(MatrixPanel_I2S_DMA &d, char c, int x, int y, uint16_t color) {
   }
   if (c < '0' || c > '9') return;
   if (thinHeader) {
-    for (int j = 0; j < 7; j++) for (int i = 0; i < 4; i++) if (numericfont::smallPixel(c - '0', i, j)) put(d, x + i, y + 1 + j, color);
+    const ThinGlyph *t = legacyFont ? nullptr : thinGlyph(c);
+    for (int j = 0; j < 7; j++) for (int i = 0; i < (t ? t->w : 4); i++) if (t ? t->rows[j] >> (t->w - 1 - i) & 1 : numericfont::smallPixel(c - '0', i, j)) put(d, x + i, y + 1 + j, color);
     return;
   }
   for (int j = 0; j < 8; j++)
@@ -441,7 +457,7 @@ void clockGlyph(MatrixPanel_I2S_DMA &d, char c, int x, int y, uint16_t color) {
 
 int clockWidth(const char *s) {
   int width = 0;
-  for (; *s; ++s) width += (*s == ':' ? (thinHeader ? 1 : 2) : (thinHeader ? 4 : 5)) + 1;
+  for (; *s; ++s) width += (*s == ':' ? (thinHeader ? 1 : 2) : (thinHeader ? (legacyFont ? 4 : thinGlyph(*s)->w) : 5)) + 1;
   return width ? width - 1 : 0;
 }
 
@@ -487,10 +503,15 @@ void header(MatrixPanel_I2S_DMA &d, const Frame &f, int mono = -1, int dy = 1) {
   const View slide = view;  // the clock and date stay put while a page slides
   view = View();
   thinHeader = f.thinClock;
-  int timeX = 14 - tramWidth(f.time) / 2;  // TramDot, 7 rows: the 27 dots of "19:42" start in column 1
+  int timeX = f.thinClock ? 13 - clockWidth(f.time) / 2 : 14 - tramWidth(f.time) / 2;  // thin: the 4x7 digits with 1 px strokes; else TramDot, 7 rows: the 27 dots of "19:42" start in column 1
   for (const char *c = f.time; *c; ++c) {
     const uint16_t color = *c == ':' ? rgb(f.colonLevel, f.colonLevel, f.colonLevel) : tone(T_BLUE);
     const bool hideColon = *c == ':' && mono < 0 && f.art && (f.backdrop || f.page == SCREEN_MEDIA) && f.colonLevel < 64;  // over the album art a dark colon would show as black squares: it is left out until it is bright enough to be seen
+    if (f.thinClock) {
+      if (!hideColon) clockGlyph(d, *c, timeX, dy - 1, mono >= 0 ? mono : color);
+      timeX += (*c == ':' ? 1 : legacyFont ? 4 : thinGlyph(*c)->w) + 1;
+      continue;
+    }
     const TramGlyph &glyph = tramGlyph(*c);
     if (!hideColon)
       for (int row = 0; row < 7; row++)
@@ -500,21 +521,26 @@ void header(MatrixPanel_I2S_DMA &d, const Frame &f, int mono = -1, int dy = 1) {
   }
   if (sliding && slideStation) { view = slide; view.x0 = 26; }  // the date or station goes with its page and passes behind the clock
   if (f.stationTop && f.station[0]) {  // the radio station in the date's place, cut to what fits right of the time
-    char upper[sizeof(f.station)];
-    size_t u = 0;
-    for (const char *c = f.station; *c && u + 1 < sizeof(upper); ++c) upper[u++] = toupper(*c);
-    upper[u] = 0;
-    const int width = boldTextWidth(upper), color = mono >= 0 ? mono : tone(T_PASTEL);
-    if (width <= kStationRoom) boldText(d, upper, 62 - width, dy, color);
-    else boldText(d, upper, 62 - kStationRoom - pingPong(f.scrollTick, width - kStationRoom), dy, color, 62 - kStationRoom, 63);
+    const int width = homeWidth(f.station), color = mono >= 0 ? mono : tone(T_PASTEL);
+    const int room = stationRoom(f), left = 62 - room, x0 = width <= room ? 62 - width : left - pingPong(f.scrollTick, width - room);
+    int x = x0;
+    for (const char *c = f.station; *c; ++c) {  // the home font, cut at the window's edges
+      const int w = letterWidth(*c);
+      if (x + w > left && x < 63) homeGlyph(d, *c, x, dy + (legacyFont ? 1 : 2), color, left, 63);
+      x += w + 1;
+    }
   } else {  // "28-11" (or "11/28"), quieter than the time: TramDot digits, right-aligned, the hyphen only 4 dots wide
     const uint16_t color = mono >= 0 ? mono : tone(T_MUTE);
-    auto advance = [](char ch) { return ch == '-' ? 4 : (int)tramGlyph(ch).w; };
+    const bool thin = f.thinClock;  // 1 px strokes: the 4x7 digits, and separators to match
+    auto advance = [thin](char ch) { return thin ? (ch == '.' ? 1 : ch == '-' ? 3 : ch == '/' ? 4 : legacyFont ? 4 : thinGlyph(ch)->w) : (ch == '-' ? 4 : (int)tramGlyph(ch).w); };
     int width = 0;
     for (const char *c = f.date; *c; ++c) width += advance(*c) + 1;
     int x = 63 - (width ? width - 1 : 0);
     for (const char *c = f.date; *c; ++c) {
-      if (*c == '-') box(d, x, dy + 3, 4, 1, color);
+      if (thin && *c >= '0' && *c <= '9') clockGlyph(d, *c, x, dy - 1, color);
+      else if (thin && *c == '/') { for (int k = 0; k < 4; k++) put(d, x + k, dy + 5 - k, color); }
+      else if (thin && *c == '.') put(d, x, dy + 6, color);
+      else if (*c == '-') box(d, x, dy + 3, thin ? 3 : 4, 1, color);
       else {
         const TramGlyph &glyph = tramGlyph(*c);
         for (int row = 0; row < 7; row++)
@@ -535,7 +561,7 @@ void weatherIcon(MatrixPanel_I2S_DMA &d, const char *condition, int x, int y) {
   const bool snow = !strcmp(condition, "snowy") || !strcmp(condition, "snowy-rainy") || !strcmp(condition, "hail");
   const bool storm = !strcmp(condition, "lightning") || !strcmp(condition, "lightning-rainy") || !strcmp(condition, "exceptional");
   if (!clear && !moon && !partly && strcmp(condition, "windy") && strcmp(condition, "windy-variant")) x += 2;  // the 9 px icons end in the same column as the rest
-  if (!clear && !moon) y += 1;  // the others hang a row too high next to the number (the sun and the moon are centred already)
+  if (!clear && !moon && !partly) y += 1;  // the others hang a row too high next to the number (the sun, the moon and the sun with a cloud are placed already)
   if (clear) { smallIcon(d, SI_SUN, x + 4, y + 3, tone(T_SUN)); return; }  // alone, the sun is centred on the number's height and sits next to it
   if (partly) smallIcon(d, SI_SUN, x, y + 1, tone(T_SUN));
   if (moon) {
@@ -909,11 +935,7 @@ bool needsScroll(const Frame &f) {
   if (f.sourceIcon) return false;
   if (f.stationOnly) return lineWidth(f.station) > W - 2;
   if (lineWidth(f.title) > W - 2 || lineWidth(f.showStation ? f.station : f.artist) > W - 2) return true;
-  char upper[sizeof(f.station)];
-  size_t u = 0;
-  for (const char *c = f.station; *c && u + 1 < sizeof(upper); ++c) upper[u++] = toupper(*c);
-  upper[u] = 0;
-  return f.stationTop && boldTextWidth(upper) > kStationRoom;
+  return f.stationTop && homeWidth(f.station) > stationRoom(f);
 }
 
 // A player with nothing to show but its source ("TV", "Line-in"): a picture for the usual ones, else the name in big Impact letters;
@@ -979,7 +1001,7 @@ void mediaScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
   } else if (f.art) {
     // The cover fills the panel; the clock row and the three text lines sit on dimmed bands
     for (int y = 0; y < kArt; y++) {
-      const int bandTop = f.stationOnly ? 57 : 51;  // 5-row text with 1 row above and below (two lines: rows 52-56 and 58-62)
+      const int bandTop = f.stationOnly ? 54 : 45;  // 1 px TramDot text is 7 rows high, 8 with descenders, the band starts 1 row above the text (two lines: rows 46-53 and 55-62)
       const bool dim = y < 9 || y >= bandTop;
       for (int x = 0; x < kArt; x++) {
         uint16_t c = f.art[y * kArt + x];
@@ -991,9 +1013,9 @@ void mediaScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
     bitmap(d, kNote, (W - 11) / 2, 18, tone(T_DIM));
   }
   header(d, f);
-  if (f.stationOnly) playingLine(d, f.station, 58, tone(T_PASTEL), f.scrollTick);
-  else playingLine(d, f.title, 52, tone(T_WHITE), f.scrollTick);
-  if (!f.stationOnly) playingLine(d, f.showStation ? f.station : f.artist, 58, tone(T_MUTE), f.scrollTick);
+  if (f.stationOnly) playingLine(d, f.station, 57, tone(T_PASTEL), f.scrollTick);  // the glyphs start 2 rows above the y given
+  else playingLine(d, f.title, 48, tone(T_WHITE), f.scrollTick);
+  if (!f.stationOnly) playingLine(d, f.showStation ? f.station : f.artist, 57, tone(T_MUTE), f.scrollTick);
   if (f.progress) {  // thin line along the bottom edge
     for (int x = 0; x < W; x++) put(d, x, 63, x < f.progress - 1 ? tone(T_BLUE) : tone(T_DIM));
   }
@@ -1049,8 +1071,12 @@ void alertScreen(MatrixPanel_I2S_DMA &d, const Frame &f) {
   const int text = f.alert == ALERT_ALARM ? 31 : 35;
   const uint16_t second = f.alert == ALERT_WASHER ? tone(T_GREEN) : f.alert == ALERT_BELL ? tone(T_MUTE)
                           : f.alert == ALERT_ALARM ? (phase ? tone(T_WHITE) : tone(T_RED)) : tone(T_ORANGE);
-  homeCentered(d, f.line1, text, ink(tone(T_WHITE)));
-  homeCentered(d, f.line2, text + 8, ink(second));
+  auto tramCentered = [&](const char *line, int at, uint16_t colour) {  // TramDot when the line fits the panel, else the home font
+    if (tramWidth(line) <= W - 2) tramText(d, line, (W - tramWidth(line)) / 2, at - 1, colour);
+    else homeCentered(d, line, at, colour);
+  };
+  tramCentered(f.line1, text, ink(tone(T_WHITE)));
+  tramCentered(f.line2, text + 8, ink(second));
 }
 
 }  // namespace
@@ -1069,6 +1095,7 @@ bool artView(const Frame &f) { return f.page == SCREEN_MEDIA && f.art && !f.back
 bool slides(const Frame &f) { return f.alert == ALERT_NONE && f.page != SCREEN_STATUS && f.pageCount > 1; }
 
 void drawPage(MatrixPanel_I2S_DMA &d, const Frame &f) {
+  legacyFont = f.alert == ALERT_NONE && f.page != SCREEN_MEDIA;
   if (f.alert != ALERT_NONE) alertScreen(d, f);
   else if (f.page == SCREEN_ENERGY) energyScreen(d, f);
   else if (f.page == SCREEN_STATUS) statusScreen(d, f);
