@@ -45,7 +45,7 @@ The sports faces are Football, Formula 1, MotoGP, NBA, MLB and NFL. They read th
 
 ## Playable games
 
-Pac-Man, Space Invaders, Pong and Tetris (Game style) play themselves and keep the time. You can take over from the clock's settings page while the face is running; the games below list their rules and controls.
+Pac-Man, Space Invaders, Pong, Mario, Luigi and Tetris (Game style) play themselves and keep the time. You can take over from the clock's settings page while the face is running; the games below list their rules and controls.
 
 <table><tr><td><img src="docs/previews/pacman.gif" alt="Pac-Man clock" title="Pac-Man clock" width="110" style="width:110px;max-width:110px"></td><td><img src="docs/previews/invaders.gif" alt="Space Invaders clock" title="Space Invaders clock" width="110" style="width:110px;max-width:110px"></td><td><img src="docs/previews/pong.gif" alt="Pong clock" title="Pong clock" width="110" style="width:110px;max-width:110px"></td></tr></table>
 
@@ -63,6 +63,7 @@ Pac-Man, Space Invaders, Pong and Tetris (Game style) play themselves and keep t
 - **Pac-Man:** drag any direction.
 - **Space Invaders:** swipe left and right anywhere to move the cannon (like Pong's dial, but sideways); every touch fires, so a second finger can fire while the first steers.
 - **Pong:** swipe up and down anywhere to turn the dial like the original game. The labels show YOU and CMP and the score shows the match.
+- **Mario and Luigi:** touch and drag anywhere to walk, and drag all the way to run; tap to jump, flick up while you hold, or tap with a second finger. Keys: arrows or A D walk (down stops), up or the space bar jumps. They look and move like the clock: the same speeds and the same jump, over the pipe and the ledge. Jump on a Goomba or Koopa for 100 or 200, collect coins (10), a Super Mushroom or the star (1000) and a 1UP (one more life). Touching one from the side costs a life; you have three, and the game ends at none. The score and lives take the place of the weekday and date on top. The blocks still change the time at the turn of the minute, and the world rotation waits until your game is over. The clock plays again after a minute without a move.
 - **Tetris:** swipe left or right anywhere to move the piece one column at a time, tap to turn it, swipe down to speed it up and flick down to drop it. Keys: arrows or W A S D (up turns), space drops. Clearing 1, 2, 3 or 4 rows scores 100, 300, 500 or 800 times the level, and the level rises every 10 rows. When your game ends the computer plays again.
 
 ## Home Assistant
@@ -173,7 +174,7 @@ Set **Network → Clock name** to identify each clock in MQTT and WLED, for exam
 
 Open the clock's address from a phone or computer on the same network. Most changes save automatically and apply while the clock runs. Swapping blue and green needs **Save & restart**. Changing Wi-Fi or installing a face also restarts the clock.
 
-The page has controls for brightness, rotation, time format, timezone, time server and the current face. Sports faces add page timing and favourites. Words adds language and transition choices. Mario and Luigi add the world picker. Pac-Man, Space Invaders and Pong add their colour and game controls and the Play yourself card (see [Playable games](#playable-games)).
+The page has controls for brightness, rotation, time format, timezone, time server and the current face. Sports faces add page timing and favourites. Words adds language and transition choices. Mario and Luigi add the world picker and the Play yourself card. Pac-Man, Space Invaders and Pong add their colour and game controls and the Play yourself card (see [Playable games](#playable-games)).
 
 The page and its assets are stored in firmware flash. A new setting only appears after installing firmware that contains it. If an updated page still looks old, reload it without using the browser cache.
 

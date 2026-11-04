@@ -31,6 +31,7 @@ are ready. A successful build does not establish hardware or live-feed reliabili
   WebSocket (`lib/core/PlaySocket`, text frames, first frame `t<token>` when an admin PIN is set). While someone steers, `main.cpp`
   holds back notices, update checks, MQTT state/camera and the live preview until 20 s after the last move, and the display loop
   runs at a 16 ms frame pace. Shared drawing: `lib/faces/BoldFont.h`, `FaceKit` View.fade.
+- Mario and Luigi can be played: `lib/faces/PlumberPlay.h` holds the player's physics and the stomp/hurt rules, and each face's `step()` hands over to it while a game runs (`Mode::Player`); the clock's own scripted movement and drawing are untouched when nobody plays. Moves arrive on the same `/play` WebSocket and `/api/play/steer` as the arcade faces.
 - Tetris is a build with no feeds: the falling-piece clock (time and date), or in the Game style a playable board (`TetrisGame.h` is pure logic with a computer player, `TetrisGameView.cpp` paints it, moves arrive over the `/play` WebSocket), with the same runtime, settings page
   and previews. It is built the way Football and F1 were reshaped: `lib/tetris` holds const data and layout functions,
   `TetrisScreens` decides what falls when and fills a fixed-size `Frame`, `TetrisRenderer` paints a `Frame`, and the

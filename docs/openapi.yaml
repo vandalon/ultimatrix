@@ -641,14 +641,14 @@ paths:
   /api/play/steer:
     post:
       tags: [Play]
-      summary: Steer a game face (Pac-Man, Pong, Invaders, Tetris builds)
+      summary: Steer a game face (Pac-Man, Pong, Invaders, Tetris, Mario, Luigi builds)
       requestBody:
         content:
           application/x-www-form-urlencoded:
             schema:
               type: object
               properties:
-                dir: { type: integer, enum: [-1, 0, 1, 2, 3, 4], description: '0 up, 1 right, 2 down, 3 left, 4 fire or drop, -1 back to the computer; what each does is up to the face (Tetris: 0 turns the piece, 2 moves it down one row, 4 drops it)' }
+                dir: { type: integer, enum: [-1, 0, 1, 2, 3, 4, 5], description: '0 up, 1 right, 2 down, 3 left, 4 fire or drop, -1 back to the computer; what each does is up to the face (Tetris: 0 turns the piece, 2 moves it down one row, 4 drops it; Mario and Luigi: 1 walks right, 5 runs right, 3 walks left, 2 stands still, 0 or 4 jumps)' }
       responses:
         '204': { description: Done }
   /api/pacman/steer:

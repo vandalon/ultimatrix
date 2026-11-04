@@ -4,7 +4,7 @@ const controls = document.querySelector('#controls');
 const save = document.querySelector('#save');
 const saveBar = document.querySelector('.save-bar');
 const notice = document.querySelector('#notice');
-let invaders = false, pongSlide = false, tetris = false;  // the Invaders face: a tap on the controller fires
+let invaders = false, pongSlide = false, tetris = false, plumber = false;  // the Invaders face: a tap on the controller fires
 let ownNight = false;  // Mario and Luigi paint their own night from the sun: no night schedule, only the dark-room clock
 let initial = '', busy = false, saving = false, savedSwap = false, saveTimer = 0, noticeTimer = 0;
 const field = name => form.elements.namedItem(name);
@@ -438,7 +438,7 @@ async function load() {
     document.querySelector('#nvs-banner').hidden = !(data.nvsFree < 40);
     showPin(data.pinSet);
     const racing = data.mode === 'F1' || data.mode === 'MotoGP', sporty = racing || data.mode === 'Football';
-    const pacman = data.mode === 'Pac-Man', arcade = pacman || data.mode === 'Invaders' || data.mode === 'Pong' || data.mode === 'Tetris';   // faces you can play from this page
+    const pacman = data.mode === 'Pac-Man'; plumber = data.mode === 'Mario' || data.mode === 'Luigi'; const arcade = pacman || plumber || data.mode === 'Invaders' || data.mode === 'Pong' || data.mode === 'Tetris';   // faces you can play from this page
     const homeFace = data.mode === 'Home'; document.querySelector('#homeassistant').hidden = !homeFace; document.querySelector('#nav-ha').hidden = !homeFace;
     if (homeFace) { initHomeAssistant(); document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('#nav-ha').classList.add('active'); }
     section('[data-sports]', sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'NFL' || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade); section('[data-sportfields]', sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'NFL'); section('[data-clockanim]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', arcade);
@@ -453,7 +453,9 @@ async function load() {
       for (const node of document.querySelectorAll('[data-pacman] > :not(#play):not(#pong-opts):not(#pong-speed):not(#pong-level):not(#tet-style):not(#tet-level):not(#pong-date):not(#pong-day):not(#arc-colors):not(#arc-play-h):not(#arc-clock-h), #pad-status, #pad-power')) node.hidden = true;
       document.querySelector('#pad-power').closest('.row').hidden = true;
       document.querySelector('#pong-opts').hidden = data.mode !== 'Pong'; document.querySelector('#pong-speed').hidden = data.mode !== 'Pong'; document.querySelector('#pong-level').hidden = data.mode !== 'Pong'; document.querySelector('#tet-style').hidden = !tetris; document.querySelector('#tet-level').hidden = !tetris;
-      document.querySelector('#play > .hint').textContent = tetris
+      document.querySelector('#play > .hint').textContent = plumber
+        ? 'Open the full-screen controller: touch and drag anywhere to walk (drag all the way to run). Tap to jump, or flick up while you hold, or tap with a second finger. The arrow keys or A D walk, down stops, up or the space bar jumps. Jump on a Goomba, collect coins and mushrooms, and jump the pipe and the ledge. The clock keeps the time, and plays again after a minute without a move, or when your game ends.'
+        : tetris
         ? 'Open the full-screen controller: swipe left or right to move the piece, tap to turn it, swipe down to speed it up and flick down to drop it at once. The arrow keys or W A S D move, up turns, the space bar drops, and a game controller works too. A game that was playing continues from where it is. The computer plays again after 20 seconds without a move, or when your game ends.'
         : data.mode === 'Pong'
         ? 'Open the full-screen controller (a joystick appears wherever you touch), use the arrow keys or W S, or use a game controller. Turn the dial like the original game, by swiping up and down anywhere on the screen: your paddle (the left, orange one) follows it and stops when you stop. With the keys, up and down move it and left or right stops it. A match goes to 7 points and the score on top is yours; then, and after 20 seconds without a move, the computer players take over again.'
@@ -461,7 +463,7 @@ async function load() {
     }
     for (const a of document.querySelectorAll('.sidebar nav a[href="/wled"], .sidebar nav a[href="/canvas"], .sidebar nav a[href="/gifs"]')) a.hidden = !!data.btPad;   // off while the Bluetooth controller is on
     if (pacman) field('clockShade').closest('.field').hidden = true;   // this face has no background clock to dim
-    if (arcade && !pacman) {   // Invaders and Pong: the clock and the score
+    if (arcade && !pacman && !plumber) {   // Invaders and Pong: the clock and the score
       document.querySelector('#arc-colors').hidden = tetris; document.querySelector('#pong-date').hidden = data.mode !== 'Pong'; document.querySelector('#pong-day').hidden = data.mode !== 'Pong';
       { const score = field('arcScore').closest('.field'), p = data.mode === 'Pong'; score.hidden = p; score.style.display = p ? 'none' : ''; score.querySelector('select').disabled = p; field('arcHours').closest('.field').querySelector('label').textContent = p ? 'Hours colour (left player)' : 'Clock hours colour'; field('arcMinutes').closest('.field').querySelector('label').textContent = p ? 'Minutes colour (right player)' : 'Clock minutes colour'; } document.querySelector('#arc-play-h').hidden = false; document.querySelector('#arc-clock-h').hidden = tetris;
       for (const name of ['arcHours', 'arcMinutes', 'arcScore']) field(name).replaceChildren(...['Default', 'Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'].map((label, value) => new Option(label, value)));
@@ -1264,7 +1266,7 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
     try { sens.value = localStorage.getItem('ctrlSens') || '3'; } catch (_) { /* the default stays */ }
     sens.addEventListener('input', () => { try { localStorage.setItem('ctrlSens', sens.value); } catch (_) { /* not kept */ } });
     const gain = () => [1, 1.5, 2.2, 3.2, 4.5][(+sens.value || 3) - 1];
-    const open = (on) => { ctrl.hidden = !on; document.body.style.overflow = on ? 'hidden' : ''; if (!on) { id = null; base.hidden = true; } };
+    const open = (on) => { ctrl.hidden = !on; document.body.style.overflow = on ? 'hidden' : ''; if (!on) { id = null; base.hidden = true; if (plumber) steer(2); } };
     document.querySelector('#ctrl-open').addEventListener('click', () => open(true));
     document.querySelector('#ctrl-close').addEventListener('click', () => open(false));
     document.querySelector('#ctrl-computer').addEventListener('click', () => { buzz(25); steer(-1); });
@@ -1282,7 +1284,7 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
     track.append(puck); ctrl.append(track);
     const hint = ctrl.querySelector('p');
     const showDial = () => {
-      hint.textContent = tetris ? 'Swipe left or right to move, tap to turn, swipe down to speed up, flick down to drop' : invaders ? 'Swipe left and right to move. Tap to shoot.' : pongSlide ? 'Swipe up and down to turn the dial' : 'Touch anywhere and drag';
+      hint.textContent = plumber ? 'Drag to walk, drag far to run. Tap, flick up or tap with a second finger to jump' : tetris ? 'Swipe left or right to move, tap to turn, swipe down to speed up, flick down to drop' : invaders ? 'Swipe left and right to move. Tap to shoot.' : pongSlide ? 'Swipe up and down to turn the dial' : 'Touch anywhere and drag';
       dial.style.display = pongSlide ? 'block' : 'none'; dial.style.transform = 'rotate(' + dialAngle + 'deg)';
       track.style.display = invaders ? 'block' : 'none'; puck.style.left = Math.round((dialAngle + 120) / 240 * 100) + '%';
     };
@@ -1302,7 +1304,7 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
       if (pct !== cdir) { cdir = pct; if (pct % 4 === 0) buzz(6); steer(200 + pct); }
     };
     // Tetris: swipes move the piece one column per step, a tap turns it, a swipe down speeds it up and a flick down drops it
-    let tx = 0, ty = 0, tMoved = false, tDown = 0, tVy = 0, tLastY = 0, tLastAt = 0;
+    let tx = 0, ty = 0, tMoved = false, tDown = 0, tVy = 0, tLastY = 0, tLastAt = 0, pJumped = false;
     const tetrisMove = (event) => {
       const cell = 36 / gain(), now = performance.now();
       while (event.clientX - tx >= cell) { tx += cell; tMoved = true; buzz(6); steer(1); }
@@ -1317,9 +1319,17 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
       if (pongSlide) return turn(event);
       if (invaders) return slide(event);
       let dx = event.clientX - ox, dy = event.clientY - oy;
-      const length = Math.hypot(dx, dy), reach = 40 / gain();
+      const length = Math.hypot(dx, dy), reach = (plumber ? 100 : 40) / gain();
       if (length > reach) { ox += dx * (length - reach) / length; oy += dy * (length - reach) / length; dx = event.clientX - ox; dy = event.clientY - oy; base.style.left = ox + 'px'; base.style.top = oy + 'px'; }
       cknob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+      if (plumber) {   // walk, run (the stick at its end) or stand; only the horizontal part counts
+        const a = Math.abs(dx), code = a < 14 ? 2 : dx > 0 ? (a >= reach * 0.8 ? 5 : 1) : 3;
+        if (dy < -reach * 0.8 && !pJumped) { pJumped = true; tMoved = true; buzz(15); steer(4); }   // flick up while holding: jump once
+        else if (dy > -reach * 0.4) pJumped = false;
+        if (a >= 14) tMoved = true;
+        if (code !== cdir) { cdir = code; buzz(12); steer(code); }
+        return;
+      }
       if (Math.hypot(dx, dy) < 22 / gain()) return;
       const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0);
       if (dir !== cdir) { cdir = dir; buzz(12); steer(dir); }
@@ -1327,14 +1337,15 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
     ctrl.addEventListener('pointerdown', (event) => {
       if (event.target.closest('button')) return;
       if (invaders) { event.preventDefault(); buzz(15); steer(4); }   // every touch fires, also a second finger while the first one steers
+      if (plumber && id !== null) { event.preventDefault(); buzz(15); steer(4); return; }   // a second finger, anywhere, jumps while the first one steers
       if (id !== null) return;
       event.preventDefault(); id = event.pointerId; ctrl.setPointerCapture(id);
-      ox = event.clientX; oy = event.clientY; cdir = null; cknob.style.transform = ''; if (tetris) { tx = ty = tLastY = 0; tx = event.clientX; ty = tLastY = event.clientY; tLastAt = performance.now(); tDown = tLastAt; tMoved = false; tVy = 0; showDial(); return; } if (pongSlide) { lastY = event.clientY; showDial(); return; }
+      ox = event.clientX; oy = event.clientY; cdir = null; cknob.style.transform = ''; if (plumber) { tDown = performance.now(); tMoved = false; pJumped = false; } if (tetris) { tx = ty = tLastY = 0; tx = event.clientX; ty = tLastY = event.clientY; tLastAt = performance.now(); tDown = tLastAt; tMoved = false; tVy = 0; showDial(); return; } if (pongSlide) { lastY = event.clientY; showDial(); return; }
       if (invaders) { lastX = event.clientX; showDial(); return; }
       base.style.left = ox + 'px'; base.style.top = oy + 'px'; base.hidden = false; buzz(8);
     });
     ctrl.addEventListener('pointermove', (event) => { if (event.pointerId === id) move(event); });
-    const end = (event) => { if (event.pointerId !== id) return; if (tetris) { if (tVy > 1.1 && event.clientY - ty > 0) { buzz(20); steer(4); } else if (!tMoved && performance.now() - tDown < 350) { buzz(10); steer(0); } } if (pongSlide || (invaders && cdir !== null)) { steer(200 + Math.round((dialAngle + 120) / 240 * 100)); /* the final place once more, in case the last move was dropped */ } id = null; base.hidden = true; };
+    const end = (event) => { if (event.pointerId !== id) return; if (tetris) { if (tVy > 1.1 && event.clientY - ty > 0) { buzz(20); steer(4); } else if (!tMoved && performance.now() - tDown < 350) { buzz(10); steer(0); } } if (pongSlide || (invaders && cdir !== null)) { steer(200 + Math.round((dialAngle + 120) / 240 * 100)); /* the final place once more, in case the last move was dropped */ } if (plumber) { if (!tMoved && performance.now() - tDown < 300) { buzz(15); steer(4); } steer(2); } id = null; base.hidden = true; };
     ctrl.addEventListener('pointerup', end); ctrl.addEventListener('pointercancel', end);
   }
   // A Bluetooth controller paired with the clock itself: status, Pair (a minute of listening) and Forget.
@@ -1364,7 +1375,7 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
   const keys = { ArrowUp: 0, ArrowRight: 1, ArrowDown: 2, ArrowLeft: 3, w: 0, d: 1, s: 2, a: 3, W: 0, D: 1, S: 2, A: 3 };
   document.addEventListener('keydown', (event) => {
     if (tetris && event.key === ' ' && !event.repeat && !play.hidden && !/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(document.activeElement.tagName)) { event.preventDefault(); steer(4); return; }
-    if (invaders && event.key === ' ' && !play.hidden && !/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(document.activeElement.tagName)) { event.preventDefault(); steer(4); return; }
+    if ((invaders || plumber) && event.key === ' ' && !play.hidden && !/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(document.activeElement.tagName)) { event.preventDefault(); steer(4); return; }
     if (play.hidden || (event.repeat && !(tetris && event.key !== 'ArrowUp' && event.key !== 'w' && event.key !== 'W')) || event.ctrlKey || event.metaKey || !(event.key in keys) || /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
     event.preventDefault(); steer(keys[event.key]);
   });

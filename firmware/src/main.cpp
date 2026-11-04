@@ -48,7 +48,7 @@
 #include <BootScreen.h>
 #include <Console.h>
 #include <TelnetConsole.h>
-#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS) || defined(UM_MARIO) || defined(UM_LUIGI)
 #include <PlaySocket.h>
 #endif
 #include <Mqtt.h>
@@ -390,7 +390,7 @@ static bool btMode() { return gamepad::active(); }  // the Bluetooth controller 
 #else
 static bool btMode() { return false; }
 #endif
-#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS) || defined(UM_MARIO) || defined(UM_LUIGI)
 static uint32_t playHoldUntil = 0;   // somebody is steering a game: what is not needed for it stays quiet until 20 s after the last move
 static bool playing(uint32_t now) { return playHoldUntil && (int32_t)(playHoldUntil - now) > 0; }
 static void playSteer(int dir) {   // a move from the web page, over HTTP or the WebSocket
@@ -2567,17 +2567,17 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   });
   server.on("/api/settings", HTTP_GET, settingsState);
   postRoute("/api/settings", saveSettings);
-#if defined(UM_PACMAN) || defined(UM_INVADERS) || defined(UM_PONG) || defined(UM_TETRIS)
+#if defined(UM_PACMAN) || defined(UM_INVADERS) || defined(UM_PONG) || defined(UM_TETRIS) || defined(UM_MARIO) || defined(UM_LUIGI)
   postRoute("/api/play/steer", []() {   // play the face yourself: dir 0 up, 1 right, 2 down, 3 left, -1 back to the computer (what each does is up to the face)
     const int dir = server.arg("dir").toInt();
-#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS) || defined(UM_MARIO) || defined(UM_LUIGI)
     playSteer(dir);
 #else
     if (face) face->steer(dir);
 #endif
     server.send(204);
   });
-#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS) || defined(UM_MARIO) || defined(UM_LUIGI)
   playsocket::attach(server, playSteer);   // the same codes over a WebSocket: GET /play
 #endif
 #endif
@@ -2698,7 +2698,7 @@ void loop() {
 #endif
     consoleLog("Ultimatrix %s settings: http://%s/ (http://%s.local/)\n", UM_MODE_NAME, WiFi.localIP().toString().c_str(), mdnsHost);
   }
-#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS) || defined(UM_MARIO) || defined(UM_LUIGI)
   playsocket::service();   // the game controller socket is read on every pass, not only on frames
 #endif
   if ((int32_t)(now - nextFrame) >= 0) {

@@ -23,4 +23,5 @@ class Clockface: public IClockface {
     void invalidate() {}
     bool handlesNight() const { return true; }
     void setNight(bool night);
+    void steer(int dir);   // 1 walk right, 5 run right, 3 walk left, 2 stand, 0 or 4 jump: play yourself from the web page; -1 gives him back to the clock
 };

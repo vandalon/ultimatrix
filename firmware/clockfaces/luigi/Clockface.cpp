@@ -4,6 +4,7 @@
 #include "Clockface.h"
 #include <MiniFont.h>
 #include <PlumberSprites.h>
+#include <PlumberPlay.h>
 #include <PlumberWorld.h>
 #include <Settings.h>
 
@@ -61,7 +62,7 @@ const float kApproachSpeed = 9.5f;
 const int kPreJumpWaitMs = 200, kSwipeHalfMs = 140;
 const float kExitSpeed = 28;
 
-enum class Mode : uint8_t { Walk, TravelJump, WorldExit, WorldEnter, Pause, Approach, Wait, Hit, Stomp, Hop, FlagRun, FlagJump, FlagSlide, FlagWait, FinaleWalk, FinaleHidden, FinaleDone };
+enum class Mode : uint8_t { Walk, TravelJump, WorldExit, WorldEnter, Pause, Approach, Wait, Hit, Stomp, Hop, FlagRun, FlagJump, FlagSlide, FlagWait, FinaleWalk, FinaleHidden, FinaleDone, Player };
 const int kPoleX = 44, kPoleTop = 19, kLuigiPoleX = 31, kCastleX = 50, kFlagSlideMs = 1700, kFlagJumpMs = 350;
 
 struct Plumber {
@@ -80,6 +81,7 @@ struct Plumber {
 } mario;
 plumberworld::Course course;
 plumberworld::BlockMushroom blockMushroom;
+plumberplay::Play play;  // play yourself: the web page steers, the clock goes on without it
 
 struct Goomba {
   float x = 0;
@@ -603,6 +605,18 @@ void step(ClockTime *clock, uint32_t now, float dt) {
     goomba.state = 0;
   }
 
+  // Play yourself: a move from the web page starts it while he is walking; the game ends when it is over, idle or handed back
+  if (!play.active) {
+    int cmd;
+    if (plumberplay::pop(play, cmd) && cmd >= 0 && free0(m) && !changingWorld() && world != Finale) { plumberplay::start(play, now); plumberplay::push(play, cmd); m.mode = Mode::Player; goomba.state = 0; }
+  }
+  if (play.active) {
+    if (minutesBehind(clock)) touch = {true, 1};  // the blocks change at the turn, without him jumping at them
+    else if (hoursBehind(clock)) touch = {true, 0};
+    if (!plumberplay::step(play, m, course, goomba, now, dt, changingWorld(), minute)) { play.active = false; m.mode = Mode::Walk; m.dir = 1; goomba.state = 0; }
+    return;
+  }
+
   const bool free = m.mode == Mode::Walk || m.mode == Mode::Pause;
   if (free && goomba.state == 1 && goomba.x > m.x + 13 && goomba.x < 62) {
     m.dir = 1;
@@ -764,7 +778,7 @@ void step(ClockTime *clock, uint32_t now, float dt) {
     case Mode::FinaleHidden:  // inside while the flag rises and the fireworks go off
       if (now - m.since >= 4400) m.mode = Mode::FinaleDone;
       break;
-    case Mode::FinaleDone: break;
+    case Mode::FinaleDone: case Mode::Player: break;  // Player is handled before this switch
     case Mode::Hop:
       m.x += 6 * dt;
       if (now - m.since >= 320) { m.mode = Mode::Walk; m.dir = 1; }
@@ -782,6 +796,8 @@ Clockface::Clockface(MatrixPanel_I2S_DMA* display) { _display = display; }
 
 void Clockface::setNight(bool value) { night = value; }
 
+void Clockface::steer(int dir) { plumberplay::push(play, dir); }
+
 
 void Clockface::setup(ClockTime *dateTime) {
   _dateTime = dateTime;
@@ -790,6 +806,7 @@ void Clockface::setup(ClockTime *dateTime) {
   course = plumberworld::Course();
   blockMushroom = plumberworld::BlockMushroom();
   goomba = Goomba();
+  play = plumberplay::Play();
   touch = {false, 1};
   pendingWorld = -1;
   wiping = false;
@@ -1017,6 +1034,7 @@ void Clockface::update() {
     }
     case Mode::Hit: pose = ((now - mario.since) / 70) % 2 ? Pose::Walk2 : Pose::Jump;  // Luigi's flutter kick
      lift = (int)(jumpHeight(now - mario.since, kHitJumpMs, kHitHeight) + 0.5f); break;
+    case Mode::Player: pose = play.lift > 0.5f ? Pose::Jump : play.moving ? walkPose(mario.distance) : Pose::Stand; lift = (int)(play.lift + 0.5f); break;
     case Mode::TravelJump: pose = Pose::Jump; lift = (int)(jumpHeight(now - mario.since, plumberworld::kJumpMs, mario.travelHeight) + 0.5f); break;
     case Mode::Stomp: pose = Pose::Jump; lift = (int)(jumpHeight(now - mario.since, 560, 12) + 0.5f); break;
     case Mode::Hop: pose = Pose::Jump; lift = (int)(jumpHeight(now - mario.since, 320, 7) + 0.5f); break;
@@ -1026,12 +1044,14 @@ void Clockface::update() {
   }
   // The classic Luigi of the NES game: green cap and shirt, blue overalls
   PlumberColors colors = {rgb(24, 190, 48), rgb(252, 188, 120), rgb(100, 52, 8), rgb(40, 72, 232), rgb(255, 224, 40), rgb(16, 16, 16)};
-  if (world != Finale && !wiping && (mario.mode == Mode::Walk || mario.mode == Mode::TravelJump))
+  if (world != Finale && !wiping && (mario.mode == Mode::Walk || mario.mode == Mode::TravelJump || mario.mode == Mode::Player))
     coins = (coins + course.collect(mario.x, kPlumberY - lift, kGround - kPlumberY, kGround, now)) % 100;
   const int pickup = blockMushroom.update(now, dt, course.camera, kGround, mario.x, kGround - lift);
   if (pickup >= 0 && !wiping) {
     course.pickup = (plumberworld::Item)pickup; course.pickupAt = now; course.hasPickup = true;
   }
+  static uint32_t awardedAt = ~0u;
+  if (play.active && course.hasPickup && course.pickupAt == now && course.pickupAt != awardedAt) { awardedAt = now; plumberplay::award(play, course.pickup); }
   const uint32_t pt = now - mushroomAt;
   if ((mushroomOn && pt >= 1100 && pt < 3700) || (course.hasStar && now - course.starAt < 3700)) {
     // The star: his colours flash for a couple of seconds
@@ -1056,8 +1076,16 @@ void Clockface::update() {
   }
 
 
-  // The date, small, up in the sky like the score line of the game: weekday top left, day and month top right
-  {
+  // Playing: the score where the weekday is, the spare lives (a cap and a number) where the date is
+  if (play.active) {
+    char score[8], lives[4];
+    snprintf(score, sizeof(score), "%05u", (unsigned)(play.score % 100000));
+    snprintf(lives, sizeof(lives), "%d", play.lives);
+    miniText(d, score, 1, 1, theme.text);
+    const int capX = W - 1 - miniWidth(lives) - 7;
+    box(d, capX + 1, 1, 4, 1, rgb(229, 37, 33)); box(d, capX, 2, 5, 2, rgb(229, 37, 33)); box(d, capX + 1, 4, 3, 1, rgb(248, 184, 120));
+    miniText(d, lives, W - 1 - miniWidth(lives), 1, theme.text);
+  } else {  // The date, small, up in the sky like the score line of the game: weekday top left, day and month top right
     static const char *const DAYS[7] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
     static const char *const MONTHS[12] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
     char day[4];
@@ -1102,7 +1130,7 @@ void Clockface::update() {
   }
 
 
-  if (!wiping && mario.mode != Mode::FinaleHidden && mario.mode != Mode::FinaleDone)
+  if (!wiping && mario.mode != Mode::FinaleHidden && mario.mode != Mode::FinaleDone && !(play.active && now < play.hurtUntil && (now / 90) % 2))
     drawLuigi(d, (int)(mario.x + 0.5f), kPlumberY - lift, pose, mario.dir < 0, colors);
   if (world == Finale && !wiping) {  // the castle stands in front of Luigi, so he walks in behind it
     const bool inside = mario.mode == Mode::FinaleHidden || mario.mode == Mode::FinaleDone;
