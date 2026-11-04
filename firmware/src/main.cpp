@@ -48,7 +48,7 @@
 #include <BootScreen.h>
 #include <Console.h>
 #include <TelnetConsole.h>
-#if defined(UM_PONG) || defined(UM_INVADERS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS)
 #include <PlaySocket.h>
 #endif
 #include <Mqtt.h>
@@ -390,7 +390,7 @@ static bool btMode() { return gamepad::active(); }  // the Bluetooth controller 
 #else
 static bool btMode() { return false; }
 #endif
-#if defined(UM_PONG) || defined(UM_INVADERS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS)
 static uint32_t playHoldUntil = 0;   // somebody is steering a game: what is not needed for it stays quiet until 20 s after the last move
 static bool playing(uint32_t now) { return playHoldUntil && (int32_t)(playHoldUntil - now) > 0; }
 static void playSteer(int dir) {   // a move from the web page, over HTTP or the WebSocket
@@ -709,6 +709,9 @@ static void settingsState() {
 #ifdef UM_NFL
   json += ",\"nflTeams\":" + jsonText(s.nflTeams) + ",\"nflIdle\":" + String(s.nflIdle) + ",\"nflTables\":" + String(s.nflTables) + ",\"nflLiveOnly\":" + String(s.nflLiveOnly ? 1 : 0) + ",\"nflExtra\":" + (s.nflExtra ? "true" : "false") + ",\"nflHours\":" + String(s.nflHours) + ",\"nflMinutes\":" + String(s.nflMinutes);
 #endif
+#ifdef UM_TETRIS
+  json += ",\"tetrisStyle\":" + String(s.tetrisStyle) + ",\"tetrisLevel\":" + String(s.tetrisLevel);
+#endif
 #ifdef UM_PONG
   json += ",\"pongBackdrop\":" + String(s.pongBackdrop);
   json += ",\"pongSpeed\":" + String(s.pongSpeed) + ",\"pongLevel\":" + String(s.pongLevel) + ",\"pongDate\":" + String(s.pongDate) + ",\"pongDay\":" + String(s.pongDay);
@@ -1000,6 +1003,18 @@ static void saveSettings() {
     long date;
     if (!number("wordDate", 0, 2, date)) { settingsResponse(400, "Choose a date style from the list."); return; }
     s.timeStyle = (s.timeStyle & 15) | (date << 4);
+  }
+#endif
+#ifdef UM_TETRIS
+  if (server.hasArg("tetrisStyle")) {
+    long style = 0;
+    if (!number("tetrisStyle", 0, 1, style)) { settingsResponse(400, "Choose Falling digits or Game."); return; }
+    s.tetrisStyle = style;
+  }
+  if (server.hasArg("tetrisLevel")) {
+    long level = 0;
+    if (!number("tetrisLevel", 0, 8, level)) { settingsResponse(400, "Choose a difficulty from the list."); return; }
+    s.tetrisLevel = level;
   }
 #endif
 #ifdef UM_PONG
@@ -2191,7 +2206,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
-  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "wifiNets", "f1Chequers", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
+  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "wifiNets", "f1Chequers", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts", "tetSt", "tetLv",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
   "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder", "haPhono", "haNoInfo", "haCover", "haWeeks", "haExport", "haThin",  // HaConfig.cpp
@@ -2552,17 +2567,17 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   });
   server.on("/api/settings", HTTP_GET, settingsState);
   postRoute("/api/settings", saveSettings);
-#if defined(UM_PACMAN) || defined(UM_INVADERS) || defined(UM_PONG)
+#if defined(UM_PACMAN) || defined(UM_INVADERS) || defined(UM_PONG) || defined(UM_TETRIS)
   postRoute("/api/play/steer", []() {   // play the face yourself: dir 0 up, 1 right, 2 down, 3 left, -1 back to the computer (what each does is up to the face)
     const int dir = server.arg("dir").toInt();
-#if defined(UM_PONG) || defined(UM_INVADERS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS)
     playSteer(dir);
 #else
     if (face) face->steer(dir);
 #endif
     server.send(204);
   });
-#if defined(UM_PONG) || defined(UM_INVADERS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS)
   playsocket::attach(server, playSteer);   // the same codes over a WebSocket: GET /play
 #endif
 #endif
@@ -2683,7 +2698,7 @@ void loop() {
 #endif
     consoleLog("Ultimatrix %s settings: http://%s/ (http://%s.local/)\n", UM_MODE_NAME, WiFi.localIP().toString().c_str(), mdnsHost);
   }
-#if defined(UM_PONG) || defined(UM_INVADERS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS)
   playsocket::service();   // the game controller socket is read on every pass, not only on frames
 #endif
   if ((int32_t)(now - nextFrame) >= 0) {
@@ -2814,7 +2829,7 @@ void loop() {
     nextFrame = millis() + (face && face->animating() ? 4 : layout::frameMs);
 #elif defined(UM_SCANNER)
     nextFrame = millis() + 20;
-#elif defined(UM_PONG) || defined(UM_INVADERS)
+#elif defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS)
     nextFrame = millis() + 16;  // games: about 60 frames per second, so the movement is smooth
 #elif defined(UM_MARIO) || defined(UM_LUIGI)
     nextFrame = millis() + 33;  // smoother plumber animation at about 30 frames per second

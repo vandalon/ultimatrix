@@ -28,7 +28,7 @@ There are fourteen clock faces, three of them [games](#playable-games), six of t
 - **NBA** (`nba`): Today's games from ESPN, one at a time on a half-court background: both teams with record and score, the quarter and game clock, a quarter bar and, on a second page, the points per quarter. Live games come first, with the row that just scored lit and a short animation of the ball dropping through the net. Between them: today's list, the coming days, and the East and West tables with streaks. Choose favourite teams in settings and they come first; with the sports auto-switch the clock moves to NBA when a (favourite) game starts.
 - **MLB** (`mlb`): The NBA face for baseball, on a ball-park background. Today's games from ESPN, one at a time: both teams with record, score and the runs of each inning, the bases with the runners, the count and the outs, and an inning bar. Live games come first, with the row that just scored lit and a short animation of the ball flying over the fence. Between them: the line score (runs, hits and errors per inning), today's list, the coming days, and the AL and NL tables with streaks. With no game on, the clock has a ball thrown into a catcher's mitt. Choose favourite teams in settings and they come first; with the sports auto-switch the clock moves to MLB when a (favourite) game starts.
 - **NFL** (`nfl`): This week's games from ESPN, one at a time on a stands background: both teams with record and score, the quarter and game clock, a strip of field with the ball, the down and distance and the timeouts left. A touchdown, field goal or safety plays a short text flash. Between games: the coming days next to the AFC and NFC seeds, the conference tables and a big clock with the next game and a football flying about. Choose favourite teams in settings and they come first; there is a demo that plays every screen on the clock.
-- **Tetris** (`tetris`): Falling pieces that form the time and date.
+- **Tetris** (`tetris`): Falling pieces that form the time and date. Set the style to Game and the computer plays a real game of Tetris on the left (10 columns, next piece, score, level, lines flash when they clear) with the hours and minutes side by side, the date (like 25 OCT) and the score in the column beside it; the difficulty goes from 1 to 9. Take over from the settings page (swipe to move, tap to turn, flick down to drop; arrow keys and a browser game controller work too); the computer plays again after 20 seconds without a move.
 - **Words** (`word`): The time in 16 languages, with a weekday, date and minute bar. Choose letter shuffle, letter lift, pixel dissolve, soft wipe, all four in rotation, or no transition.
 - **Mario** (`mario`): Mario in scrolling worlds, with clock blocks showing the time.
 - **Luigi** (`luigi`): A Luigi version of the scrolling-world clock.
@@ -45,7 +45,7 @@ The sports faces are Football, Formula 1, MotoGP, NBA, MLB and NFL. They read th
 
 ## Playable games
 
-Pac-Man, Space Invaders and Pong play themselves and keep the time. You can take over from the clock's settings page while the face is running; the games below list their rules and controls.
+Pac-Man, Space Invaders, Pong and Tetris (Game style) play themselves and keep the time. You can take over from the clock's settings page while the face is running; the games below list their rules and controls.
 
 <table><tr><td><img src="docs/previews/pacman.gif" alt="Pac-Man clock" title="Pac-Man clock" width="110" style="width:110px;max-width:110px"></td><td><img src="docs/previews/invaders.gif" alt="Space Invaders clock" title="Space Invaders clock" width="110" style="width:110px;max-width:110px"></td><td><img src="docs/previews/pong.gif" alt="Pong clock" title="Pong clock" width="110" style="width:110px;max-width:110px"></td></tr></table>
 
@@ -56,13 +56,14 @@ Pac-Man, Space Invaders and Pong play themselves and keep the time. You can take
 - **While you play,** the clock pauses notices, update checks, MQTT state and the live preview.
 - **Full-screen touch controller:** press **Open full-screen controller**, put a finger down anywhere and drag. Pac-Man shows a joystick under your finger that follows it, so the direction is simply the way your finger moves; letting go keeps Pac-Man going. Android phones vibrate briefly; iPhones give no feedback while dragging. For Invaders and Pong, swipe instead (below). The controller sends your moves over a WebSocket (`/play`). **Controller sensitivity** is a slider on the page (saved in the browser; higher moves the paddle or cannon more for the same finger movement).
 - **Keyboard:** Pac-Man arrow keys or W A S D; Space Invaders arrow keys or A D to move and the space bar to fire.
-- **Computer plays by default.** Any move takes over; the clock plays again after 20 seconds without a move, or at once when you press **Computer**. The game restarts whenever control changes hands in Invaders and Pong. Pac-Man keeps going and takes your turn at the next crossing.
+- **Computer plays by default.** Any move takes over; the clock plays again after 20 seconds without a move, or at once when you press **Show Time**. The game restarts whenever control changes hands in Invaders and Pong. Pac-Man keeps going and takes your turn at the next crossing.
 
 ### Controls per game
 
 - **Pac-Man:** drag any direction.
 - **Space Invaders:** swipe left and right anywhere to move the cannon (like Pong's dial, but sideways); every touch fires, so a second finger can fire while the first steers.
 - **Pong:** swipe up and down anywhere to turn the dial like the original game. The labels show YOU and CMP and the score shows the match.
+- **Tetris:** swipe left or right anywhere to move the piece one column at a time, tap to turn it, swipe down to speed it up and flick down to drop it. Keys: arrows or W A S D (up turns), space drops. Clearing 1, 2, 3 or 4 rows scores 100, 300, 500 or 800 times the level, and the level rises every 10 rows. When your game ends the computer plays again.
 
 ## Home Assistant
 

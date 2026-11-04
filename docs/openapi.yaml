@@ -641,14 +641,14 @@ paths:
   /api/play/steer:
     post:
       tags: [Play]
-      summary: Steer a game face (Pac-Man, Pong, Invaders builds)
+      summary: Steer a game face (Pac-Man, Pong, Invaders, Tetris builds)
       requestBody:
         content:
           application/x-www-form-urlencoded:
             schema:
               type: object
               properties:
-                dir: { type: integer, enum: [-1, 0, 1, 2, 3], description: '0 up, 1 right, 2 down, 3 left, -1 back to the computer; what each does is up to the face' }
+                dir: { type: integer, enum: [-1, 0, 1, 2, 3, 4], description: '0 up, 1 right, 2 down, 3 left, 4 fire or drop, -1 back to the computer; what each does is up to the face (Tetris: 0 turns the piece, 2 moves it down one row, 4 drops it)' }
       responses:
         '204': { description: Done }
   /api/pacman/steer:
@@ -667,7 +667,7 @@ paths:
   /play:
     get:
       tags: [Play]
-      summary: Game controller WebSocket (Pong and Invaders)
+      summary: Game controller WebSocket (Pong, Invaders and Tetris)
       description: |
         WebSocket upgrade. Text frames "230" (steer codes) and "4" or "-1"; with an admin PIN set the first
         frame must be `t<token>`.
@@ -1214,6 +1214,8 @@ components:
         nflExtra: { type: boolean, description: 'Extra pages: line scores and your favourites. Off keeps the clock on the next-up page or big clock' }
         nflHours: { type: integer, description: 'Colour of the big clock hours: 0 the face''s own colour, 1 green, 2 pink, 3 blue, 4 lemon, 5 peach, 6 purple, 7 red, 8 orange, 9 cyan, 10 white' }
         nflMinutes: { type: integer, description: 'Colour of the big clock minutes: 0 the face''s own colour, 1 green, 2 pink, 3 blue, 4 lemon, 5 peach, 6 purple, 7 red, 8 orange, 9 cyan, 10 white' }
+        tetrisStyle: { type: integer, minimum: 0, maximum: 1, description: 'Tetris face: 0 the time and date fall in as blocks, 1 a playable game with the time, date, next piece, score and level beside the board' }
+        tetrisLevel: { type: integer, minimum: 0, maximum: 8, description: 'Tetris game: how well the computer plays, 0 (easiest) to 8 (shown as difficulty 1 to 9)' }
         pongBackdrop: { type: integer, minimum: 0, maximum: 5, description: 'Brightness of the big clock behind the court: 0 off, 1 very dim, 2 dim, 3 medium, 4 bright, 5 brightest' }
         pongSpeed: { type: integer, minimum: 0, maximum: 4, description: 'Ball speed: 0 slowest, 1 slow, 2 normal, 3 fast, 4 fastest' }
         pongLevel: { type: integer, minimum: 0, maximum: 8, description: 'How well the computer plays: 0 (easiest) to 8 (shown as difficulty 1 to 9)' }

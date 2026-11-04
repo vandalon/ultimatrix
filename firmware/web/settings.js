@@ -4,7 +4,7 @@ const controls = document.querySelector('#controls');
 const save = document.querySelector('#save');
 const saveBar = document.querySelector('.save-bar');
 const notice = document.querySelector('#notice');
-let invaders = false, pongSlide = false;  // the Invaders face: a tap on the controller fires
+let invaders = false, pongSlide = false, tetris = false;  // the Invaders face: a tap on the controller fires
 let ownNight = false;  // Mario and Luigi paint their own night from the sun: no night schedule, only the dark-room clock
 let initial = '', busy = false, saving = false, savedSwap = false, saveTimer = 0, noticeTimer = 0;
 const field = name => form.elements.namedItem(name);
@@ -438,7 +438,7 @@ async function load() {
     document.querySelector('#nvs-banner').hidden = !(data.nvsFree < 40);
     showPin(data.pinSet);
     const racing = data.mode === 'F1' || data.mode === 'MotoGP', sporty = racing || data.mode === 'Football';
-    const pacman = data.mode === 'Pac-Man', arcade = pacman || data.mode === 'Invaders' || data.mode === 'Pong';   // faces you can play from this page
+    const pacman = data.mode === 'Pac-Man', arcade = pacman || data.mode === 'Invaders' || data.mode === 'Pong' || data.mode === 'Tetris';   // faces you can play from this page
     const homeFace = data.mode === 'Home'; document.querySelector('#homeassistant').hidden = !homeFace; document.querySelector('#nav-ha').hidden = !homeFace;
     if (homeFace) { initHomeAssistant(); document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('#nav-ha').classList.add('active'); }
     section('[data-sports]', sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'NFL' || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade); section('[data-sportfields]', sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'NFL'); section('[data-clockanim]', sporty); section('[data-word]', data.mode === 'Words'); section('[data-mario]', data.mode === 'Mario' || data.mode === 'Luigi'); section('[data-pacman]', arcade);
@@ -447,21 +447,23 @@ async function load() {
     if (data.mode === 'MLB') { choices('#mlb-teams', 'mlbTeams', MLB_TEAMS, data.settings.mlbTeams); for (const name of ['mlbHours', 'mlbMinutes']) field(name).replaceChildren(...['Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'].map((label, i) => new Option(label, i + 1))); }
     if (data.mode === 'NFL') { choices('#nfl-teams', 'nflTeams', NFL_TEAMS, data.settings.nflTeams); for (const name of ['nflHours', 'nflMinutes']) field(name).replaceChildren(...['Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'].map((label, i) => new Option(label, i + 1))); }
     if (sporty || data.mode === 'NBA' || data.mode === 'MLB' || data.mode === 'NFL' || data.mode === 'Words' || data.mode === 'Mario' || data.mode === 'Luigi' || arcade) { document.querySelector('.sidebar nav a.active')?.classList.remove('active'); document.querySelector('.sidebar nav a[href="#mode"]').classList.add('active'); }
-    invaders = data.mode === 'Invaders'; pongSlide = data.mode === 'Pong';
+    invaders = data.mode === 'Invaders'; pongSlide = data.mode === 'Pong'; tetris = data.mode === 'Tetris';
     document.querySelector('#play').hidden = !arcade;
     if (arcade && !pacman) {   // no colours and no Bluetooth controller (yet) on these faces, and their own instructions
-      for (const node of document.querySelectorAll('[data-pacman] > :not(#play):not(#pong-opts):not(#pong-speed):not(#pong-level):not(#pong-date):not(#pong-day):not(#arc-colors):not(#arc-play-h):not(#arc-clock-h), #pad-status, #pad-power')) node.hidden = true;
+      for (const node of document.querySelectorAll('[data-pacman] > :not(#play):not(#pong-opts):not(#pong-speed):not(#pong-level):not(#tet-style):not(#tet-level):not(#pong-date):not(#pong-day):not(#arc-colors):not(#arc-play-h):not(#arc-clock-h), #pad-status, #pad-power')) node.hidden = true;
       document.querySelector('#pad-power').closest('.row').hidden = true;
-      document.querySelector('#pong-opts').hidden = data.mode !== 'Pong'; document.querySelector('#pong-speed').hidden = data.mode !== 'Pong'; document.querySelector('#pong-level').hidden = data.mode !== 'Pong';
-      document.querySelector('#play > .hint').textContent = data.mode === 'Pong'
+      document.querySelector('#pong-opts').hidden = data.mode !== 'Pong'; document.querySelector('#pong-speed').hidden = data.mode !== 'Pong'; document.querySelector('#pong-level').hidden = data.mode !== 'Pong'; document.querySelector('#tet-style').hidden = !tetris; document.querySelector('#tet-level').hidden = !tetris;
+      document.querySelector('#play > .hint').textContent = tetris
+        ? 'Open the full-screen controller: swipe left or right to move the piece, tap to turn it, swipe down to speed it up and flick down to drop it at once. The arrow keys or W A S D move, up turns, the space bar drops, and a game controller works too. A game that was playing continues from where it is. The computer plays again after 20 seconds without a move, or when your game ends.'
+        : data.mode === 'Pong'
         ? 'Open the full-screen controller (a joystick appears wherever you touch), use the arrow keys or W S, or use a game controller. Turn the dial like the original game, by swiping up and down anywhere on the screen: your paddle (the left, orange one) follows it and stops when you stop. With the keys, up and down move it and left or right stops it. A match goes to 7 points and the score on top is yours; then, and after 20 seconds without a move, the computer players take over again.'
         : 'Open the full-screen controller: swipe left and right anywhere to move the cannon, and every touch fires, so a second finger can fire while the first one steers. The arrow keys or A D move, the space bar fires, and so does a game controller. The clock plays again after 20 seconds without a move.';
     }
     for (const a of document.querySelectorAll('.sidebar nav a[href="/wled"], .sidebar nav a[href="/canvas"], .sidebar nav a[href="/gifs"]')) a.hidden = !!data.btPad;   // off while the Bluetooth controller is on
     if (pacman) field('clockShade').closest('.field').hidden = true;   // this face has no background clock to dim
     if (arcade && !pacman) {   // Invaders and Pong: the clock and the score
-      document.querySelector('#arc-colors').hidden = false; document.querySelector('#pong-date').hidden = data.mode !== 'Pong'; document.querySelector('#pong-day').hidden = data.mode !== 'Pong';
-      { const score = field('arcScore').closest('.field'), p = data.mode === 'Pong'; score.hidden = p; score.style.display = p ? 'none' : ''; score.querySelector('select').disabled = p; field('arcHours').closest('.field').querySelector('label').textContent = p ? 'Hours colour (left player)' : 'Clock hours colour'; field('arcMinutes').closest('.field').querySelector('label').textContent = p ? 'Minutes colour (right player)' : 'Clock minutes colour'; } document.querySelector('#arc-play-h').hidden = false; document.querySelector('#arc-clock-h').hidden = false;
+      document.querySelector('#arc-colors').hidden = tetris; document.querySelector('#pong-date').hidden = data.mode !== 'Pong'; document.querySelector('#pong-day').hidden = data.mode !== 'Pong';
+      { const score = field('arcScore').closest('.field'), p = data.mode === 'Pong'; score.hidden = p; score.style.display = p ? 'none' : ''; score.querySelector('select').disabled = p; field('arcHours').closest('.field').querySelector('label').textContent = p ? 'Hours colour (left player)' : 'Clock hours colour'; field('arcMinutes').closest('.field').querySelector('label').textContent = p ? 'Minutes colour (right player)' : 'Clock minutes colour'; } document.querySelector('#arc-play-h').hidden = false; document.querySelector('#arc-clock-h').hidden = tetris;
       for (const name of ['arcHours', 'arcMinutes', 'arcScore']) field(name).replaceChildren(...['Default', 'Pastel green', 'Pastel pink', 'Pastel blue', 'Lemon', 'Peach', 'Pastel purple', 'Red', 'Orange', 'Cyan', 'White'].map((label, value) => new Option(label, value)));
     }
     if (pacman) {
@@ -470,9 +472,9 @@ async function load() {
     }
     if (data.mode === 'MotoGP') document.querySelector('[data-f1] .field > label').textContent = 'Favourite riders';
     if (racing) form.querySelector('[name=timeStyle] option[value="0"]').remove();
-    { const lv = field('pongLevel'), out = document.querySelector('#pong-level-out'); if (lv && !lv.dataset.wired) { lv.dataset.wired = '1'; lv.addEventListener('input', () => { out.textContent = +lv.value + 1; }); } }
+    for (const [name, outId] of [['pongLevel', '#pong-level-out'], ['tetrisLevel', '#tet-level-out']]) { const lv = field(name), out = document.querySelector(outId); if (lv && !lv.dataset.wired) { lv.dataset.wired = '1'; lv.addEventListener('input', () => { out.textContent = +lv.value + 1; }); } }
     Object.entries(data.settings).forEach(([name, value]) => { const input = field(name); if (!input) return; if (input.tagName === 'SELECT' && ![...input.options].some(o => o.value === String(value))) input.add(new Option(value, value)); if (input.type === 'checkbox') input.checked = Boolean(value); else input.value = name === 'use24h' ? (value ? '1' : '0') : name === 'timeStyle' && racing && Number(value) === 0 ? 2 : value; });
-    { const lv = field('pongLevel'); if (lv) document.querySelector('#pong-level-out').textContent = +lv.value + 1; }
+    for (const [name, outId] of [['pongLevel', '#pong-level-out'], ['tetrisLevel', '#tet-level-out']]) { const lv = field(name); if (lv) document.querySelector(outId).textContent = +lv.value + 1; }
     loadBirthdays(field('birthdays').value);
     if (data.settings.sportsOrder !== undefined) { document.querySelector('#sports').hidden = false; document.querySelector('#nav-sports').hidden = false; sportsInit(data.settings); }
     document.querySelector('#sun-hint').textContent = data.sunTimes || '';
@@ -1280,7 +1282,7 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
     track.append(puck); ctrl.append(track);
     const hint = ctrl.querySelector('p');
     const showDial = () => {
-      hint.textContent = invaders ? 'Swipe left and right to move. Tap to shoot.' : pongSlide ? 'Swipe up and down to turn the dial' : 'Touch anywhere and drag';
+      hint.textContent = tetris ? 'Swipe left or right to move, tap to turn, swipe down to speed up, flick down to drop' : invaders ? 'Swipe left and right to move. Tap to shoot.' : pongSlide ? 'Swipe up and down to turn the dial' : 'Touch anywhere and drag';
       dial.style.display = pongSlide ? 'block' : 'none'; dial.style.transform = 'rotate(' + dialAngle + 'deg)';
       track.style.display = invaders ? 'block' : 'none'; puck.style.left = Math.round((dialAngle + 120) / 240 * 100) + '%';
     };
@@ -1299,7 +1301,19 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
       const pct = Math.round((dialAngle + 120) / 240 * 100);
       if (pct !== cdir) { cdir = pct; if (pct % 4 === 0) buzz(6); steer(200 + pct); }
     };
+    // Tetris: swipes move the piece one column per step, a tap turns it, a swipe down speeds it up and a flick down drops it
+    let tx = 0, ty = 0, tMoved = false, tDown = 0, tVy = 0, tLastY = 0, tLastAt = 0;
+    const tetrisMove = (event) => {
+      const cell = 36 / gain(), now = performance.now();
+      while (event.clientX - tx >= cell) { tx += cell; tMoved = true; buzz(6); steer(1); }
+      while (tx - event.clientX >= cell) { tx -= cell; tMoved = true; buzz(6); steer(3); }
+      if (event.clientY < ty) ty = event.clientY;   // going back up starts the next downward step from there
+      while (event.clientY - ty >= cell * 0.9) { ty += cell * 0.9; tMoved = true; steer(2); }
+      if (now > tLastAt) tVy = 0.6 * tVy + 0.4 * (event.clientY - tLastY) / Math.max(1, now - tLastAt);
+      tLastY = event.clientY; tLastAt = now;
+    };
     const move = (event) => {   // the stick
+      if (tetris) return tetrisMove(event);
       if (pongSlide) return turn(event);
       if (invaders) return slide(event);
       let dx = event.clientX - ox, dy = event.clientY - oy;
@@ -1315,12 +1329,12 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
       if (invaders) { event.preventDefault(); buzz(15); steer(4); }   // every touch fires, also a second finger while the first one steers
       if (id !== null) return;
       event.preventDefault(); id = event.pointerId; ctrl.setPointerCapture(id);
-      ox = event.clientX; oy = event.clientY; cdir = null; cknob.style.transform = ''; if (pongSlide) { lastY = event.clientY; showDial(); return; }
+      ox = event.clientX; oy = event.clientY; cdir = null; cknob.style.transform = ''; if (tetris) { tx = ty = tLastY = 0; tx = event.clientX; ty = tLastY = event.clientY; tLastAt = performance.now(); tDown = tLastAt; tMoved = false; tVy = 0; showDial(); return; } if (pongSlide) { lastY = event.clientY; showDial(); return; }
       if (invaders) { lastX = event.clientX; showDial(); return; }
       base.style.left = ox + 'px'; base.style.top = oy + 'px'; base.hidden = false; buzz(8);
     });
     ctrl.addEventListener('pointermove', (event) => { if (event.pointerId === id) move(event); });
-    const end = (event) => { if (event.pointerId !== id) return; if (pongSlide || (invaders && cdir !== null)) { steer(200 + Math.round((dialAngle + 120) / 240 * 100)); /* the final place once more, in case the last move was dropped */ } id = null; base.hidden = true; };
+    const end = (event) => { if (event.pointerId !== id) return; if (tetris) { if (tVy > 1.1 && event.clientY - ty > 0) { buzz(20); steer(4); } else if (!tMoved && performance.now() - tDown < 350) { buzz(10); steer(0); } } if (pongSlide || (invaders && cdir !== null)) { steer(200 + Math.round((dialAngle + 120) / 240 * 100)); /* the final place once more, in case the last move was dropped */ } id = null; base.hidden = true; };
     ctrl.addEventListener('pointerup', end); ctrl.addEventListener('pointercancel', end);
   }
   // A Bluetooth controller paired with the clock itself: status, Pair (a minute of listening) and Forget.
@@ -1349,8 +1363,9 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
   }
   const keys = { ArrowUp: 0, ArrowRight: 1, ArrowDown: 2, ArrowLeft: 3, w: 0, d: 1, s: 2, a: 3, W: 0, D: 1, S: 2, A: 3 };
   document.addEventListener('keydown', (event) => {
+    if (tetris && event.key === ' ' && !event.repeat && !play.hidden && !/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(document.activeElement.tagName)) { event.preventDefault(); steer(4); return; }
     if (invaders && event.key === ' ' && !play.hidden && !/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(document.activeElement.tagName)) { event.preventDefault(); steer(4); return; }
-    if (play.hidden || event.repeat || event.ctrlKey || event.metaKey || !(event.key in keys) || /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
+    if (play.hidden || (event.repeat && !(tetris && event.key !== 'ArrowUp' && event.key !== 'w' && event.key !== 'W')) || event.ctrlKey || event.metaKey || !(event.key in keys) || /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
     event.preventDefault(); steer(keys[event.key]);
   });
   // A game controller paired with this phone or computer (Bluetooth or USB): d-pad or left stick steers, Start gives him back to the clock.

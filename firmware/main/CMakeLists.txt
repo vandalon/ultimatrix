@@ -121,7 +121,9 @@ elseif(ULTIMATRIX_MODE STREQUAL "tetris")
         "${root}/lib/${sport}/TetrisShapes.cpp"
         "${root}/lib/${sport}/TetrisLayout.cpp"
         "${root}/clockfaces/tetris/TetrisRenderer.cpp"
-        "${root}/clockfaces/tetris/TetrisScreens.cpp")
+        "${root}/clockfaces/tetris/TetrisScreens.cpp"
+        "${root}/clockfaces/tetris/TetrisGameView.cpp"
+        "${root}/lib/core/PlaySocket.cpp")
     set(mode_definitions UM_SIMPLE_FACE UM_TETRIS UM_MODE_NAME="Tetris")
 elseif(ULTIMATRIX_MODE STREQUAL "motogp")
     set(sport "f1-feed")
