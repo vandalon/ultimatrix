@@ -23,7 +23,7 @@ are ready. A successful build does not establish hardware or live-feed reliabili
   setting), so the stored settings record did not change. Mario takes the night over from the red night clock
   (`IClockface::handlesNight/setNight`) and shows World 1-2 underground.
 - Pac-Man (`clockfaces/pacman`) is a feedless face whose maze is a random 8 x 7 lattice of lanes (3 px walls, dots 4 px apart)
-  with the clock box in the middle; it replaced an older arcade-style Pac-Man, and the old `pacmanclassic` mode no longer exists.
+  with the clock box in the middle; the ghosts follow the Pac-Man Dossier rules (arcade scatter/chase schedule per level, Blinky/Pinky/Inky/Clyde targets measured in 8 px lane steps, no turning back, random turns when frightened, per-level speeds and power-pellet times, Cruise Elroy, dot-counter ghost-house release); Pac-Man steps by elapsed time, so he keeps his speed on late frames; it replaced an older arcade-style Pac-Man, and the old `pacmanclassic` mode no longer exists.
   The computer player plays at a skill picked for each game (novice to expert). `Clockface::steer(dir)` (0 up, 1 right, 2 down, 3 left, -1 back
   to the computer) takes a human move from `POST /api/pacman/steer`, the keys and the touch controller on the settings page.
 - Space Invaders (`clockfaces/invaders`) and Pong (`clockfaces/pong`) are feedless faces that play themselves; `steer(dir)` takes a human

@@ -32,16 +32,12 @@ const unsigned long FREEZE_MS = 1000, CLEAR_MS = 2000, FLASH_MS = 250;   // ever
 const int START_R = 4, START_C = 3;                        // Pac-Man starts on the lane under the box, in the middle
 const int SPRITE = 5, GHOST_COUNT = 4;
 const int FLOOR_Y = BY1 + 1;                               // the wall under the box, where the ghosts leave
-const int START_LIVES = 3, MAX_LIVES = 4, EXTRA_LIFE_EVERY = 6000;   // a life more every 6000 points, up to three spares
+const int START_LIVES = 3, MAX_LIVES = 4, EXTRA_LIFE_EVERY = 2000;   // a life more every 2000 points, up to three spares
 
 bool nodeExists(int r, int c) { return !(r == MID && c >= 1 && c <= NC - 2); }
 bool hOk(int r, int c) { return nodeExists(r, c) && nodeExists(r, c + 1); }
 bool vOk(int r, int c) { return nodeExists(r, c) && nodeExists(r + 1, c); }
 const int NODE_COUNT = NODES - (NC - 2);
-
-// A fixed maze, for the unlikely case that the generator finds nothing
-const char *const FALLBACK_H[NR] = {"1101011", "1010101", "1111111", "0000000", "1011101", "1001001", "1110111"};
-const char *const FALLBACK_V[NR - 1] = {"11111111", "10111101", "10000001", "10000001", "01111110", "11111111"};
 
 struct Links {
   bool h[NR][NC - 1];   // lane to the one on its right
@@ -175,8 +171,9 @@ void randomCandidate(Links &l) {
 }
 
 bool validMaze(const Links &l) {
-  for (int r = 0; r < NR; r++) for (int c = 0; c < NC; c++) if (nodeExists(r, c) && degree(l, r, c) < 2) return false;
-  if (!connected(l)) return false;
+  int forks = 0;   // junctions with three or more ways: at least half, so the maze is not mostly bends
+  for (int r = 0; r < NR; r++) for (int c = 0; c < NC; c++) if (nodeExists(r, c)) { const int d = degree(l, r, c); if (d < 2) return false; if (d > 2) forks++; }
+  if (forks * 2 < NODE_COUNT || !connected(l)) return false;
   const int open = openLinks(l);
   if (TOTAL_LINKS - open < MIN_CLOSED) return false;
   if (open + 1 - NODE_COUNT + 1 < MIN_LOOPS) return false;   // corridors (the tunnel counts) minus junctions plus one: the loops
@@ -196,7 +193,7 @@ int distanceBetween(const Links &a, const Links &b) {
 void makeMaze() {
   Links best;
   int bestDistance = -1, found = 0;
-  for (int attempt = 0; attempt < 700 && found < 12; attempt++) {
+  for (int attempt = 0; found < 12 && (attempt < 700 || !found); attempt++) {   // a valid maze takes 3 tries on average, so one is always found
     Links c;
     randomCandidate(c);
     if (!validMaze(c)) continue;
@@ -204,11 +201,6 @@ void makeMaze() {
     const int d = havePrev ? distanceBetween(c, prevLinks) : 0;
     if (d > bestDistance) { best = c; bestDistance = d; }
     if (!havePrev) break;
-  }
-  if (!found) {
-    memset(&best, 0, sizeof(best));
-    for (int r = 0; r < NR; r++) for (int c = 0; c < NC - 1; c++) best.h[r][c] = hOk(r, c) && FALLBACK_H[r][c] == '1';
-    for (int r = 0; r < NR - 1; r++) for (int c = 0; c < NC; c++) best.v[r][c] = vOk(r, c) && FALLBACK_V[r][c] == '1';
   }
   cur = best;
   prevLinks = best;
@@ -314,6 +306,7 @@ struct Ghost {
   GhostMode mode = IN_HOUSE;
   bool eaten = false;           // eaten during this power-up: it is no longer afraid
   bool reverse = false;         // turn round at the next junction
+  bool returned = false;        // eaten and back in the box: it leaves again without waiting for dots
   unsigned long leaveAt = 0;    // in the box: when it may leave
   unsigned long graceUntil = 0; // a ghost that just left the box cannot catch (or be caught) until this time
   unsigned long nextStepAt = 0;
@@ -335,7 +328,7 @@ struct Pacman {
 Pacman pac;
 
 const int FOURTH_GHOST_LEVEL = 3;
-const unsigned long GRACE_MS = 1000, EXIT_GAP_MS = 2500, REENTER_MS = 1000, PAC_MS = 55;
+const unsigned long GRACE_MS = 1000, EXIT_GAP_MS = 2500, REENTER_MS = 1000;
 unsigned long nextExitAt = 0, modeClockMs = 0, lastTickMs = 0, deathStart = 0, deathUntil = 0, lastPacMillis = 0, lastDimStep = 0;
 bool wasPowered = false, wasChasing = false;
 int dimLevel = 0, dimLives = 0;   // 0 = bright, 255 = dimmed while a ghost sits over the level or the lives
@@ -343,10 +336,9 @@ int level = 1, lives = START_LIVES;
 long score = 0, nextExtraLife = EXTRA_LIFE_EVERY;   // 10 a dot, 50 a power pellet, 200 and doubling for the ghosts eaten on one pellet
 int ghostsEaten = 0;
 // Players differ: every game is played by one of four, from someone who just started to someone who knows the maze
-struct Skill { const char *name; int margin; int mistake; int reflex; bool tactics; };   // ms to spare before a ghost, % of junctions where he takes a wrong turn, px a ghost head-on makes him turn round, pellets used with thought
-const Skill SKILLS[4] = {{"novice", 150, 14, 0, false}, {"casual", 250, 8, 18, true}, {"good", 400, 4, 26, true}, {"expert", 750, 0, 30, true}};
+struct Skill { int margin; int mistake; int reflex; bool tactics; };   // ms to spare before a ghost, % of junctions where he takes a wrong turn, px a ghost head-on makes him turn round, pellets used with thought
+const Skill SKILLS[4] = {{150, 14, 0, false}, {250, 8, 18, true}, {400, 4, 26, true}, {750, 0, 30, true}};
 int skill = 2;
-unsigned long gameStartedMs = 0;
 unsigned long freezeStart = 0, freezeUntil = 0;   // a ghost was eaten: everything stands still and its points show
 int freezeGhost = -1, freezePoints = 0;
 unsigned long clearStart = 0, clearUntil = 0;   // the maze is cleared: the walls flash, then the next level
@@ -354,13 +346,28 @@ void addScore(int points) {
   score += points;
   while (score >= nextExtraLife) { if (lives < MAX_LIVES) lives++; nextExtraLife += EXTRA_LIFE_EVERY; }
 }
-uint8_t recent[NODES];
+// Ghost house, as in the Dossier but for about 115 dots instead of 244: a ghost leaves after so many dots (Pinky 0, Inky 14 on level 1, Clyde 28 and 24),
+// or when no dot was eaten for 4 seconds (3 from level 5); after a lost life one shared counter lets them out at 3, 8 and 15 dots
+int houseDots = 0, globalDots = 0;
+bool globalCounter = false;
+unsigned long lastDotMs = 0;
+void dotEaten() { lastDotMs = millis(); if (globalCounter) globalDots++; else houseDots++; }
 int8_t trail[24];     // the last junctions he decided on: stepping into one he has been to a few times lately costs a lot
 int trailPos = 0;   // how lately Pac-Man was on each junction: the more, the less he wants to go back, so he does not run the same circuit again and again
 
 int ramp() { return (level < 10 ? level : 10) - 1; }   // harder with every level, levelling off at 10, starting over after 21
-unsigned long ghostStepMs() { return 80 - 2 * ramp(); }
-unsigned long powerMs() { return 7000 - 600 * ramp() < 1500 ? 1500 : 7000 - 600 * ramp(); }
+// Speeds as in the Dossier, in percent of full speed (44 ms a pixel): levels 1 / 2-4 / 5 and up (Pac-Man slows again from level 21)
+int speedGroup() { return level == 1 ? 0 : level < 5 ? 1 : 2; }
+unsigned long msAt(int percent) { return 4400UL / percent; }
+unsigned long pacMs() {
+  static const uint8_t NORMAL[3] = {80, 90, 100}, AFRAID[3] = {90, 95, 100};
+  return msAt(pac.powered ? AFRAID[speedGroup()] : level >= 21 ? 90 : NORMAL[speedGroup()]);
+}
+// Cruise Elroy: Blinky speeds up (and hunts even while the others scatter) when little food is left; 1 or 2, 0 not yet
+int foodTotal = 1, elroy = 0;
+bool lifeLost = false;   // Elroy waits for the last ghost to leave the box once a life has been lost
+// how long a power pellet lasts: 7 s on level 1 and 0.4 s less with every level, down to 3.4 s from level 10 on
+unsigned long powerMs() { return 7000 - 400 * ramp(); }
 
 Dir opposite(Dir d) { return d == LEFT ? RIGHT : d == RIGHT ? LEFT : d == UP ? DOWN : UP; }
 void moveBy(int &x, int &y, Dir dir) { if (dir == RIGHT) x++; else if (dir == LEFT) x--; else if (dir == DOWN) y++; else y--; }
@@ -371,6 +378,13 @@ unsigned long poweredLeft() {
   return elapsed >= powerMs() ? 0 : powerMs() - elapsed;
 }
 bool frightened(const Ghost &g) { return pac.powered && !g.eaten && g.mode == ROAMING; }
+// ms a pixel for this ghost: afraid ghosts and the tunnel are slow, Elroy is quicker
+unsigned long ghostMs(const Ghost &g) {
+  static const uint8_t NORMAL[3] = {75, 85, 95}, AFRAID[3] = {50, 55, 60}, TUNNEL[3] = {40, 45, 50};
+  const int k = speedGroup();
+  const int percent = frightened(g) ? AFRAID[k] : g.x < XS[0] || g.x > XS[NC - 1] ? TUNNEL[k] : NORMAL[k] + (&g == &ghosts[0] ? 5 * elroy : 0);   // Elroy: 5 or 10 percent quicker
+  return msAt(percent);
+}
 // is a ghost over this part of the box (x0..x1, y0..y1)
 bool ghostOver(int x0, int y0, int x1, int y1) {
   for (int i = 0; i < GHOST_COUNT; i++) if (!(i == 3 && level < FOURTH_GHOST_LEVEL && ghosts[i].mode == IN_HOUSE) && ghosts[i].x <= x1 && ghosts[i].x + SPRITE - 1 >= x0 && ghosts[i].y <= y1 && ghosts[i].y + SPRITE - 1 >= y0) return true;
@@ -388,33 +402,37 @@ void resetGhosts() {
   for (int i = 0; i < GHOST_COUNT; i++) {
     Ghost &g = ghosts[i];
     if (g.mode == EXITING || g.mode == ENTERING) closeHole(i);
-    g.eaten = false; g.reverse = false; g.nextStepAt = 0;
+    g.eaten = false; g.reverse = false; g.returned = false; g.nextStepAt = 0;
     g.graceUntil = now + GRACE_MS;
     if (i == 0) { g.mode = ROAMING; g.x = XS[OUT_C]; g.y = YS[OUT_R]; g.dir = LEFT; continue; }   // as in the arcade, one ghost is out already
     g.slot = 3 - i;   // the last ghost on the left, the first one on the right, and that one leaves first
     g.mode = IN_HOUSE; g.x = SLOT_X[g.slot]; g.y = SLOT_Y; g.dir = DOWN;
-    g.leaveAt = now + 3000 + (i - 1) * 2500;
+    g.leaveAt = now + 4000;
     if (i == 3 && level < FOURTH_GHOST_LEVEL) g.leaveAt = now + 3600000;   // the fourth ghost sleeps in the box on the first levels
   }
   nextExitAt = 0;
   modeClockMs = 0;
   wasChasing = false;
+  houseDots = 0; lastDotMs = now; elroy = 0;
 }
 
 void placeActors() {
-  memset(recent, 0, sizeof(recent));
   memset(trail, -1, sizeof(trail));
   trailPos = 0;
   pac = Pacman();
   pac.x = XS[START_C];
   pac.y = YS[START_R];
   wasPowered = false;
+  globalCounter = false; globalDots = 0;
   resetGhosts();
 }
 
+int foodLeft();
 void startLevel() {
   makeMaze();
   buildLevel();
+  lifeLost = false;
+  foodTotal = foodLeft();
   placeActors();
 }
 
@@ -422,8 +440,6 @@ void newGame() {
   level = 1; lives = START_LIVES; score = 0; nextExtraLife = EXTRA_LIFE_EVERY;
   const int roll = random(100);
   skill = roll < 25 ? 0 : roll < 60 ? 1 : roll < 85 ? 2 : 3;
-  gameStartedMs = millis();
-  Serial.printf("[PacmanClassic] new game, played by a %s\n", SKILLS[skill].name);
 }
 
 // ---- the junctions as a graph: 50 places, corridors of 8 or 12 px, the tunnel counting as 13 ----
@@ -466,6 +482,15 @@ void dijkstra(int dist[NODES], int8_t first[NODES], int start, int startDist, in
   }
 }
 
+// The next lane ahead of a position (the one wrapTo, wrapPx pixels away, when there is none) and the pixels to it
+int laneAhead(const int *lane, int n, int pos, bool forward, int wrapTo, int wrapPx, int &px) {
+  for (int k = forward ? 0 : n - 1; forward ? k < n : k >= 0; forward ? k++ : k--) {
+    if (forward ? lane[k] > pos : lane[k] < pos) { px = abs(lane[k] - pos); return k; }
+  }
+  px = wrapPx;
+  return wrapTo;
+}
+
 // Where a ghost will next be on a junction: the junction, the pixels to go and the junction it may not turn back to
 bool ghostStart(int i, int &node, int &px, int &ban) {
   const Ghost &g = ghosts[i];
@@ -474,7 +499,7 @@ bool ghostStart(int i, int &node, int &px, int &ban) {
   if (g.mode == IN_HOUSE || g.mode == EXITING) {
     node = nodeOf(START_R, g.slot + 1);
     px = abs(g.x - ghostHomeX(i)) + max(0, YS[START_R] - g.y);
-    if (g.mode == IN_HOUSE && g.leaveAt > millis()) px += (int)((g.leaveAt - millis()) / ghostStepMs());
+    if (g.mode == IN_HOUSE && g.leaveAt > millis()) px += (int)((g.leaveAt - millis()) / msAt(75));
     return true;
   }
   if (g.mode != ROAMING) return false;
@@ -483,15 +508,9 @@ bool ghostStart(int i, int &node, int &px, int &ban) {
   if (here >= 0) {
     r = here / NC; c = here % NC;
   } else if (r >= 0) {   // in a corridor sideways, or in the tunnel
-    int found = -1;
-    if (g.dir == RIGHT) { for (int k = 0; k < NC; k++) if (XS[k] > g.x) { found = k; break; } if (found < 0) { found = 0; px = TUNNEL_LEN; } else px = XS[found] - g.x; }
-    else { for (int k = NC - 1; k >= 0; k--) if (XS[k] < g.x) { found = k; break; } if (found < 0) { found = NC - 1; px = TUNNEL_LEN; } else px = g.x - XS[found]; }
-    c = found;
+    c = laneAhead(XS, NC, g.x, g.dir == RIGHT, g.dir == RIGHT ? 0 : NC - 1, TUNNEL_LEN, px);
   } else if (c >= 0) {   // up or down
-    int found = -1;
-    if (g.dir == DOWN) { for (int k = 0; k < NR; k++) if (YS[k] > g.y) { found = k; break; } if (found < 0) { found = NR - 1; px = 0; } else px = YS[found] - g.y; }
-    else { for (int k = NR - 1; k >= 0; k--) if (YS[k] < g.y) { found = k; break; } if (found < 0) { found = 0; px = 0; } else px = g.y - YS[found]; }
-    r = found;
+    r = laneAhead(YS, NR, g.y, g.dir == DOWN, g.dir == DOWN ? NR - 1 : 0, 0, px);
   } else {
     return false;
   }
@@ -518,7 +537,8 @@ void ghostTimes(int times[NODES]) {
     if (!hunts || !ghostStart(i, node, px, ban)) continue;
     int dist[NODES];
     dijkstra(dist, nullptr, node, px, ban, nullptr, 0);
-    for (int j = 0; j < NODES; j++) if (dist[j] < INF) times[j] = min(times[j], dist[j] * (int)ghostStepMs());
+    for (int j = 0; j < NODES; j++) if (dist[j] < INF) times[j] = min(times[j], dist[j] * (int)(frightened(g) ? ghostMs(g) * 2 / 3 : ghostMs(g)));
+    if (ban >= 0 && px > 0 && g.mode == ROAMING) times[ban] = 0;   // a ghost already in this corridor, coming his way: it is not a way in
   }
 }
 
@@ -553,16 +573,26 @@ void manualDecision() {
   else if (!neighbour(row, col, pac.dir, nr, nc, len)) pac.stopped = true;   // a wall ahead: wait for a direction
 }
 
+// how much safe room each way leads to: junctions he gets to first, the more the earlier
+void safeRoom(const int dist[NODES], const int8_t first[NODES], const int times[NODES], int room[4]) {
+  room[0] = room[1] = room[2] = room[3] = 0;
+  for (int j = 0; j < NODES; j++) if (dist[j] > 0 && dist[j] < INF && first[j] >= 0) room[first[j]] += 1 + min(max(times[j] - dist[j] * (int)pacMs(), 0), 3000) / 300;
+}
+
+int flips = 0;   // turns back lately: the more, the dearer another one gets
+unsigned long flipAt = 0;
+
 void directionDecision() {
   const int row = rowAt(pac.y), col = colAt(pac.x), start = nodeOf(row, col);
-  for (int i = 0; i < NODES; i++) if (recent[i]) recent[i]--;
-  recent[start] = min(recent[start] + 14, 60);
+  if (flips && millis() - flipAt > 3000) { flips--; flipAt = millis(); }
   gateMargin = SKILLS[skill].margin + 25 * ramp();
+  const int stall = (int)min((millis() - lastDotMs) / 3, 20000UL);   // no dot for a long while, the ghosts guard what is left: he dares more and more
+  gateMargin -= stall;
   trail[trailPos++ % 24] = start;
   int times[NODES], dist[NODES];
   int8_t first[NODES];
   ghostTimes(times);
-  dijkstra(dist, first, start, 0, -1, times, PAC_MS);
+  dijkstra(dist, first, start, 0, -1, times, pacMs());
   const bool threatened = times[start] < 6000;
   // how much of the maze each way leads to: a way into a small corner is a trap when a ghost is near
   int hunting = 0, near = 0;   // ghosts out in the maze that are not afraid, and how many of them are close to him
@@ -572,12 +602,9 @@ void directionDecision() {
     if (abs(g.x - pac.x) + abs(g.y - pac.y) < 45) near++;
   }
   int reach[4] = {};
-  int room[4] = {};   // how much safe room each way leads to: junctions he gets to first, the more the earlier
-  for (int j = 0; j < NODES; j++) {
-    if (j == start || dist[j] >= INF || first[j] < 0) continue;
-    reach[first[j]]++;
-    room[first[j]] += 1 + min(max(times[j] - dist[j] * (int)PAC_MS, 0), 3000) / 300;
-  }
+  int room[4];
+  safeRoom(dist, first, times, room);
+  for (int j = 0; j < NODES; j++) if (j != start && dist[j] < INF && first[j] >= 0) reach[first[j]]++;
 
   int score[4] = {INF, INF, INF, INF};
   for (int j = 0; j < NODES; j++) {
@@ -589,7 +616,7 @@ void directionDecision() {
     if (!pill) continue;
     int cost = dist[j];
     if (!pac.powered && times[j] < 1000000) {   // food with room to spare before a ghost can get there is worth more than food just ahead of one
-      const int slack = times[j] - dist[j] * (int)PAC_MS;
+      const int slack = times[j] - dist[j] * (int)pacMs();
       if (slack < 3500) cost += (3500 - slack) / 80;
     }
     int around = 0;   // food next to that junction: a place with more left is worth the trip, so he clears an area instead of leaving single dots behind
@@ -615,7 +642,7 @@ void directionDecision() {
     for (int i = 0; i < GHOST_COUNT; i++) {
       int node, px, ban;
       if (!frightened(ghosts[i]) || !ghostStart(i, node, px, ban) || node == start || dist[node] >= INF || first[node] < 0) continue;
-      if ((long)dist[node] * (long)PAC_MS + 150 < (long)poweredLeft() && dist[node] < wayDist) { wayDist = dist[node]; way = first[node]; }
+      if ((long)dist[node] * (long)pacMs() + 150 < (long)poweredLeft() && dist[node] < wayDist) { wayDist = dist[node]; way = first[node]; }
     }
     if (way >= 0) {
       for (int d = 0; d < 4; d++) if (d != way) score[d] = INF;
@@ -623,16 +650,16 @@ void directionDecision() {
     }
   }
 
+  const bool stalled = millis() - lastDotMs > 4000;   // only a long run without a dot makes him avoid places he has been; otherwise he keeps heading for the food
   int best = -1, bestScore = INF;
   for (int d = 0; d < 4; d++) {
     if (score[d] >= INF) continue;
-    if (threatened && !pac.powered && reach[d] < 10) score[d] += (10 - reach[d]) * 14;
     int nr, nc, len;
     neighbour(row, col, static_cast<Dir>(d), nr, nc, len);
     // the step into a junction he visited lately costs extra, and a little luck keeps two equal ways from always going the same
     int seen = 0;   // how often the junction ahead is among the last 24 he decided on
     for (int k = 0; k < 24; k++) if (trail[k] == nodeOf(nr, nc)) seen++;
-    const int s = score[d] - (d == pac.dir ? 4 : 0) + (d == opposite(pac.dir) ? 14 : 0) + recent[nodeOf(nr, nc)] / 2 + seen * 22 + (int)random(7);
+    const int s = score[d] - (d == pac.dir ? 4 : 0) + (d == opposite(pac.dir) ? 14 + (near ? 0 : 40 * flips) : 0) + (stalled ? seen * 22 : 0) + (int)random(3);
     if (s < bestScore) { bestScore = s; best = d; }
   }
   if (best < 0) {   // no food he can safely reach: towards the most room to move, then away from the ghosts
@@ -644,9 +671,9 @@ void directionDecision() {
   }
   for (int m = 0; best < 0 && m < 3; m++) {   // cornered: settle for less spare time, the least bad way out
     gateMargin = m == 0 ? SKILLS[skill].margin / 3 : m == 1 ? -150 : -400;
-    dijkstra(dist, first, start, 0, -1, times, PAC_MS);
-    int bestRoom = 0, roomNow[4] = {};
-    for (int j = 0; j < NODES; j++) if (j != start && dist[j] < INF && first[j] >= 0) roomNow[first[j]] += 1 + min(max(times[j] - dist[j] * (int)PAC_MS, 0), 3000) / 300;
+    dijkstra(dist, first, start, 0, -1, times, pacMs());
+    int bestRoom = 0, roomNow[4];
+    safeRoom(dist, first, times, roomNow);
     for (int d = 0; d < 4; d++) if (roomNow[d] > bestRoom) { bestRoom = roomNow[d]; best = d; }
   }
   if (best < 0) {   // not even that: away from the ghosts
@@ -666,14 +693,23 @@ void directionDecision() {
     }
     if (n > 1) best = open[random(n)];
   }
-  if (best >= 0) pac.dir = static_cast<Dir>(best);
+  int slackOf[4];   // never into a junction a ghost gets to first when another way is clear
+  for (int d = 0; d < 4; d++) {
+    int nr, nc, len;
+    slackOf[d] = neighbour(row, col, static_cast<Dir>(d), nr, nc, len) ? times[nodeOf(nr, nc)] - len * (int)pacMs() : -INF;
+  }
+  for (int d = 0; best >= 0 && d < 4; d++) if (slackOf[best] < 200 && slackOf[d] > 200 && slackOf[d] > slackOf[best]) best = d;
+  if (best >= 0) {
+    if (best == opposite(pac.dir)) { flips++; flipAt = millis(); }
+    pac.dir = static_cast<Dir>(best);
+  }
 }
 
 // Pac-Man covers a pill, even partly: eaten
 void eatPills() {
   for (int i = 0; i < pillCount; i++) {
     Pill &p = pills[i];
-    if (p.alive && p.x >= pac.x && p.x < pac.x + SPRITE && p.y >= pac.y && p.y < pac.y + SPRITE) { p.alive = false; addScore(10); }
+    if (p.alive && p.x >= pac.x && p.x < pac.x + SPRITE && p.y >= pac.y && p.y < pac.y + SPRITE) { p.alive = false; addScore(10); dotEaten(); }
   }
 }
 
@@ -692,21 +728,18 @@ bool ghostComingAtHim() {
   return false;
 }
 
-void stepPacman() {
-  if (millis() - lastPacMillis < PAC_MS) return;
-  lastPacMillis = millis();
+void stepPacmanOnce() {
   const int here = nodeAt(pac.x, pac.y);
   if (here >= 0) {
     const int r = here / NC, c = here % NC;
-    if (MAP[r][c] == SUPER_FOOD) { pac.powered = true; pac.poweredSince = millis(); ghostsEaten = 0; addScore(50); }   // power up only on the pellet
-    else if (MAP[r][c] == FOOD) addScore(10);
+    if (MAP[r][c] == SUPER_FOOD) { pac.powered = true; pac.poweredSince = millis(); ghostsEaten = 0; addScore(50); dotEaten(); }   // power up only on the pellet
+    else if (MAP[r][c] == FOOD) { addScore(10); dotEaten(); }
     MAP[r][c] = EMPTY;
     pac.stopped = false;
     if (manual()) manualDecision(); else directionDecision();
     if (foodLeft() == 0) {   // cleared: the ghosts vanish and the walls flash before the next level
       clearStart = millis();
       clearUntil = clearStart + CLEAR_MS;
-      Serial.printf("[PacmanClassic] level %d cleared, score %ld, lives %d, %s, game time %lus\n", level, score, lives, SKILLS[skill].name, (millis() - gameStartedMs) / 1000);
       return;
     }
   }
@@ -724,36 +757,47 @@ void stepPacman() {
   if (pac.x <= -5) pac.x = 64; else if (pac.x >= 64) pac.x = -5;   // out through the tunnel, in on the other side
 }
 
+// Pac-Man takes as many steps as the time since the last frame asks for, so he keeps his speed when a frame is late (the panel runs 20 frames a second)
+void stepPacman() {
+  if (millis() - lastPacMillis > 500) lastPacMillis = millis();
+  for (int guard = 0; guard < 4 && !clearUntil && millis() - lastPacMillis >= pacMs(); guard++) {
+    lastPacMillis += pacMs();
+    stepPacmanOnce();
+  }
+}
+
 // ---- the ghosts ----
-// scatter, chase, scatter, chase ... in seconds; the last chase never ends
+// scatter, chase, scatter, chase ... in seconds, as in the Pac-Man Dossier: level 1, levels 2-4 and level 5 on; the last chase never ends
 bool chasing() {
-  static const uint8_t SCHEDULE[7] = {7, 20, 7, 20, 5, 20, 5};
+  static const uint8_t SCHEDULES[3][6] = {{7, 20, 7, 20, 5, 20}, {7, 20, 7, 20, 5, 255}, {5, 20, 5, 20, 5, 255}};
+  const uint8_t *schedule = SCHEDULES[level == 1 ? 0 : level < 5 ? 1 : 2];
   unsigned long t = modeClockMs / 1000;
-  const int chasePct = 45 + 6 * ramp() < 100 ? 45 + 6 * ramp() : 100, scatterPct = 160 - 6 * ramp() > 100 ? 160 - 6 * ramp() : 100;   // early levels: short hunts, long breaks
-  for (int i = 0; i < 7; i++) {
-    const unsigned long len = SCHEDULE[i] * (i % 2 ? chasePct : scatterPct) / 100;
+  for (int i = 0; i < 6; i++) {
+    const unsigned long len = schedule[i] == 255 ? 1000000UL : schedule[i];
     if (t < len) return i % 2 == 1;
     t -= len;
   }
   return true;
 }
 
-// where ghost i heads for while it chases (or scatters)
+// where ghost i heads for while it chases (or scatters); a lane step is one tile of the arcade maze (8 px)
 void ghostTarget(int i, int &tx, int &ty) {
   static const int CORNER_X[4] = {XS[NC - 1], XS[0], XS[NC - 1], XS[0]}, CORNER_Y[4] = {YS[0], YS[0], YS[NR - 1], YS[NR - 1]};
   const int ahead = pac.dir == RIGHT ? 1 : pac.dir == LEFT ? -1 : 0, below = pac.dir == DOWN ? 1 : pac.dir == UP ? -1 : 0;
-  if (!chasing()) { tx = CORNER_X[i]; ty = CORNER_Y[i]; return; }
+  if (!chasing() && !(i == 0 && elroy)) { tx = CORNER_X[i]; ty = CORNER_Y[i]; return; }
   switch (i) {
-    case 0: tx = pac.x; ty = pac.y; break;                                                  // straight at him
-    case 1: tx = pac.x + ahead * 24; ty = pac.y + below * 24; break;                        // where he is going
-    case 2: {                                                                               // through the first ghost, twice as far
-      const int px = pac.x + ahead * 12, py = pac.y + below * 12;
+    case 0: tx = pac.x; ty = pac.y; break;                                                  // Blinky: straight at him
+    case 1: tx = pac.x + ahead * 32 + (below < 0 ? -32 : 0); ty = pac.y + below * 32; break;   // Pinky: 4 tiles ahead (and 4 left too when he goes up, as the arcade bug has it)
+    case 2: {                                                                               // Inky: from 2 tiles ahead, twice as far as Blinky is
+      const int px = pac.x + ahead * 16 + (below < 0 ? -16 : 0), py = pac.y + below * 16;
       tx = px * 2 - ghosts[0].x; ty = py * 2 - ghosts[0].y;
       break;
     }
-    default:                                                                                // shy up close
-      if (abs(ghosts[3].x - pac.x) + abs(ghosts[3].y - pac.y) > 40) { tx = pac.x; ty = pac.y; }
+    default: {                                                                              // Clyde: at him, but shy within 8 tiles
+      const int dx = ghosts[3].x - pac.x, dy = ghosts[3].y - pac.y;
+      if (dx * dx + dy * dy > 64 * 64) { tx = pac.x; ty = pac.y; }
       else { tx = CORNER_X[3]; ty = CORNER_Y[3]; }
+    }
   }
 }
 
@@ -800,9 +844,9 @@ void ghostJunction(int i) {
     for (int k = 0; k < count; k++) if (options[k] == d) ok = true;
     if (!ok) continue;
     neighbour(row, col, d, nr, nc, len);
-    int visits = 0;   // a junction visited lately counts as 30 px further away for every time
+    int visits = 0;   // while scattering, a junction visited lately counts as 30 px further away for every time, so a ghost does not circle one corner for ever
     for (int k = 0; k < 12; k++) if (ghostTrail[i][k] == nodeOf(nr, nc)) visits++;
-    const long dx = XS[nc] - tx, dy = YS[nr] - ty, cost = dx * dx + dy * dy + visits * 900L;
+    const long dx = XS[nc] - tx, dy = YS[nr] - ty, cost = dx * dx + dy * dy + (chasing() ? 0 : visits * 900L);
     if (cost < bestDistance) { bestDistance = cost; best = d; }
   }
   g.dir = best;
@@ -819,6 +863,7 @@ void stepGhost(int i) {
       if (g.y >= YS[START_R]) {
         closeHole(i);
         g.y = YS[START_R];
+        g.returned = false;
         g.mode = ROAMING;
         g.dir = i < 2 ? LEFT : RIGHT;
         g.graceUntil = now + GRACE_MS;
@@ -835,6 +880,7 @@ void stepGhost(int i) {
         g.x += g.x < SLOT_X[g.slot] ? 1 : -1;
       } else {
         g.mode = IN_HOUSE;
+        g.returned = true;
         g.dir = DOWN;
         g.leaveAt = now + REENTER_MS;   // a second in the box, then out again without waiting for the others
         nextExitAt = 0;
@@ -870,7 +916,9 @@ void updateGhosts() {
   unsigned long dt = now - lastTickMs;
   lastTickMs = now;
   if (dt > 200) dt = 200;
-  modeClockMs += dt;
+  if (!pac.powered) modeClockMs += dt;   // the scatter and chase clock waits while the ghosts are afraid
+  const int left = foodLeft(), e1 = foodTotal * (8 + 4 * ramp() < 45 ? 8 + 4 * ramp() : 45) / 100;
+  elroy = (lifeLost && ghosts[3].mode == IN_HOUSE && level >= FOURTH_GHOST_LEVEL) || ghosts[0].mode != ROAMING ? 0 : left <= e1 / 2 ? 2 : left <= e1 ? 1 : 0;
 
   // a power pellet scares them (they turn round at the next junction), and when it wears off they are themselves again
   if (pac.powered && !wasPowered) for (Ghost &g : ghosts) { g.eaten = false; if (g.mode == ROAMING) g.reverse = true; }
@@ -883,10 +931,9 @@ void updateGhosts() {
   for (int i = 0; i < GHOST_COUNT; i++) {
     Ghost &g = ghosts[i];
     if (g.mode == IN_HOUSE) continue;
-    unsigned long interval = ghostStepMs();
+    unsigned long interval = ghostMs(g);
     if (g.mode == EYES) interval = 22;
     else if (g.mode == EXITING || g.mode == ENTERING) interval = 60;
-    else if (frightened(g)) interval = 115;
     if (g.nextStepAt == 0 || g.nextStepAt + 500 < now) g.nextStepAt = now;
     for (int guard = 0; now >= g.nextStepAt && guard < 4; guard++) { stepGhost(i); g.nextStepAt += interval; }
   }
@@ -899,6 +946,15 @@ void updateGhosts() {
     g.x += g.x < SLOT_X[g.slot] ? 1 : -1;
   }
 
+  // the first ghost waiting in the box (Pinky, Inky, Clyde in turn) leaves when its dots are eaten or the dots have stopped for a while
+  int wait = -1;
+  for (int i = 1; i < GHOST_COUNT && wait < 0; i++) if (ghosts[i].mode == IN_HOUSE && !ghosts[i].returned && !(i == 3 && level < FOURTH_GHOST_LEVEL)) wait = i;
+  if (wait >= 0) {
+    const unsigned long timer = lastDotMs + (level < 5 ? 4000 : 3000);
+    const bool dots = globalCounter ? globalDots >= (wait == 1 ? 3 : wait == 2 ? 8 : 15) : houseDots >= (level == 1 ? (wait - 1) * 14 : level == 2 && wait == 3 ? 24 : 0);
+    for (int i = 1; i < GHOST_COUNT; i++) if (ghosts[i].mode == IN_HOUSE && !ghosts[i].returned && !(i == 3 && level < FOURTH_GHOST_LEVEL)) ghosts[i].leaveAt = i == wait ? (dots ? now : timer) : now + 8000;
+  }
+
   // time is up: open the wall under the ghost and let it out straight down, one ghost at a time with a pause in between
   bool anyExiting = false;
   for (const Ghost &g : ghosts) if (g.mode == EXITING || g.mode == ENTERING) anyExiting = true;
@@ -908,6 +964,7 @@ void updateGhosts() {
     if (g.mode == IN_HOUSE && g.x == SLOT_X[g.slot] && now >= g.leaveAt && now >= nextExitAt && (next < 0 || g.leaveAt < ghosts[next].leaveAt)) next = i;
   }
   if (next >= 0) {
+    if (!ghosts[next].returned) { houseDots = 0; if (next == 3) globalCounter = false; }
     ghosts[next].mode = EXITING;
     ghosts[next].nextStepAt = 0;
     openHole(next);
@@ -919,6 +976,7 @@ void endFreeze() {
   const unsigned long now = millis(), pause = now - freezeStart;
   pac.poweredSince += pause;
   nextExitAt += pause;
+  lastDotMs += pause;
   for (Ghost &g : ghosts) { g.leaveAt += pause; g.graceUntil += pause; g.nextStepAt = 0; }
   lastTickMs = lastPacMillis = now;
   freezeUntil = 0;
@@ -943,7 +1001,6 @@ void checkGhostCollisions() {
       } else {
         deathUntil = now + 1500;
         deathStart = now;
-        Serial.printf("[PacmanClassic] caught on level %d by ghost %d at %d,%d, score %ld, lives left %d, %s, food left %d, dir %d, ghost dir %d\n", level, i, pac.x, pac.y, score, lives - 1, SKILLS[skill].name, foodLeft(), (int)pac.dir, (int)ghosts[i].dir);
         return;
       }
     }
@@ -953,11 +1010,11 @@ void checkGhostCollisions() {
 void updateDeath() {
   if (millis() < deathUntil) return;
   if (--lives <= 0) {   // out of lives: a new game on a new maze
-    Serial.printf("[PacmanClassic] game over on level %d, score %ld, %s, game time %lus\n", level, score, SKILLS[skill].name, (millis() - gameStartedMs) / 1000);
     newGame();
     startLevel();
   } else {
     placeActors();      // the maze stays, as it was
+    lifeLost = true; globalCounter = true;   // the ghosts now leave on a shared dot count
   }
   deathUntil = 0;
 }
@@ -1082,7 +1139,6 @@ void drawBox(MatrixPanel_I2S_DMA &d, ClockTime *time) {
 
 void Clockface::steer(int dir) {
   if (dir < 0 || dir > 3) { manualUntil = 0; wantedDir = -1; return; }
-  if (!manual()) Serial.printf("[PacmanClassic] you took over\n");
   manualUntil = millis() + MANUAL_MS;
   wantedDir = dir;
 }
