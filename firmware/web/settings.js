@@ -617,10 +617,11 @@ async function refreshFirmware() {
     document.querySelector('#firmware-checked').textContent = state.checkedAt ? new Date(state.checkedAt * 1000).toLocaleString() : 'Not yet';
     document.querySelector('#firmware-summary').textContent = state.checking ? 'Checking for updates…' : state.checkError ? 'Last check failed: ' + state.checkError : state.available ? 'Version ' + state.latest + ' is available. Install it from the banner at the top, or leave it for later.' : state.checkedAt ? 'You are up to date (' + state.version + ').' : 'Running ' + state.version + '. Not checked yet.';
     const banner = document.querySelector('#update-banner'), install = document.querySelector('#update-banner-install');
-    banner.hidden = !(state.available || state.busy) || state.ready;
+    forceMode = !state.busy && state.failed && state.message.includes('been used');   // a signed release the clock has used or passed: the banner offers to install it anyway
+    banner.hidden = !(state.available || state.busy || forceMode) || state.ready;
     const bar = document.querySelector('#update-banner-progress'); bar.hidden = !state.busy || !state.total; bar.value = state.total ? state.received / state.total * 100 : 0;
-    document.querySelector('#update-banner-text').textContent = state.busy ? state.message : 'Version ' + state.latest + ' is ready. You are on ' + state.version + '.';
-    install.hidden = state.busy || state.ready;
+    document.querySelector('#update-banner-text').textContent = state.busy || forceMode ? state.message : 'Version ' + state.latest + ' is ready. You are on ' + state.version + '.';
+    install.hidden = state.busy || state.ready; install.textContent = forceMode ? 'Force update' : 'Update now';
     { const notes = document.querySelector('#update-banner-notes'); const tag = (state.latest || '').replace(/-[a-z]+$/, ''); notes.hidden = !tag || state.busy; if (tag) notes.href = 'https://github.com/vandalon/ultimatrix/releases/tag/' + encodeURIComponent(tag); }  // the release notes of the version on offer (the tag is the version without the face name)
     document.querySelector('#nav-update-dot').hidden = !state.available;
     document.querySelector('#firmware-check').disabled = state.busy || state.checking;
@@ -634,7 +635,7 @@ async function refreshFirmware() {
     else { if (updatePolling && state.failed) message(state.message, true); updatePolling = false; }   // the banner goes away when it fails: say why
   } catch (_) { if (updatePolling) setTimeout(refreshFirmware, 1500); }
 }
-let updateMode = '';
+let updateMode = '', forceMode = false;
 // The install question already warned about the restart, so low memory restarts straight away.
 async function offerReboot(text) {
   document.querySelector('#firmware-status').textContent = text;
@@ -658,7 +659,7 @@ async function startUpdate(question, mode, force) {
 }
 const installQuestion = 'Download and install the signed update? Your clock will restart. Unsaved settings will be discarded.';
 document.querySelector('#firmware-update').addEventListener('click', () => startUpdate(installQuestion));
-document.querySelector('#update-banner-install').addEventListener('click', () => startUpdate(installQuestion));
+document.querySelector('#update-banner-install').addEventListener('click', () => startUpdate(installQuestion, forceMode ? updateMode : '', forceMode));
 async function saveUpdateServer(url) {
   const body = new URLSearchParams({url});
   try { const response = await fetch('/api/firmware/server', {method:'POST', body}); const result = await response.json(); document.querySelector('#firmware-status').textContent = result.message; } catch (_) {}

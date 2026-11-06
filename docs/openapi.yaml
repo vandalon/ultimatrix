@@ -392,7 +392,7 @@ paths:
               type: object
               properties:
                 mode: { type: string, description: A face id, for example `home` or `football` }
-                force: { type: integer, description: 'Present: update even while a live match or session is running' }
+                force: { type: integer, description: "Present: update even while a live match or session is running, and also install a release the clock has already used or that is older than the installed one (the failure `This update release has already been used or superseded.`). Only the used/superseded check is skipped: the signature, face, size, checksums and image header are still verified. Needs the admin PIN token like any POST when a PIN is set." }
       responses:
         '202': { $ref: '#/components/responses/Message' }
         '400': { $ref: '#/components/responses/MessageError' }

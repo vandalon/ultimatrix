@@ -311,7 +311,7 @@ The clock checks for updates at startup when its cached check is missing or more
 
 In **Advanced**, use **Check for updates** or **Install update**. The **Faces** category installs another face using the same update system. The clock refuses updates while live sports data is active. If an install fails, for example for lack of memory, the clock restarts once and installs again without loading a face, showing an update screen with a progress bar.
 
-Images need a signed manifest and a matching checksum. The updater rejects releases already installed or superseded for that face and update source. Boot rollback is enabled, with startup health checks before a new image is confirmed; failure recovery still needs device checks.
+Images need a signed manifest and a matching checksum. The updater rejects releases already installed or superseded for that face and update source. If you need one anyway, the update banner shows a **Force update** button, which skips only that check; the signature and image are still verified. Boot rollback is enabled, with startup health checks before a new image is confirmed; failure recovery still needs device checks.
 
 ### Update source
 
