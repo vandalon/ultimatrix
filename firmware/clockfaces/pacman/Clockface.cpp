@@ -1114,10 +1114,10 @@ void drawBox(MatrixPanel_I2S_DMA &d, ClockTime *time) {
   snprintf(text, sizeof(text), "%05ld", score % 100000);
   if (!ghostOver(SCORE_X, ROW_Y, SCORE_X + 18, ROW_Y + 4)) drawText(d, text, SCORE_X, ROW_Y, kWhite);   // gone while a ghost is over it
   const int spare = lives > 1 ? min(lives - 1, 3) : 0;
-  for (int i = 0; i < spare; i++)
+  for (int i = 0; i < MAX_LIVES - 1; i++)   // three places: the spare lives bright, the used ones dim, so there is always something to see
     for (int py = 0; py < SPRITE; py++)
       for (int px = 0; px < SPRITE; px++)
-        if (PAC_SHAPE[1][py * 5 + px]) put(d, LIVES_X + i * 6 + px, ROW_Y + py, shade(kYellow, dimLives));
+        if (PAC_SHAPE[1][py * 5 + px]) put(d, LIVES_X + i * 6 + px, ROW_Y + py, shade(i < spare ? kYellow : dim(kYellow, 40), dimLives));
 
   const int w = 7, h = 10, t = 2;   // 1 px clear above and at the right
   const int width = w + 1 + w + 1 + 2 + 1 + w + 1 + w;

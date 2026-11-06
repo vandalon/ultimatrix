@@ -1076,7 +1076,8 @@ static void saveSettings() {
 #ifdef UM_SPORTS_SWITCH
   if (server.hasArg("sportsOrder")) {  // the sports page sends all of its fields together
     s.sportsOrder = server.arg("sportsOrder");
-    s.sportsHome = FirmwareUpdate::knownMode(server.arg("sportsHome").c_str()) ? server.arg("sportsHome") : String();
+    s.sportsHome = server.arg("sportsHome");
+    if (s.sportsHome != "previous" && !FirmwareUpdate::knownMode(s.sportsHome.c_str())) s.sportsHome = "";
     s.sportsLead = constrain(server.arg("sportsLead").toInt(), 0, 120);
     s.sportsRacing = server.arg("sportsRacing").toInt() == 1 ? 1 : server.arg("sportsRacing").toInt() == 2 ? 2 : 0;
     s.sportsMax = constrain(server.arg("sportsMax").toInt(), 1, 12);
@@ -1407,9 +1408,10 @@ static void sportsSwitch(uint32_t now) {
     logLoaded = true;
     if (p.begin("ultimatrix", true)) {
       String v = p.getString("sportsLog", "");
-      char target[16] = "", seen[16] = "";
+      char target[16] = "", seen[16] = "", origin[16] = "";
       unsigned day = 0, count = 0; long last = 0, paused = 0;
-      if (sscanf(v.c_str(), "%u,%u,%ld,%15[^,],%15[^,],%ld", &day, &count, &last, target, seen, &paused) >= 3) {  // "-" stands for an empty name
+      if (sscanf(v.c_str(), "%u,%u,%ld,%15[^,],%15[^,],%ld,%15[^,]", &day, &count, &last, target, seen, &paused, origin) >= 3) {  // "-" stands for an empty name
+        strlcpy(log.origin, origin, sizeof(log.origin));  // an empty field is not scanned: stays empty
         log.day = day; log.count = count; log.last = last; log.pausedUntil = paused;
         strlcpy(log.target, strcmp(target, "-") ? target : "", sizeof(log.target)); strlcpy(log.seen, strcmp(seen, "-") ? seen : "", sizeof(log.seen));
       }
@@ -1418,15 +1420,15 @@ static void sportsSwitch(uint32_t now) {
   }
   sportsplan::Config plan;
   sportsplan::parseOrder(s.sportsOrder.c_str(), plan);
-  strlcpy(plan.home, s.sportsHome.c_str(), sizeof(plan.home));
+  strlcpy(plan.home, !strcmp(s.sportsHome.c_str(), "previous") ? log.origin : s.sportsHome.c_str(), sizeof(plan.home));  // "previous": back to the face it switched from (none known: stay)
   plan.leadSecs = s.sportsLead * 60; plan.maxPerDay = s.sportsMax; plan.holdSecs = s.sportsHold * 60; plan.bridgeSecs = s.sportsBridge * 60;
   sportsplan::Events events[sportsplan::SPORTS];
   watch.events(events);
   const time_t wall = time(nullptr);
   auto saveLog = [&]() {
     if (!p.begin("ultimatrix", false)) return;
-    char v[80];
-    snprintf(v, sizeof(v), "%u,%u,%ld,%s,%s,%ld", (unsigned)log.day, (unsigned)log.count, (long)log.last, log.target[0] ? log.target : "-", log.seen[0] ? log.seen : "-", (long)log.pausedUntil);
+    char v[96];
+    snprintf(v, sizeof(v), "%u,%u,%ld,%s,%s,%ld,%s", (unsigned)log.day, (unsigned)log.count, (long)log.last, log.target[0] ? log.target : "-", log.seen[0] ? log.seen : "-", (long)log.pausedUntil, log.origin);
     p.putString("sportsLog", v);
     p.end();
   };
@@ -1442,7 +1444,7 @@ static void sportsSwitch(uint32_t now) {
       if (known || now - settleSince > 300000) {  // the schedules are read (or could not be for 5 minutes)
         settleHome = false;
         if (!anyOn && FirmwareUpdate::knownMode(plan.home)) {
-          sportsplan::noteSwitch(log, wall, plan.home);
+          sportsplan::noteSwitch(log, wall, plan.home, UM_MODE_ID);
           saveLog();
           consoleLog("[Sports] nothing is on: switching to the home face %s\n", plan.home);
           switchFace(plan.home, true);
@@ -1455,7 +1457,7 @@ static void sportsSwitch(uint32_t now) {
   if (!target) { sportsStageAhead(now, wall, plan, events, log); return; }
   if (!FirmwareUpdate::knownMode(target)) return;
   const sportsplan::Log before = log;
-  sportsplan::noteSwitch(log, wall, target);
+  sportsplan::noteSwitch(log, wall, target, UM_MODE_ID);
   saveLog();
   consoleLog("[Sports] switching to %s\n", target);
   if (!switchFace(target, true)) { log = before; saveLog(); }  // refused (busy, no memory): not counted, tried again in 15 seconds

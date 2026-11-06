@@ -35,7 +35,7 @@ There are fourteen clock faces, three of them [games](#playable-games), six of t
 
 ## Sports switching
 
-The sports faces are Football, Formula 1, MotoGP, NBA, MLB and NFL. They read their schedules and scores from public feeds and show them in the same style: live game or session pages, results, tables or standings, and a big clock between events. Under **Sports** in the settings the clock can also switch to a sport by itself, and go back to your home face when nothing is on.
+The sports faces are Football, Formula 1, MotoGP, NBA, MLB and NFL. They read their schedules and scores from public feeds and show them in the same style: live game or session pages, results, tables or standings, and a big clock between events. Under **Sports** in the settings the clock can also switch to a sport by itself, and go back to your home face when nothing is on (or to the face it switched from, whichever one that was).
 
 - **Which sports:** tick the sports that may take the panel and put them in order. When two are on at once, the top one wins, and a higher-ranked sport that starts later takes over from a lower-ranked one that is already showing. Nothing switches until you tick at least one sport.
 - **The plan:** a table shows every event the clock found and what it will do with it (switch at a time, stay until another sport starts, or skip it because a higher-ranked sport covers all of it).

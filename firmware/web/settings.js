@@ -269,7 +269,7 @@ function sportsInit(settings) {
   box.value = chosen.join(',');
   sportsPlan();
   const home = field('sportsHome');
-  home.replaceChildren(new Option('Stay on the sports face', ''), ...[...document.querySelectorAll('#faces [data-face]')].map(b => new Option(b.querySelector('b').textContent, b.dataset.face)));
+  home.replaceChildren(new Option('Stay on the sports face', ''), new Option('The face it switched from', 'previous'), ...[...document.querySelectorAll('#faces [data-face]')].map(b => new Option(b.querySelector('b').textContent, b.dataset.face)));
   home.value = settings.sportsHome || '';
   document.querySelector('#sportsPrep').replaceChildren(...[...document.querySelectorAll('#faces [data-face]')].map(b => new Option(b.querySelector('b').textContent, b.dataset.face)));
   sportsPlan();  // marks the prepared face in the list

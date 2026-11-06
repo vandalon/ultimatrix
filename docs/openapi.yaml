@@ -1177,7 +1177,7 @@ components:
         autoUpdate: { type: boolean, default: true, description: 'Check for a newer firmware once a day and install it automatically. The clock restarts when it installs' }
         birthdays: { type: string, description: 'Birthdays as one text, `MMDD:NAME:YYYY` entries separated by commas (up to 10). The year is optional (`0511:ELIOT:`), a space in a name is written as `_`. On the day the clock shows a birthday party instead of the face' }
         sportsOrder: { type: string, description: 'Sports that may take over the panel automatically, best first, as a comma list such as `f1,motogp,football`. Empty = automatic switching off' }
-        sportsHome: { type: string, description: 'Face id the clock returns to when nothing is on. Empty = stay on the sports face' }
+        sportsHome: { type: string, description: 'Face id the clock returns to when nothing is on. Empty = stay on the sports face. "previous" = the face the clock was on before the first automatic switch (stays if none is known). Default empty' }
         sportsLead: { type: integer, description: 'Minutes before the start at which the clock switches to the sport' }
         sportsOthers: { type: boolean, description: 'Football: also switch for your favourite teams matches in competitions you do not follow (cups for example)' }
         sportsRacing: { type: boolean, description: 'Which F1 and MotoGP sessions switch the clock: 0 qualifying and races, 1 races only, 2 every session' }
