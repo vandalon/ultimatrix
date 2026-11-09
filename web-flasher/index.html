@@ -119,15 +119,26 @@
     ]]
   ];
   // One anonymous request per finished install: face and version only, no cookies, no ID. Failure is ignored.
-  async function countInstall(face, manifest) {
+  // ESP Web Tools 10 fires no event for a finished flash, so watch the dialog it opens (its internal _installState).
+  async function countInstall(manifest) {
     try {
-      const m = await (await fetch(manifest || ('firmware/' + face + '/manifest.json'))).json();
+      const face = /firmware\/([a-z0-9]+)\/manifest\.json/.exec(manifest)[1];
+      const m = await (await fetch(manifest)).json();
       await fetch('https://ultimatrix-gifs.joris-05e.workers.dev/flash', {
         method: 'POST', credentials: 'omit', keepalive: true, referrerPolicy: 'no-referrer',
         headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ face, v: String(m.version || '') })
       });
     } catch (e) {}
   }
+  new MutationObserver(list => {
+    for (const r of list) for (const d of r.addedNodes) {
+      if (!d.localName || d.localName !== 'ewt-install-dialog') continue;
+      const timer = setInterval(() => {
+        if (!d.isConnected) return clearInterval(timer);
+        if (d._installState && d._installState.state === 'finished') { clearInterval(timer); countInstall(d.manifestPath); }
+      }, 1000);
+    }
+  }).observe(document.body, { childList: true });
   if (!('serial' in navigator)) document.getElementById('unsupported').style.display = 'block';
   const root = document.getElementById('groups');
   for (const [title, faces] of groups) {
@@ -145,9 +156,7 @@
       card.querySelector('img').alt = name + ' clock preview';
       card.querySelector('h3').textContent = name;
       card.querySelector('p').textContent = text;
-      const btn = card.querySelector('esp-web-install-button');
-      btn.setAttribute('manifest', 'firmware/' + id + '/manifest.json');
-      btn.addEventListener('state-changed', e => { if (e.detail && e.detail.state === 'finished') countInstall(id, btn.manifest); });
+      card.querySelector('esp-web-install-button').setAttribute('manifest', 'firmware/' + id + '/manifest.json');
       grid.appendChild(card);
     }
     root.append(h, grid);
