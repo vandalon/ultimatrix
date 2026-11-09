@@ -4,6 +4,8 @@
 #include "Gamepad.h"
 #endif
 #include <atomic>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_timer.h>
@@ -682,7 +684,7 @@ static void settingsState() {
   json += ",\"nightSun\":" + String(s.nightSun ? "true" : "false") + ",\"nightClock\":" + String(s.nightClock ? "true" : "false");
   json += ",\"timezone\":" + jsonText(s.timezone) + ",\"autoTimezone\":" + String(s.manualTimezone ? "false" : "true") + ",\"matchSecs\":" + String(s.matchSecs);
   json += ",\"resultMins\":" + String(s.resultMins) + ",\"timeStyle\":" + String(s.timeStyle);
-  json += ",\"dither\":" + String(s.dither ? "true" : "false") + ",\"swapBlueGreen\":" + String(s.swapBlueGreen ? "true" : "false") + ",\"telnet\":" + String(s.telnet ? "true" : "false") + ",\"hiddenWifi\":" + String(s.hiddenWifi ? "true" : "false") + ",\"autoUpdate\":" + String(s.autoUpdate ? "true" : "false");
+  json += ",\"dither\":" + String(s.dither ? "true" : "false") + ",\"swapBlueGreen\":" + String(s.swapBlueGreen ? "true" : "false") + ",\"telnet\":" + String(s.telnet ? "true" : "false") + ",\"hiddenWifi\":" + String(s.hiddenWifi ? "true" : "false") + ",\"autoUpdate\":" + String(s.autoUpdate ? "true" : "false") + ",\"usagePing\":" + String(s.usagePing ? "true" : "false");
   json += ",\"birthdays\":" + jsonText(s.birthdays);
 #ifdef UM_SPORTS_SWITCH
   json += ",\"sportsOrder\":" + jsonText(s.sportsOrder) + ",\"sportsHome\":" + jsonText(s.sportsHome) + ",\"sportsLead\":" + String(s.sportsLead);
@@ -1112,6 +1114,7 @@ static void saveSettings() {
   s.dither = server.hasArg("dither");
   s.telnet = server.hasArg("telnet");
   s.autoUpdate = server.hasArg("autoUpdate");
+  s.usagePing = server.hasArg("usagePing");
 #ifdef UM_SPORTS_SWITCH
   if (server.hasArg("sportsOrder")) {  // the sports page sends all of its fields together
     s.sportsOrder = server.arg("sportsOrder");
@@ -1373,6 +1376,50 @@ static void autoUpdate(uint32_t now) {
   if (status.busy || status.ready) return;
   // A failure (too little memory included) is retried once by background() with a restart and no face loaded
   if (firmwareUpdate.request()) { tried = true; consoleLog("[Firmware] Automatic update started: %s\n", latest.version); }
+}
+
+// Anonymous daily "alive" ping (Settings > Advanced): face and firmware version, nothing else, one request a day. The worker only keeps a per-day
+// counter, so no address or ID is stored. The day of the last success is kept in NVS (pingDay) so reboots do not send extra pings.
+static std::atomic<bool> pingBusy{false};
+static std::atomic<uint32_t> pingDay{UINT32_MAX};  // UTC day of the last successful ping; UINT32_MAX = not read yet
+static uint32_t pingToday = 0;
+static void usagePingTask(void *) {
+  char body[96];
+  snprintf(body, sizeof(body), "{\"face\":\"%s\",\"v\":\"%s\"}", UM_MODE_ID, firmwareUpdate.version());
+  std::unique_lock<std::mutex> budget(networkBudget(), std::try_to_lock);
+  const size_t block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  if (!budget.owns_lock() || firmwareUpdating || block < 45000) consoleLog("[Ping] skipped (%s), retry in 30 min\n", !budget.owns_lock() ? "download busy" : firmwareUpdating ? "updating" : "low memory");
+  else {
+    WiFiClientSecure tls;
+    tls.setInsecure();  // a public counter, nothing to protect
+    HTTPClient http;
+    http.setTimeout(10000);
+    if (http.begin(tls, "https://ultimatrix-gifs.joris-05e.workers.dev/alive")) {
+      http.addHeader("Content-Type", "text/plain");
+      const int code = http.POST((uint8_t *)body, strlen(body));
+      http.end();
+      consoleLog("[Ping] %s %s -> %d%s\n", UM_MODE_ID, firmwareUpdate.version(), code, code == 204 ? " counted" : ", retry in 30 min");
+      if (code == 204) {
+        Preferences p;
+        if (p.begin("ultimatrix", false)) { p.putUInt("pingDay", pingToday); p.end(); }
+        pingDay = pingToday;
+      }
+    } else consoleLog("[Ping] could not connect, retry in 30 min\n");
+  }
+  pingBusy = false;
+  vTaskDelete(nullptr);
+}
+static void usagePing(uint32_t now) {
+  static uint32_t nextTry = 0;
+  if (pingBusy || !Settings::getInstance()->usagePing || !bootDone || portalActive || updateOnly || WiFi.status() != WL_CONNECTED || ultime::timeStatus() != timeSet) return;
+  if (now < 180000 || (int32_t)(now - nextTry) < 0) return;
+  nextTry = now + 30 * 60000;  // a failed try is repeated in half an hour
+  if (pingDay == UINT32_MAX) { Preferences p; pingDay = p.begin("ultimatrix", true) ? p.getUInt("pingDay", 0) : 0; p.end(); }
+  pingToday = (uint32_t)(time(nullptr) / 86400);
+  if (pingDay == pingToday) return;
+  pingBusy = true;
+  consoleLog("[Ping] sending (day %u)\n", (unsigned)pingToday);
+  if (xTaskCreate(usagePingTask, "ping", 8192, nullptr, 1, nullptr) != pdPASS) pingBusy = false;
 }
 
 #ifdef UM_SPORTS_SWITCH
@@ -2178,6 +2225,7 @@ static void background() {
   Mqtt::instance().setBusy(playing(now));
   Mqtt::instance().poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
   if (!playing(now)) autoUpdate(now);
+  if (!playing(now)) usagePing(now);
 #ifdef UM_SPORTS_SWITCH
   if (!playing(now)) sportsSwitch(now);
 #ifdef UM_HOME
@@ -2246,7 +2294,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Every key any face stores in the "ultimatrix" namespace (all faces, as settings survive a face switch).
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
-  "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
+  "usagePing", "pingDay", "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
   "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "wifiNets", "f1Chequers", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "binOpt", "binCfg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts", "tetSt", "tetLv",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
