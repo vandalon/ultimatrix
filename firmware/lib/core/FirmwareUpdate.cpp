@@ -256,7 +256,7 @@ void FirmwareUpdate::progress(uint32_t bytes, uint32_t total) {
 }
 
 bool FirmwareUpdate::knownMode(const char *mode) {
-  static const char *const modes[] = {"home", "football", "f1", "motogp", "tetris", "word", "mario", "luigi", "pacman", "invaders", "pong", "nba", "mlb", "nfl"};
+  static const char *const modes[] = {"home", "football", "f1", "motogp", "tetris", "word", "mario", "luigi", "pacman", "invaders", "pong", "binary", "nba", "mlb", "nfl"};
   for (const char *known : modes) if (mode && !strcmp(mode, known)) return true;
   return false;
 }

@@ -42,6 +42,8 @@ struct Settings {
   uint8_t pongDate = 1, pongDay = 1, pongLevel = 0;     // Pong: how well the computer plays against you, 0 easiest to 8 hardest; own NVS key
   uint8_t pongSpeed = 2;     // Pong: game speed while the computer plays, 0 slowest to 4 fastest (50 75 100 125 150 %); own NVS key
   uint8_t tetrisStyle = 0, tetrisLevel = 5;   // Tetris: 0 falling-digit clock, 1 playable board; how well the computer plays, 0 easiest to 8 hardest; own NVS keys
+  // Binary face: colours (pacmancolors list, 0 = the face's own), unlit-dot brightness (0 hidden to 5 brightest, 3 medium), seconds and date row on/off; one NVS blob "binCfg" (the older "binOpt" is read once to carry settings over)
+  struct BinaryOptions { uint8_t hours = 0, minutes = 0, seconds = 0, day = 0, month = 0, unlit = 3, showSeconds = 1, showDate = 1, shape = 0, shapeMinutes = 0, shapeSeconds = 0, rows = 0; } binary;   // shape (hours), shapeMinutes, shapeSeconds: 0 dots, 1 rounded tiles, 2 filled/hollow squares, 3 discs/rings, 4 diamonds, 5 crosses; rows: 0 columns, 1 Tokyoflash-style rows
   uint8_t pongBackdrop = 3;  // Pong: brightness of the clock behind the court, 0 off to 5 brightest; own NVS key, outside the record
   bool nbaExtra = false;  // NBA: the extra pages in the round (today's games, quarter scores, favourites, tables); off: only the next-up page / big clock, and the live games; own NVS key "nbaExtra"
   bool nbaLiveOnly = true;  // NBA: while a game is live only the live games (and their quarters) are shown; own NVS key "nbaLive"

@@ -108,6 +108,24 @@ void Settings::load() {
   if (nflMinutes < 1 || nflMinutes > 10) nflMinutes = 3;
   nflTeams = p.getString("nflTeams", "");
   if (nflTeams.length() > 60) nflTeams = "";
+  binary = BinaryOptions();
+  const size_t binLength = p.getBytesLength("binCfg"), oldLength = p.getBytesLength("binOpt");
+  if (binLength == sizeof(binary) || binLength == 9) {   // 9 bytes: before the shape per group and the rows layout; its one shape applies to all three
+    BinaryOptions loaded;
+    p.getBytes("binCfg", &loaded, binLength);
+    if (binLength == 9) { loaded.shapeMinutes = loaded.shapeSeconds = loaded.shape; loaded.rows = 0; }
+    if (loaded.hours <= 10 && loaded.minutes <= 10 && loaded.seconds <= 10 && loaded.day <= 10 && loaded.month <= 10 && loaded.unlit <= 5 && loaded.shape <= 5 && loaded.shapeMinutes <= 5 && loaded.shapeSeconds <= 5 && loaded.rows <= 1) {
+      loaded.showSeconds = loaded.showSeconds != 0; loaded.showDate = loaded.showDate != 0;
+      binary = loaded;
+    }
+  } else if (oldLength == 9 || oldLength == 10) {   // earlier test builds kept a background and its strength in "binOpt": carry over the rest
+    uint8_t old[10] = {0};
+    p.getBytes("binOpt", old, oldLength);
+    if (old[0] <= 10 && old[1] <= 10 && old[2] <= 10 && old[3] <= 10 && old[4] <= 10 && old[6] <= 5) {
+      binary.hours = old[0]; binary.minutes = old[1]; binary.seconds = old[2]; binary.day = old[3]; binary.month = old[4];
+      binary.unlit = old[6]; binary.showSeconds = old[7] != 0; binary.showDate = old[8] != 0;
+    }
+  }
   pongBackdrop = p.getUChar("pongBg", 3);
   if (pongBackdrop > 5) pongBackdrop = 3;
   arcHours = p.getUChar("arcHrs", 0); arcMinutes = p.getUChar("arcMin", 0); arcScore = p.getUChar("arcPts", 0);
@@ -247,6 +265,7 @@ bool Settings::save() {
   if (saved) p.putUChar("nflIdle", nflIdle);
   if (saved) p.putUChar("nflLive", nflLiveOnly ? 1 : 0);
   if (saved) p.putUChar("nflExtra", nflExtra ? 1 : 0);
+  if (saved) p.putBytes("binCfg", &binary, sizeof(binary));
   if (saved) p.putUChar("pongBg", pongBackdrop);  // and this one: the record's size must not change
   p.end();
   if (saved) { memcpy(faceOptions, options, sizeof(options)); counter()++; }

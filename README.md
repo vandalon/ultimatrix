@@ -15,7 +15,7 @@ The HUB75 panel driver is a memory-optimised fork of [ESP32-HUB75-MatrixPanel-DM
 
 Start with the [hardware setup guide](docs/HARDWARE.md), then [install from your browser](https://vandalon.github.io/ultimatrix/) (Chrome or Edge, USB cable that carries data). Details: [Install](#install).
 
-There are fourteen clock faces, three of them [games](#playable-games), six of them [sports faces](#sports-switching). Each has its own firmware image, so the clock runs one face at a time. You can switch faces from the local settings page by installing another signed image over Wi-Fi.
+There are fifteen clock faces, three of them [games](#playable-games), six of them [sports faces](#sports-switching). Each has its own firmware image, so the clock runs one face at a time. You can switch faces from the local settings page by installing another signed image over Wi-Fi.
 
 ## Clock faces
 
@@ -30,6 +30,7 @@ There are fourteen clock faces, three of them [games](#playable-games), six of t
 - **NFL** (`nfl`): This week's games from ESPN, one at a time on a stands background: both teams with record and score, the quarter and game clock, a strip of field with the ball, the down and distance and the timeouts left. A touchdown, field goal or safety plays a short text flash. Between games: the coming days next to the AFC and NFC seeds, the conference tables and a big clock with the next game and a football flying about. Choose favourite teams in settings and they come first; there is a demo that plays every screen on the clock.
 - **Tetris** (`tetris`): Falling pieces that form the time and date. Set the style to Game and the computer plays a real game of Tetris on the left (10 columns, next piece, score, level, lines flash when they clear) with the hours and minutes side by side, the date (like 25 OCT) and the score in the column beside it; the difficulty goes from 1 to 9. Take over from the settings page (swipe to move, tap to turn, flick down to drop; arrow keys and a browser game controller work too); the computer plays again after 20 seconds without a move.
 - **Words** (`word`): The time in 16 languages, with a weekday, date and minute bar. Choose letter shuffle, letter lift, pixel dissolve, soft wipe, all four in rotation, or no transition.
+- **Binary** (`binary`): Hours, minutes and seconds as six columns of dots, each digit in binary (rows 8, 4, 2, 1; blue hours, green minutes, orange seconds), with the day (5 bits, violet) top left and the month (4 bits, teal) top right; each date group counts 1, 2, 4, 8, 16 from the left. A bit that changes lights up or dims slowly (about half a second). The 32×64 panel gets a tighter layout (4 px dots) automatically. Settings: a colour each for hours, minutes, seconds, day and month; a layout (columns, one per digit, or Tokyoflash-style rows with hours on 5 bits and minutes and seconds on 6); the shape of a bit for hours, minutes and seconds separately (dots, rounded tiles, squares, discs, diamonds or crosses; squares and discs are hollow when unlit); the brightness of the unlit dots; and switches for the seconds and the date row.
 - **Mario** (`mario`): Mario in scrolling worlds, with clock blocks showing the time.
 - **Luigi** (`luigi`): A Luigi version of the scrolling-world clock.
 

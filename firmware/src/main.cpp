@@ -602,6 +602,7 @@ UM_FACE(luigi);
 UM_FACE(pacman);
 UM_FACE(invaders);
 UM_FACE(pong);
+UM_FACE(binary);
 UM_FACE(nba);
 UM_FACE(mlb);
 UM_FACE(nfl);
@@ -711,6 +712,10 @@ static void settingsState() {
 #endif
 #ifdef UM_TETRIS
   json += ",\"tetrisStyle\":" + String(s.tetrisStyle) + ",\"tetrisLevel\":" + String(s.tetrisLevel);
+#endif
+#ifdef UM_BINARY
+  json += ",\"binHours\":" + String(s.binary.hours) + ",\"binMinutes\":" + String(s.binary.minutes) + ",\"binSeconds\":" + String(s.binary.seconds) + ",\"binDay\":" + String(s.binary.day) + ",\"binMonth\":" + String(s.binary.month);
+  json += ",\"binShapeHours\":" + String(s.binary.shape) + ",\"binShapeMinutes\":" + String(s.binary.shapeMinutes) + ",\"binShapeSeconds\":" + String(s.binary.shapeSeconds) + ",\"binRows\":" + String(s.binary.rows) + ",\"binUnlit\":" + String(s.binary.unlit) + ",\"binShowSeconds\":" + String(s.binary.showSeconds ? "true" : "false") + ",\"binShowDate\":" + String(s.binary.showDate ? "true" : "false");
 #endif
 #ifdef UM_PONG
   json += ",\"pongBackdrop\":" + String(s.pongBackdrop);
@@ -1042,6 +1047,40 @@ static void saveSettings() {
     long level;
     if (!number("pongBackdrop", 0, 5, level)) { settingsResponse(400, "Choose a brightness from the list."); return; }
     s.pongBackdrop = level;
+  }
+#endif
+#ifdef UM_BINARY
+  {
+    const struct { const char *name; uint8_t *value; } binColours[] = {{"binHours", &s.binary.hours}, {"binMinutes", &s.binary.minutes}, {"binSeconds", &s.binary.seconds}, {"binDay", &s.binary.day}, {"binMonth", &s.binary.month}};
+    for (const auto &colour : binColours) {
+      if (!server.hasArg(colour.name)) continue;
+      long choice;
+      if (!number(colour.name, 0, pacmancolors::COLOR_COUNT - 1, choice)) { settingsResponse(400, "Choose a colour from the list."); return; }
+      *colour.value = choice;
+    }
+    const struct { const char *name; uint8_t *value; } binShapes[] = {{"binShapeHours", &s.binary.shape}, {"binShapeMinutes", &s.binary.shapeMinutes}, {"binShapeSeconds", &s.binary.shapeSeconds}};
+    for (const auto &shape : binShapes) {
+      if (!server.hasArg(shape.name)) continue;
+      long choice;
+      if (!number(shape.name, 0, 5, choice)) { settingsResponse(400, "Choose a shape from the list."); return; }
+      *shape.value = choice;
+    }
+    if (server.hasArg("binRows")) {
+      long choice;
+      if (!number("binRows", 0, 1, choice)) { settingsResponse(400, "Choose a layout from the list."); return; }
+      s.binary.rows = choice;
+    }
+    const struct { const char *name; uint8_t *value; } binLevels[] = {{"binUnlit", &s.binary.unlit}};
+    for (const auto &level : binLevels) {
+      if (!server.hasArg(level.name)) continue;
+      long choice;
+      if (!number(level.name, 0, 5, choice)) { settingsResponse(400, "Choose a brightness from the list."); return; }
+      *level.value = choice;
+    }
+    if (server.hasArg("binUnlit")) {   // the page posts every field; a checkbox that is off is left out
+      s.binary.showSeconds = server.hasArg("binShowSeconds");
+      s.binary.showDate = server.hasArg("binShowDate");
+    }
   }
 #endif
 #if defined(UM_PONG) || defined(UM_INVADERS)
@@ -2208,7 +2247,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
-  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "wifiNets", "f1Chequers", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts", "tetSt", "tetLv",                        // Settings.cpp
+  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "wifiNets", "f1Chequers", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "binOpt", "binCfg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts", "tetSt", "tetLv",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
   "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder", "haPhono", "haNoInfo", "haCover", "haWeeks", "haExport", "haThin",  // HaConfig.cpp
@@ -2502,6 +2541,7 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   server.on("/faces/pacman.png", HTTP_GET, []() { sendIcon(pacmanStart, pacmanEnd); });
   server.on("/faces/invaders.png", HTTP_GET, []() { sendIcon(invadersStart, invadersEnd); });
   server.on("/faces/pong.png", HTTP_GET, []() { sendIcon(pongStart, pongEnd); });
+  server.on("/faces/binary.png", HTTP_GET, []() { sendIcon(binaryStart, binaryEnd); });
   server.on("/faces/nba.png", HTTP_GET, []() { sendIcon(nbaStart, nbaEnd); });
   server.on("/faces/mlb.png", HTTP_GET, []() { sendIcon(mlbStart, mlbEnd); });
   server.on("/faces/nfl.png", HTTP_GET, []() { sendIcon(nflStart, nflEnd); });
