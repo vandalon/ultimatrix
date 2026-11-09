@@ -1,6 +1,3 @@
-// Project-authored portions: SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
-// Required Notice: Copyright 2026 Joris Vandalon (https://github.com/vandalon/clockwizer)
-// See LICENSE_SCOPE.md; upstream and third-party portions retain their licences.
 #pragma once
 
 #include <Arduino.h>
@@ -18,4 +15,6 @@ class Clockface: public IClockface {
     void setup(ClockTime *dateTime);
     void update();
     void invalidate();
+    void steer(int dir);   // 0 rotate, 1 right, 2 down, 3 left, 4 drop: play from the web page; -1 gives the board back to the computer
+    int ditherPolicy() const override { return 0; }  // flat blocks: the pattern only adds noise
 };

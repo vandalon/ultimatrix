@@ -48,7 +48,7 @@
 #include <BootScreen.h>
 #include <Console.h>
 #include <TelnetConsole.h>
-#if defined(UM_PONG) || defined(UM_INVADERS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS) || defined(UM_MARIO) || defined(UM_LUIGI)
 #include <PlaySocket.h>
 #endif
 #include <Mqtt.h>
@@ -390,7 +390,7 @@ static bool btMode() { return gamepad::active(); }  // the Bluetooth controller 
 #else
 static bool btMode() { return false; }
 #endif
-#if defined(UM_PONG) || defined(UM_INVADERS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS) || defined(UM_MARIO) || defined(UM_LUIGI)
 static uint32_t playHoldUntil = 0;   // somebody is steering a game: what is not needed for it stays quiet until 20 s after the last move
 static bool playing(uint32_t now) { return playHoldUntil && (int32_t)(playHoldUntil - now) > 0; }
 static void playSteer(int dir) {   // a move from the web page, over HTTP or the WebSocket
@@ -709,6 +709,9 @@ static void settingsState() {
 #ifdef UM_NFL
   json += ",\"nflTeams\":" + jsonText(s.nflTeams) + ",\"nflIdle\":" + String(s.nflIdle) + ",\"nflTables\":" + String(s.nflTables) + ",\"nflLiveOnly\":" + String(s.nflLiveOnly ? 1 : 0) + ",\"nflExtra\":" + (s.nflExtra ? "true" : "false") + ",\"nflHours\":" + String(s.nflHours) + ",\"nflMinutes\":" + String(s.nflMinutes);
 #endif
+#ifdef UM_TETRIS
+  json += ",\"tetrisStyle\":" + String(s.tetrisStyle) + ",\"tetrisLevel\":" + String(s.tetrisLevel);
+#endif
 #ifdef UM_PONG
   json += ",\"pongBackdrop\":" + String(s.pongBackdrop);
   json += ",\"pongSpeed\":" + String(s.pongSpeed) + ",\"pongLevel\":" + String(s.pongLevel) + ",\"pongDate\":" + String(s.pongDate) + ",\"pongDay\":" + String(s.pongDay);
@@ -1002,6 +1005,18 @@ static void saveSettings() {
     s.timeStyle = (s.timeStyle & 15) | (date << 4);
   }
 #endif
+#ifdef UM_TETRIS
+  if (server.hasArg("tetrisStyle")) {
+    long style = 0;
+    if (!number("tetrisStyle", 0, 1, style)) { settingsResponse(400, "Choose Falling digits or Game."); return; }
+    s.tetrisStyle = style;
+  }
+  if (server.hasArg("tetrisLevel")) {
+    long level = 0;
+    if (!number("tetrisLevel", 0, 8, level)) { settingsResponse(400, "Choose a difficulty from the list."); return; }
+    s.tetrisLevel = level;
+  }
+#endif
 #ifdef UM_PONG
   if (server.hasArg("pongDate")) {
     long on = 0;
@@ -1061,7 +1076,8 @@ static void saveSettings() {
 #ifdef UM_SPORTS_SWITCH
   if (server.hasArg("sportsOrder")) {  // the sports page sends all of its fields together
     s.sportsOrder = server.arg("sportsOrder");
-    s.sportsHome = FirmwareUpdate::knownMode(server.arg("sportsHome").c_str()) ? server.arg("sportsHome") : String();
+    s.sportsHome = server.arg("sportsHome");
+    if (s.sportsHome != "previous" && !FirmwareUpdate::knownMode(s.sportsHome.c_str())) s.sportsHome = "";
     s.sportsLead = constrain(server.arg("sportsLead").toInt(), 0, 120);
     s.sportsRacing = server.arg("sportsRacing").toInt() == 1 ? 1 : server.arg("sportsRacing").toInt() == 2 ? 2 : 0;
     s.sportsMax = constrain(server.arg("sportsMax").toInt(), 1, 12);
@@ -1392,9 +1408,10 @@ static void sportsSwitch(uint32_t now) {
     logLoaded = true;
     if (p.begin("ultimatrix", true)) {
       String v = p.getString("sportsLog", "");
-      char target[16] = "", seen[16] = "";
+      char target[16] = "", seen[16] = "", origin[16] = "";
       unsigned day = 0, count = 0; long last = 0, paused = 0;
-      if (sscanf(v.c_str(), "%u,%u,%ld,%15[^,],%15[^,],%ld", &day, &count, &last, target, seen, &paused) >= 3) {  // "-" stands for an empty name
+      if (sscanf(v.c_str(), "%u,%u,%ld,%15[^,],%15[^,],%ld,%15[^,]", &day, &count, &last, target, seen, &paused, origin) >= 3) {  // "-" stands for an empty name
+        strlcpy(log.origin, origin, sizeof(log.origin));  // an empty field is not scanned: stays empty
         log.day = day; log.count = count; log.last = last; log.pausedUntil = paused;
         strlcpy(log.target, strcmp(target, "-") ? target : "", sizeof(log.target)); strlcpy(log.seen, strcmp(seen, "-") ? seen : "", sizeof(log.seen));
       }
@@ -1403,15 +1420,15 @@ static void sportsSwitch(uint32_t now) {
   }
   sportsplan::Config plan;
   sportsplan::parseOrder(s.sportsOrder.c_str(), plan);
-  strlcpy(plan.home, s.sportsHome.c_str(), sizeof(plan.home));
+  strlcpy(plan.home, !strcmp(s.sportsHome.c_str(), "previous") ? log.origin : s.sportsHome.c_str(), sizeof(plan.home));  // "previous": back to the face it switched from (none known: stay)
   plan.leadSecs = s.sportsLead * 60; plan.maxPerDay = s.sportsMax; plan.holdSecs = s.sportsHold * 60; plan.bridgeSecs = s.sportsBridge * 60;
   sportsplan::Events events[sportsplan::SPORTS];
   watch.events(events);
   const time_t wall = time(nullptr);
   auto saveLog = [&]() {
     if (!p.begin("ultimatrix", false)) return;
-    char v[80];
-    snprintf(v, sizeof(v), "%u,%u,%ld,%s,%s,%ld", (unsigned)log.day, (unsigned)log.count, (long)log.last, log.target[0] ? log.target : "-", log.seen[0] ? log.seen : "-", (long)log.pausedUntil);
+    char v[96];
+    snprintf(v, sizeof(v), "%u,%u,%ld,%s,%s,%ld,%s", (unsigned)log.day, (unsigned)log.count, (long)log.last, log.target[0] ? log.target : "-", log.seen[0] ? log.seen : "-", (long)log.pausedUntil, log.origin);
     p.putString("sportsLog", v);
     p.end();
   };
@@ -1427,7 +1444,7 @@ static void sportsSwitch(uint32_t now) {
       if (known || now - settleSince > 300000) {  // the schedules are read (or could not be for 5 minutes)
         settleHome = false;
         if (!anyOn && FirmwareUpdate::knownMode(plan.home)) {
-          sportsplan::noteSwitch(log, wall, plan.home);
+          sportsplan::noteSwitch(log, wall, plan.home, UM_MODE_ID);
           saveLog();
           consoleLog("[Sports] nothing is on: switching to the home face %s\n", plan.home);
           switchFace(plan.home, true);
@@ -1440,7 +1457,7 @@ static void sportsSwitch(uint32_t now) {
   if (!target) { sportsStageAhead(now, wall, plan, events, log); return; }
   if (!FirmwareUpdate::knownMode(target)) return;
   const sportsplan::Log before = log;
-  sportsplan::noteSwitch(log, wall, target);
+  sportsplan::noteSwitch(log, wall, target, UM_MODE_ID);
   saveLog();
   consoleLog("[Sports] switching to %s\n", target);
   if (!switchFace(target, true)) { log = before; saveLog(); }  // refused (busy, no memory): not counted, tried again in 15 seconds
@@ -2191,7 +2208,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
-  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "wifiNets", "f1Chequers", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts",                        // Settings.cpp
+  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "wifiNets", "f1Chequers", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts", "tetSt", "tetLv",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
   "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder", "haPhono", "haNoInfo", "haCover", "haWeeks", "haExport", "haThin",  // HaConfig.cpp
@@ -2552,17 +2569,17 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   });
   server.on("/api/settings", HTTP_GET, settingsState);
   postRoute("/api/settings", saveSettings);
-#if defined(UM_PACMAN) || defined(UM_INVADERS) || defined(UM_PONG)
+#if defined(UM_PACMAN) || defined(UM_INVADERS) || defined(UM_PONG) || defined(UM_TETRIS) || defined(UM_MARIO) || defined(UM_LUIGI)
   postRoute("/api/play/steer", []() {   // play the face yourself: dir 0 up, 1 right, 2 down, 3 left, -1 back to the computer (what each does is up to the face)
     const int dir = server.arg("dir").toInt();
-#if defined(UM_PONG) || defined(UM_INVADERS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS) || defined(UM_MARIO) || defined(UM_LUIGI)
     playSteer(dir);
 #else
     if (face) face->steer(dir);
 #endif
     server.send(204);
   });
-#if defined(UM_PONG) || defined(UM_INVADERS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS) || defined(UM_MARIO) || defined(UM_LUIGI)
   playsocket::attach(server, playSteer);   // the same codes over a WebSocket: GET /play
 #endif
 #endif
@@ -2683,7 +2700,7 @@ void loop() {
 #endif
     consoleLog("Ultimatrix %s settings: http://%s/ (http://%s.local/)\n", UM_MODE_NAME, WiFi.localIP().toString().c_str(), mdnsHost);
   }
-#if defined(UM_PONG) || defined(UM_INVADERS)
+#if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS) || defined(UM_MARIO) || defined(UM_LUIGI)
   playsocket::service();   // the game controller socket is read on every pass, not only on frames
 #endif
   if ((int32_t)(now - nextFrame) >= 0) {
@@ -2814,7 +2831,7 @@ void loop() {
     nextFrame = millis() + (face && face->animating() ? 4 : layout::frameMs);
 #elif defined(UM_SCANNER)
     nextFrame = millis() + 20;
-#elif defined(UM_PONG) || defined(UM_INVADERS)
+#elif defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS)
     nextFrame = millis() + 16;  // games: about 60 frames per second, so the movement is smooth
 #elif defined(UM_MARIO) || defined(UM_LUIGI)
     nextFrame = millis() + 33;  // smoother plumber animation at about 30 frames per second

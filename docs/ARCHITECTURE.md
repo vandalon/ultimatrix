@@ -23,7 +23,7 @@ are ready. A successful build does not establish hardware or live-feed reliabili
   setting), so the stored settings record did not change. Mario takes the night over from the red night clock
   (`IClockface::handlesNight/setNight`) and shows World 1-2 underground.
 - Pac-Man (`clockfaces/pacman`) is a feedless face whose maze is a random 8 x 7 lattice of lanes (3 px walls, dots 4 px apart)
-  with the clock box in the middle; it replaced an older arcade-style Pac-Man, and the old `pacmanclassic` mode no longer exists.
+  with the clock box in the middle; the ghosts follow the Pac-Man Dossier rules (arcade scatter/chase schedule per level, Blinky/Pinky/Inky/Clyde targets measured in 8 px lane steps, no turning back, random turns when frightened, per-level speeds and power-pellet times, Cruise Elroy, dot-counter ghost-house release); Pac-Man steps by elapsed time, so he keeps his speed on late frames; it replaced an older arcade-style Pac-Man, and the old `pacmanclassic` mode no longer exists.
   The computer player plays at a skill picked for each game (novice to expert). `Clockface::steer(dir)` (0 up, 1 right, 2 down, 3 left, -1 back
   to the computer) takes a human move from `POST /api/pacman/steer`, the keys and the touch controller on the settings page.
 - Space Invaders (`clockfaces/invaders`) and Pong (`clockfaces/pong`) are feedless faces that play themselves; `steer(dir)` takes a human
@@ -31,7 +31,8 @@ are ready. A successful build does not establish hardware or live-feed reliabili
   WebSocket (`lib/core/PlaySocket`, text frames, first frame `t<token>` when an admin PIN is set). While someone steers, `main.cpp`
   holds back notices, update checks, MQTT state/camera and the live preview until 20 s after the last move, and the display loop
   runs at a 16 ms frame pace. Shared drawing: `lib/faces/BoldFont.h`, `FaceKit` View.fade.
-- Tetris is a build with no feeds: the falling-piece clock (time and date) with the same runtime, settings page
+- Mario and Luigi can be played: `lib/faces/PlumberPlay.h` holds the player's physics and the rules (up to three creatures that turn round at obstacles, stomp combos, kicked shells, ? blocks, coin trails, red mushroom and star power-ups, flagpole levels, the best score in RAM), and each face's `step()` hands over to it while a game runs (`Mode::Player`); the clock's own scripted movement and drawing are untouched when nobody plays. Moves arrive on the same `/play` WebSocket and `/api/play/steer` as the arcade faces.
+- Tetris is a build with no feeds: the falling-piece clock (time and date), or in the Game style a playable board (`TetrisGame.h` is pure logic with a computer player, `TetrisGameView.cpp` paints it, moves arrive over the `/play` WebSocket), with the same runtime, settings page
   and previews. It is built the way Football and F1 were reshaped: `lib/tetris` holds const data and layout functions,
   `TetrisScreens` decides what falls when and fills a fixed-size `Frame`, `TetrisRenderer` paints a `Frame`, and the
   face redraws only when the frame changes. No heap use after boot.

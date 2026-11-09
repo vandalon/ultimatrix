@@ -121,6 +121,10 @@ void Settings::load() {
   pongLevel = p.getUChar("pongLv", 0);
   if (pongLevel > 8) pongLevel = 0;
   pongSpeed = p.getUChar("pongSp", 2);
+  tetrisStyle = p.getUChar("tetSt", 0);
+  if (tetrisStyle > 1) tetrisStyle = 0;
+  tetrisLevel = p.getUChar("tetLv", 5);
+  if (tetrisLevel > 8) tetrisLevel = 5;
   if (pongSpeed > 4) pongSpeed = 2;
   Record record{};
   bool valid = p.isKey("settingsV2") && p.getBytesLength("settingsV2") == sizeof(record) &&
@@ -224,6 +228,8 @@ bool Settings::save() {
   if (saved) { p.putUChar("pongDt", pongDate); p.putUChar("pongDy", pongDay); }
   if (saved) p.putUChar("pongLv", pongLevel);
   if (saved) p.putUChar("pongSp", pongSpeed);
+  if (saved) p.putUChar("tetSt", tetrisStyle);
+  if (saved) p.putUChar("tetLv", tetrisLevel);
   if (saved) p.putString("nbaTeams", nbaTeams);
   if (saved) p.putUChar("nbaTab", nbaTables);
   if (saved) p.putUChar("nbaIdle", nbaIdle);

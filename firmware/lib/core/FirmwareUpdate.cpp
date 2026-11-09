@@ -403,7 +403,7 @@ void FirmwareUpdate::run() {
   Manifest info;
   if (const char *error = fetchManifest(_target, info, partition)) { message(error, true); return; }
   if (info.current) { message("Your firmware is already up to date."); return; }
-  if (info.replayed) { message("This update release has already been used or superseded.", true); return; }
+  if (info.replayed && !_force) { message("This update release has already been used or superseded.", true); return; }
   const uint8_t *expected = info.sha256, *elfHash = info.elfSha256;
   uint32_t releaseId = info.release;
   Preferences history;

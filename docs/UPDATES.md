@@ -1,6 +1,6 @@
 # Updates and releases
 
-Updates are signed application images. The clock never accepts an unsigned or older release.
+Updates are signed application images. The clock never accepts an unsigned release, and refuses an older or already used one unless you force it (below).
 
 ## Default: GitHub
 
@@ -18,6 +18,10 @@ Updates are signed application images. The clock never accepts an unsigned or ol
 - Push a tag with `-beta` in it (`git tag v0.8.0-beta.1 && git push origin v0.8.0-beta.1`). The same workflow builds and signs all faces, but publishes no release and leaves Pages alone. It force-pushes the signed files to the single-commit branch `beta` (`<face>/manifest.json`, `manifest.sig`, image), replacing the previous beta.
 - Easiest: switch on Settings > Advanced > Firmware updates > Beta updates (it fills in the address below; switching off clears it). Or a clock joins the beta by entering `https://raw.githubusercontent.com/vandalon/ultimatrix/beta` as the update server (Settings > Advanced). Empty goes back to stable releases.
 - Replay protection is per source (see below), so beta and stable do not block each other. A clock on stable only moves to a newer stable when it is switched back; the beta source keeps offering the last beta until the next beta tag.
+
+## Forcing a used or superseded release
+
+If an install fails with "This update release has already been used or superseded.", the update banner in Settings shows a **Force update** button. It sends `POST /api/firmware?force=1` (the same `force` that also lets an update pause live sports data), which skips only that release-number check, so it can reinstall the same release or move to an older one. The signed manifest, face, size, SHA-256 checksums and image header are still verified, so an unsigned or altered image is refused. The recorded release number is never lowered, preparing a face ahead of time never forces, the 30-second gap between attempts applies, and with an admin PIN set the PIN is needed. A forced older build still has to pass the boot health check or the clock rolls back.
 
 ## Private server (own hosting, testing)
 

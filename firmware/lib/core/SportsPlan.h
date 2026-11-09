@@ -45,6 +45,7 @@ struct Log {
   time_t last = 0;    // the last automatic switch of any kind
   char target[16] = "";  // the mode that switch went to: only a face we switched to is left again by itself
   char seen[16] = "";    // the last mode noticed as chosen by hand (not by us)
+  char origin[16] = "";  // the face the clock was on before the first automatic switch of this run (home face "previous")
   time_t pausedUntil = 0;  // a face chosen by hand during an event: no automatic switch before this
 };
 
@@ -122,6 +123,7 @@ inline bool noticeManual(Log &log, const Events (&events)[SPORTS], time_t now, c
   }
   if (!strcmp(current, log.seen)) return false;
   strlcpy(log.seen, current, sizeof(log.seen));
+  log.origin[0] = 0;  // chosen by hand: that face is where it stays
   log.pausedUntil = 0;
   for (uint8_t i = 0; i < cfg.orderCount; ++i) {
     const Events &e = events[cfg.order[i]];
@@ -135,11 +137,14 @@ inline bool noticeManual(Log &log, const Events (&events)[SPORTS], time_t now, c
 }
 
 // The log after an automatic switch to `mode`
-inline void noteSwitch(Log &log, time_t now, const char *mode) {
+// `from` is the running mode: the face before a switch from a non-sport face is remembered; sport -> sport keeps the first one
+inline void noteSwitch(Log &log, time_t now, const char *mode, const char *from) {
   const uint32_t day = (uint32_t)(now / 86400);
   if (log.day != day) { log.day = day; log.count = 0; }
   if (sportOfMode(mode) >= 0 && log.count < 255) ++log.count;
   log.last = now;
+  if (sportOfMode(mode) < 0) log.origin[0] = 0;
+  else if (!(log.target[0] && !strcmp(from, log.target) && sportOfMode(from) >= 0)) strlcpy(log.origin, from, sizeof(log.origin));
   strlcpy(log.target, mode, sizeof(log.target));
   log.seen[0] = 0;
   log.pausedUntil = 0;
