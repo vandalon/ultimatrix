@@ -89,6 +89,7 @@
       <li>A fresh install erases the device, including Wi-Fi and settings. Untick "Erase" to keep them.</li>
       <li>After installing, join the <b>UM-SETUP</b> Wi-Fi network (or scan the QR code on the panel) to set up Wi-Fi. Later updates come over Wi-Fi from the clock's settings page.</li>
       <li>Flashing needs HTTPS (or localhost) and a Chromium-based desktop browser.</li>
+      <li>Finished installs are counted anonymously: only the face and firmware version are sent, with no IP address stored and no ID.</li>
       <li>Signed update files and source: <a href="updates/">update downloads</a>, <a href="https://github.com/vandalon/ultimatrix">GitHub</a>.</li>
       <li>Control the clock from your own tools: <a href="api/">API documentation</a> (<a href="api/openapi.yaml">openapi.yaml</a>).</li>
     </ul>
@@ -107,6 +108,7 @@
     ]],
     ['Clocks', [
       ['tetris', 'Tetris', 'Clock built from falling blocks.'],
+      ['binary', 'Binary clock', 'Hours, minutes and seconds as binary dots, with the date in binary on top.'],
       ['word', 'Word clock', 'Time spelled out in words.'],
       ['mario', 'Mario', 'Animated Mario clock.'],
       ['luigi', 'Luigi', 'Animated Luigi clock.']
@@ -117,6 +119,27 @@
       ['pong', 'Pong', 'The time is a big dim clock behind the court and the computer players score at every minute and hour. Play the left paddle yourself from the settings page.']
     ]]
   ];
+  // One anonymous request per finished install: face and version only, no cookies, no ID. Failure is ignored.
+  // ESP Web Tools 10 fires no event for a finished flash, so watch the dialog it opens (its internal _installState).
+  async function countInstall(manifest) {
+    try {
+      const face = /firmware\/([a-z0-9]+)\/manifest\.json/.exec(manifest)[1];
+      const m = await (await fetch(manifest)).json();
+      await fetch('https://ultimatrix-gifs.joris-05e.workers.dev/flash', {
+        method: 'POST', credentials: 'omit', keepalive: true, referrerPolicy: 'no-referrer',
+        headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ face, v: String(m.version || '') })
+      });
+    } catch (e) {}
+  }
+  new MutationObserver(list => {
+    for (const r of list) for (const d of r.addedNodes) {
+      if (!d.localName || d.localName !== 'ewt-install-dialog') continue;
+      const timer = setInterval(() => {
+        if (!d.isConnected) return clearInterval(timer);
+        if (d._installState && d._installState.state === 'finished') { clearInterval(timer); countInstall(d.manifestPath); }
+      }, 1000);
+    }
+  }).observe(document.body, { childList: true });
   if (!('serial' in navigator)) document.getElementById('unsupported').style.display = 'block';
   const root = document.getElementById('groups');
   for (const [title, faces] of groups) {
