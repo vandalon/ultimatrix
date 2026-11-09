@@ -68,6 +68,7 @@ struct Settings {
   bool f1Flags = false;
   bool f1Chequers = true;  // F1/MotoGP: the chequered flag squares behind the lists; own NVS key f1Chequers, outside the record
   bool hiddenWifi = false;  // the saved Wi-Fi network is hidden: a scan cannot find it, so it is tried a few times instead
+  bool usagePing = true;   // once a day tell the project the face and version, nothing else (counts active clocks)
   bool autoUpdate = true;  // check once a day and install a newer signed image by itself
   bool nightClock = false;  // off: the dim red night clock never replaces the face (not by schedule, not in a dark room); own NVS key
   bool dither = false;  // smoother dark colours at low brightness (HUB75 ordered dithering); own NVS key

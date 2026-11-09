@@ -308,6 +308,8 @@ Everything the settings page does goes through the clock's HTTP API: settings, d
 
 The clock checks for updates at startup when its cached check is missing or more than 24 hours old, then about once a day while running. With Automatic updates on (the default, under Advanced), a newer version is installed by itself and the clock restarts; with it off, checking installs nothing. Available updates appear on the boot screen and settings page; with Automatic updates off, installation starts when you choose it.
 
+**Count this clock** (Advanced, on by default): once a day the clock sends the project only its face and firmware version, so active clocks can be counted. No address or ID is stored; turn it off to send nothing.
+
 **Advanced → Storage** shows how much of the clock's flash disk is free, how much the saved drawings use, and the cached data the faces keep (Football's files and the F1/MotoGP cache). **Clear cached data** removes it to free space; the faces rebuild what they need, and saved drawings are never removed.
 
 In **Advanced**, use **Check for updates** or **Install update**. The **Faces** category installs another face using the same update system. The clock refuses updates while live sports data is active. If an install fails, for example for lack of memory, the clock restarts once and installs again without loading a face, showing an update screen with a progress bar.
