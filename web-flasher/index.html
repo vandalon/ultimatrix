@@ -89,6 +89,7 @@
       <li>A fresh install erases the device, including Wi-Fi and settings. Untick "Erase" to keep them.</li>
       <li>After installing, join the <b>UM-SETUP</b> Wi-Fi network (or scan the QR code on the panel) to set up Wi-Fi. Later updates come over Wi-Fi from the clock's settings page.</li>
       <li>Flashing needs HTTPS (or localhost) and a Chromium-based desktop browser.</li>
+      <li>Finished installs are counted anonymously: only the face and firmware version are sent, with no IP address stored and no ID.</li>
       <li>Signed update files and source: <a href="updates/">update downloads</a>, <a href="https://github.com/vandalon/ultimatrix">GitHub</a>.</li>
       <li>Control the clock from your own tools: <a href="api/">API documentation</a> (<a href="api/openapi.yaml">openapi.yaml</a>).</li>
     </ul>
@@ -117,6 +118,16 @@
       ['pong', 'Pong', 'The time is a big dim clock behind the court and the computer players score at every minute and hour. Play the left paddle yourself from the settings page.']
     ]]
   ];
+  // One anonymous request per finished install: face and version only, no cookies, no ID. Failure is ignored.
+  async function countInstall(face, manifest) {
+    try {
+      const m = await (await fetch(manifest || ('firmware/' + face + '/manifest.json'))).json();
+      await fetch('https://ultimatrix-gifs.joris-05e.workers.dev/flash', {
+        method: 'POST', credentials: 'omit', keepalive: true, referrerPolicy: 'no-referrer',
+        headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ face, v: String(m.version || '') })
+      });
+    } catch (e) {}
+  }
   if (!('serial' in navigator)) document.getElementById('unsupported').style.display = 'block';
   const root = document.getElementById('groups');
   for (const [title, faces] of groups) {
@@ -134,7 +145,9 @@
       card.querySelector('img').alt = name + ' clock preview';
       card.querySelector('h3').textContent = name;
       card.querySelector('p').textContent = text;
-      card.querySelector('esp-web-install-button').setAttribute('manifest', 'firmware/' + id + '/manifest.json');
+      const btn = card.querySelector('esp-web-install-button');
+      btn.setAttribute('manifest', 'firmware/' + id + '/manifest.json');
+      btn.addEventListener('state-changed', e => { if (e.detail && e.detail.state === 'finished') countInstall(id, btn.manifest); });
       grid.appendChild(card);
     }
     root.append(h, grid);
