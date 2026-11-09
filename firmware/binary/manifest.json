@@ -1,0 +1,8 @@
+{
+  "name": "Ultimatrix binary",
+  "version": "v0.9.7-binary",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32", "parts": [ { "path": "ultimatrix-binary.bin", "offset": 0 } ] }
+  ]
+}
