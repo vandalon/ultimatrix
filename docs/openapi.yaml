@@ -1165,6 +1165,7 @@ components:
         nightBrightness: { type: integer, description: 'Panel brightness while night mode is on, 1 to 255 (default 3)' }
         nightSun: { type: boolean, description: Night from sunset to sunrise }
         nightClock: { type: boolean, default: false, description: Show the red night clock in night mode }
+        nightBinary: { type: boolean, default: false, description: 'Default true on the Binary face. The night clock shows hours and minutes as binary dots (no seconds) instead of block digits. On POST the checkbox is left out when off, sent together with ldrPin' }
         timezone: { type: string, description: 'Timezone name, for example `Europe/Amsterdam`. Ignored while `autoTimezone` is on' }
         autoTimezone: { type: boolean, description: 'Detect the timezone from the network location each time the clock starts' }
         matchSecs: { type: integer, minimum: 3, maximum: 60, description: 'Seconds each page (a game, a list or a table) stays on the sports faces before the next one: 3 to 60' }
@@ -1259,3 +1260,4 @@ components:
         minimumBrightness: { type: integer, minimum: 1, maximum: 255, description: 'Lowest brightness for the light sensor, 1 to 255' }
         f1Chequers: { type: string, description: 'Present: show the chequered background' }
         nightClock: { type: string, description: 'Present: the red night clock may replace the face' }
+        nightBinary: { type: string, description: 'Present: the night clock is drawn in binary' }

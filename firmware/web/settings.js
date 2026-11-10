@@ -79,6 +79,7 @@ function brightness(event) {
   dual.style.setProperty('--lo', auto ? (Number(low.value) - 1) / 254 : 0);
   dual.style.setProperty('--hi', (Number(high.value) - 1) / 254);
   const nightOn = field('nightEnabled').checked, clockOn = field('nightClock').checked;
+  document.querySelector('#night-binary').hidden = !clockOn;
   document.querySelector('#night-fields').hidden = !clockOn || (!nightOn && !ownNight);
   document.querySelector('#night-schedule').hidden = ownNight || !clockOn;
   document.querySelector('#night-sun').hidden = ownNight || !clockOn;

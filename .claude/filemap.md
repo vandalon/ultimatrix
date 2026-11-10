@@ -46,7 +46,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 15 clock fa
 - Settings.cpp/.h: persisted settings (NVS), including the shared clock name used by MQTT/WLED/mDNS and an optional name-derived mDNS hostname (default off). JsonScan: lightweight JSON scanning
 - Birthdays.h: birthday setting parse/clean/lookup. BirthdayCanvas.h: 3 KB band renderer + fonts; BirthdayParty.h: the birthday screen (24 s story loop)
 - FirmwareUpdate.cpp/.h, UpdateTrust.h: OTA update + trust/verification
-- TimeService, ClockTime, NightClock, SunTimes: time, timezone, night mode, sunrise/sunset
+- TimeService, ClockTime, NightClock, SunTimes: time, timezone, night mode, sunrise/sunset; NightClock also draws a binary variant (Settings::nightBinary, NVS nightBin)
 - PanelTier.h: the panel colour quality (8 bit, 20 MHz, 100 Hz; a light one for the update-only boot); no levels or fall-back
 - DisplayControl, PanelLayout, BootScreen, ScreenTimer, FlipDigits, NumericFont, LapFonts: display/panel helpers, fonts
 - TelnetConsole.cpp/.h, Console.h: remote logging console

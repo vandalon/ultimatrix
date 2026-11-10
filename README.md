@@ -189,7 +189,7 @@ The page and its assets are stored in firmware flash. A new setting only appears
 
 Brightness can be fixed or follow a light sensor. With automatic brightness enabled, the panel dims to the minimum brightness, and the night clock comes on, when the sensor reads dark and also during the night hours or from sunset to sunrise, if you set those (switch the night clock off to keep the face up while it dims); use the live sensor reading to set the dark and bright limits. Readings are averaged, and small changes are ignored to reduce flicker.
 
-Most faces can switch to a dim numeric clock during chosen hours, from sunset to sunrise, or when the sensor detects a dark room. These work together, also with automatic brightness on. It is dark red by default. Pac-Man uses the border colour for its night clock.
+Most faces can switch to a dim numeric clock during chosen hours, from sunset to sunrise, or when the sensor detects a dark room. These work together, also with automatic brightness on. It is dark red by default. Pac-Man uses the border colour for its night clock. The **Binary night clock** switch shows it as binary dots instead (hours and minutes, no seconds; filled discs for 1, empty rings for 0), on every face; it is on by default on the Binary face.
 
 Mario and Luigi scenes follow sunrise and sunset rather than the night schedule. A dark room can switch them to the dim numeric clock.
 
