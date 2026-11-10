@@ -64,6 +64,7 @@ void Settings::load() {
   hiddenWifi = p.getBool("wifiHidden", false);
   f1Chequers = p.getBool("f1Chequers", true);
   autoUpdate = p.getBool("autoUpdate", true);
+  usagePing = p.getBool("usagePing", true);
   nightClock = p.getBool("nightClock", false);
   nightBinary = p.getBool("nightBin", kNightBinaryDefault);
   dither = p.getBool("dither", false);
@@ -237,6 +238,7 @@ bool Settings::save() {
   if (saved) p.putBool("nightClock", nightClock);  // own key too: the record stays as it is
   if (saved) p.putBool("f1Chequers", f1Chequers);
   if (saved) p.putBool("wifiHidden", hiddenWifi);  // own key: the boot reads it before the settings record
+  if (saved) p.putBool("usagePing", usagePing);
   if (saved) p.putBool("autoUpdate", autoUpdate);  // own key, so records saved before this setting keep it on
   if (saved) p.putString("birthdays", birthdays);  // own key as well: the record stays as it is
   if (saved) {
