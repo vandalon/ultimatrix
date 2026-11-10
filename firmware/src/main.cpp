@@ -679,7 +679,7 @@ static void settingsState() {
   json += ",\"minimumBrightness\":" + String(s.minimumBrightness) + ",\"ldrDark\":" + String(s.ldrDark) + ",\"ldrLight\":" + String(s.ldrLight);
   json += ",\"nightEnabled\":" + String(s.nightEnabled ? "true" : "false") + ",\"nightStart\":" + jsonText(minuteText(s.nightStart));
   json += ",\"nightEnd\":" + jsonText(minuteText(s.nightEnd)) + ",\"nightBrightness\":" + String(s.nightBrightness);
-  json += ",\"nightSun\":" + String(s.nightSun ? "true" : "false") + ",\"nightClock\":" + String(s.nightClock ? "true" : "false");
+  json += ",\"nightSun\":" + String(s.nightSun ? "true" : "false") + ",\"nightClock\":" + String(s.nightClock ? "true" : "false") + ",\"nightBinary\":" + String(s.nightBinary ? "true" : "false");
   json += ",\"timezone\":" + jsonText(s.timezone) + ",\"autoTimezone\":" + String(s.manualTimezone ? "false" : "true") + ",\"matchSecs\":" + String(s.matchSecs);
   json += ",\"resultMins\":" + String(s.resultMins) + ",\"timeStyle\":" + String(s.timeStyle);
   json += ",\"dither\":" + String(s.dither ? "true" : "false") + ",\"swapBlueGreen\":" + String(s.swapBlueGreen ? "true" : "false") + ",\"telnet\":" + String(s.telnet ? "true" : "false") + ",\"hiddenWifi\":" + String(s.hiddenWifi ? "true" : "false") + ",\"autoUpdate\":" + String(s.autoUpdate ? "true" : "false");
@@ -972,6 +972,7 @@ static void saveSettings() {
     s.minimumBrightness = minimum; s.nightEnabled = server.hasArg("nightEnabled");
     s.nightSun = server.hasArg("nightSun");
     s.nightClock = server.hasArg("nightClock");
+    s.nightBinary = server.hasArg("nightBinary");
     if (s.nightSun && !s.hasLocation) { geoWanted = true; geoFails = 0; }  // sunrise and sunset need the network's location: looked up in the background
     if (s.nightEnabled && !s.nightSun && s.nightStart == s.nightEnd) { settingsResponse(400, "Choose different start and end times for night mode."); return; }
   }
@@ -2247,7 +2248,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 // Anything else there is left over from older firmware. Add a key here when the code starts storing a new one.
 static const char *const kKnownKeys[] = {
   "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
-  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "wifiNets", "f1Chequers", "nightClock", "dither", "birthdays", "sports", "sportsLog", "pongBg", "binOpt", "binCfg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts", "tetSt", "tetLv",                        // Settings.cpp
+  "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "wifiNets", "f1Chequers", "nightClock", "nightBin", "dither", "birthdays", "sports", "sportsLog", "pongBg", "binOpt", "binCfg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts", "tetSt", "tetLv",                        // Settings.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
   "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder", "haPhono", "haNoInfo", "haCover", "haWeeks", "haExport", "haThin",  // HaConfig.cpp
