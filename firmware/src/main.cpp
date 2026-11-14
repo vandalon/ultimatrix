@@ -3,6 +3,9 @@
 #ifdef UM_GAMEPAD
 #include "Gamepad.h"
 #endif
+#ifdef UM_BLE_PROXY
+#include "BtProxy.h"
+#endif
 #include <atomic>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
@@ -433,7 +436,7 @@ static void mdnsBaseName(char *out, size_t size) {
   if (!used) strlcpy(out, "ultimatrix", size);
 }
 static uint32_t mdnsStartedAt = 0;  // for the telnet "mdns" command
-static char mdnsServices[48] = "";  // which services registered, for the telnet "mdns" command
+static char mdnsServices[64] = "";  // which services registered, for the telnet "mdns" command
 static void startMdns() {
   if (memoryShed || updateChecking || !(face || welcomeMode)) return;  // after the face: what can be stopped again (mDNS, telnet) sits above the permanent allocations, so stopping it leaves one big free block
   mdnsRetryAt = millis() + 15000;
@@ -454,6 +457,18 @@ static void startMdns() {
     const bool httpOk = MDNS.addService("http", "tcp", 80);
     snprintf(mdnsServices, sizeof(mdnsServices), "http %s", httpOk ? "ok" : "FAILED");
     if (Settings::getInstance()->telnet) MDNS.addService("telnet", "tcp", 23);
+#ifdef UM_BLE_PROXY
+    if (btproxy::active()) {   // Home Assistant finds the clock as an ESPHome device (Bluetooth proxy) through this record
+      const bool bleOk = MDNS.addService("esphomelib", "tcp", 6053);
+      uint8_t bm[6]; char bt[18]; esp_read_mac(bm, ESP_MAC_WIFI_STA); snprintf(bt, sizeof(bt), "%02x%02x%02x%02x%02x%02x", bm[0], bm[1], bm[2], bm[3], bm[4], bm[5]);
+      MDNS.addServiceTxt("esphomelib", "tcp", "version", "2025.10.0");
+      MDNS.addServiceTxt("esphomelib", "tcp", "mac", (const char *)bt);
+      MDNS.addServiceTxt("esphomelib", "tcp", "platform", "ESP32");
+      MDNS.addServiceTxt("esphomelib", "tcp", "network", "wifi");
+      size_t n = strlen(mdnsServices);
+      snprintf(mdnsServices + n, sizeof(mdnsServices) - n, ", ble %s", bleOk ? "ok" : "FAILED");
+    }
+#endif
 #ifdef UM_WLED_OVERLAY
     if (wled::enabled()) {  // Home Assistant finds the clock as a WLED device through this record
       const bool wledOk = wled::mdnsAdd();
@@ -2297,6 +2312,7 @@ static void nvsEraseKeys(const char *name, const char *const *keys, size_t count
 static const char *const kKnownKeys[] = {
   "usagePing", "pingDay", "welcomeHidden", "welcomePending", "onboarded", "setupWifi", "setupRefresh", "adminPin",                                 // main.cpp
   "settingsV2", "clockName", "mdnsUseName", "anyHost", "accessScope", "autoUpdate", "wifiHidden", "wifiNets", "f1Chequers", "nightClock", "nightBin", "dither", "birthdays", "sports", "sportsLog", "pongBg", "binOpt", "binCfg", "nbaTeams", "nbaTab", "nbaIdle", "nbaLive", "nbaExtra", "mlbTeams", "mlbTab", "mlbIdle", "mlbLive", "mlbExtra", "mlbHrs", "mlbMin", "nflTeams", "nflTab", "nflIdle", "nflLive", "nflExtra", "nflHrs", "nflMin", "pongSp", "pongLv", "pongDt", "pongDy", "arcHrs", "arcMin", "arcPts", "tetSt", "tetLv",                        // Settings.cpp
+  "btProxy",                                                                                                               // BtProxy.cpp
   "mqOn", "mqCam", "mqHost", "mqPort", "mqUser", "mqPass",                                                                 // Mqtt.cpp
   "wledS", "wledP", "wledT", "searchId", "searchTok",                                                                                    // WledState.cpp
   "haCfg", "haTile4", "haTile5", "haTile6", "haWasher", "haMedia", "haTok", "haEn", "haBarV", "haIcnV", "haWeather", "haOrder", "haPhono", "haNoInfo", "haCover", "haWeeks", "haExport", "haThin",  // HaConfig.cpp
@@ -2357,6 +2373,9 @@ void setup() {
   Serial.begin(115200);
 #ifdef UM_GAMEPAD
   gamepad::boot();
+#endif
+#ifdef UM_BLE_PROXY
+  btproxy::boot();
 #endif
   heap_caps_register_failed_alloc_callback(allocationFailed);
   telnet.setWatcher(telnetWatch);
@@ -2694,6 +2713,19 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   postRoute("/api/gamepad/forget", []() { gamepad::forget(); server.send(204); });
 #endif
 #endif
+#ifdef UM_BLE_PROXY
+  server.on("/api/btproxy", HTTP_GET, []() {   // Bluetooth proxy for Home Assistant: switch, state, counters
+    String json = "{\"enabled\":" + String(btproxy::enabled() ? "true" : "false") + ",\"state\":\"" + String(btproxy::state()) + "\",\"client\":" + String(btproxy::clientConnected() ? "true" : "false") + ",\"sent\":" + String(btproxy::sent()) + ",\"dropped\":" + String(btproxy::dropped()) + "}";
+    server.send(200, "application/json", json);
+  });
+  postRoute("/api/btproxy/enable", []() {   // the memory is set aside (or given back) at the start, so this restarts the clock
+    const bool on = server.arg("on").toInt() != 0;
+    bool saved = btproxy::setEnabled(on);
+    if (!saved) { tidyNvs(true); saved = btproxy::setEnabled(on); }
+    if (!saved) { server.send(507, "text/plain", "The settings storage is full."); return; }
+    server.send(204); restartAt = millis() + 800;
+  });
+#endif
   server.on("/api/catalog", HTTP_GET, selectionCatalog);
 #ifdef UM_FOOTBALL_ONLY
   server.on("/api/teams", HTTP_GET, footballTeams);
@@ -2783,6 +2815,10 @@ void loop() {
     face->setup(&clockTime);
 #ifdef UM_GAMEPAD
     gamepad::begin();
+#endif
+#ifdef UM_BLE_PROXY
+    btproxy::setFilter([](uint32_t ip) { return accessAllowed(IPAddress(ip), Settings::getInstance()->accessScope); });
+    btproxy::begin();
 #endif
 #ifdef UM_WLED_OVERLAY
     wled::attachPanel(*display);

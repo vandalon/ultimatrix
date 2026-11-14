@@ -10,6 +10,14 @@ option(ULTIMATRIX_BLUETOOTH "Compile the Bluetooth game controller into the Pac-
 if(ULTIMATRIX_MODE STREQUAL "pacman" AND ULTIMATRIX_BLUETOOTH)
     set(SDKCONFIG_DEFAULTS "${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults;${CMAKE_CURRENT_LIST_DIR}/sdkconfig.bt")
 endif()
+# Bluetooth proxy for Home Assistant (passive scanner over the ESPHome native API, off until switched on in the settings). Not for Pac-Man (game pad stack), Football and Home (not enough flash: the proxy costs about 130 KB and Home also grows 9 KB of static RAM) or the bridge/scanner images.
+option(ULTIMATRIX_BLE_PROXY "Compile the Bluetooth proxy for Home Assistant into this face" ON)
+if(ULTIMATRIX_BLE_PROXY AND NOT ULTIMATRIX_MODE MATCHES "^(pacman|football|home|bridge|scanner)$")
+    set(ULTIMATRIX_BLE_PROXY_ON ON)
+    set(SDKCONFIG_DEFAULTS "${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults;${CMAKE_CURRENT_LIST_DIR}/sdkconfig.btproxy")
+else()
+    set(ULTIMATRIX_BLE_PROXY_ON OFF)
+endif()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # esp_insights/esp_rainmaker (unused arduino-esp32 dependencies) call git_describe(), which fails in a
 # repository without commits. They only use it for a version message, so stub it.
@@ -43,6 +51,9 @@ if(TARGET ultimatrix.elf)
     set(ULTIMATRIX_STATIC_RAM_KB 62 CACHE STRING "Static RAM budget (KB) per face")
     if(ULTIMATRIX_MODE STREQUAL "pacman" AND ULTIMATRIX_BLUETOOTH)
         set(ULTIMATRIX_STATIC_RAM_KB 70)  # the Bluetooth stack (game controller) reserves about 10 KB more
+    endif()
+    if(ULTIMATRIX_BLE_PROXY_ON)
+        set(ULTIMATRIX_STATIC_RAM_KB 72)  # the Bluetooth stack reserves about 10 KB more
     endif()
     add_custom_command(TARGET ultimatrix.elf POST_BUILD
         COMMAND ${PYTHON} "${CMAKE_CURRENT_LIST_DIR}/tools/check-static-ram.py" "$<TARGET_FILE:ultimatrix.elf>" "${CMAKE_OBJDUMP}" "${ULTIMATRIX_MODE}" "${ULTIMATRIX_STATIC_RAM_KB}"

@@ -292,6 +292,10 @@ Canvas has a **Download picture** button for the current editor image. It export
 
 The link is plain MQTT on your local network, without encryption, and costs the clock roughly 10 KB of memory while it is on.
 
+### Bluetooth proxy (optional)
+
+The clock can act as a Bluetooth proxy for Home Assistant, like an ESPHome device with `bluetooth_proxy:`. It listens for Bluetooth LE adverts and forwards them, so room-presence tools (Bermuda, iBeacon, Private BLE Device) see devices near the clock. Passive scanning only: it does not connect to devices. Off by default; turn it on in **Settings > Advanced > Bluetooth proxy** (the clock restarts, and keeps about 90 KB of memory for Bluetooth while it is on). Not available on the Pac-Man, Football and Home faces (not enough flash). See [Bluetooth proxy](docs/BLUETOOTH_PROXY.md) for the Home Assistant steps, limits and the API.
+
 ### MQTT pixels
 
 Automations can draw individual pixels or send a complete 64×64 image over MQTT. The **Display** sensor reports the current display mode. See [MQTT pixel commands](docs/MQTT_PIXELS.md) for topics, limits and Home Assistant examples.

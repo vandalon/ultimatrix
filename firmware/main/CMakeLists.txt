@@ -180,6 +180,11 @@ set(extra_requires "")
 if(ULTIMATRIX_MODE STREQUAL "pacman" AND ULTIMATRIX_BLUETOOTH)
     set(extra_requires bt)
 endif()
+if(ULTIMATRIX_BLE_PROXY_ON)
+    set(extra_requires bt)
+    list(APPEND sources "${root}/lib/core/BtProxy.cpp")
+    list(APPEND mode_definitions UM_BLE_PROXY)
+endif()
 idf_component_register(SRCS ${sources}
     INCLUDE_DIRS "${root}/vendor/uzlib" "${root}/lib/core" "${CMAKE_CURRENT_BINARY_DIR}/generated" "${root}/lib/${sport}" "${root}/lib/faces" "${root}/lib/motogp-feed" "${root}/lib/wled" "${root}/clockfaces/${face}"
     REQUIRES espressif__arduino-esp32 clock-libraries esp_wifi esp_netif esp_event espressif__network_provisioning nvs_flash esp_http_client esp-tls app_update json mqtt ${extra_requires})

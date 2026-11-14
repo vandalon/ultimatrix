@@ -1448,3 +1448,26 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
     });
   }
 }
+
+{   // Bluetooth proxy for Home Assistant (only in builds that carry it: the route answers 404 otherwise)
+  const card = document.querySelector('#btproxy-card'), status = card && card.querySelector('#btproxy-status'), power = card && card.querySelector('#btproxy-power');
+  const text = { off: 'Off.', starting: 'Starting…', idle: 'On. Waiting for Home Assistant to connect.', scanning: 'On. Home Assistant is connected and the clock is forwarding Bluetooth adverts.', paused: 'On, paused for now (an update, a notification or WLED has the network, or memory is low).' };
+  let btOn = false;
+  async function proxyState() {
+    try {
+      const r = await fetch('/api/btproxy');
+      if (!r.ok) return;
+      const j = await r.json();
+      btOn = j.enabled; card.hidden = false;
+      status.textContent = (text[j.state] || j.state) + (btOn ? ' Sent ' + j.sent + ', dropped ' + j.dropped + '.' : '');
+      power.textContent = btOn ? 'Turn Bluetooth proxy off' : 'Turn Bluetooth proxy on';
+    } catch (_) { /* stays hidden */ }
+  }
+  if (card) {
+    proxyState();
+    power.addEventListener('click', async () => {
+      if (!confirm(btOn ? 'Turn the Bluetooth proxy off? The clock restarts.' : 'Turn the Bluetooth proxy on? The clock restarts and keeps about 90 KB of memory for Bluetooth.')) return;
+      try { const r = await fetch('/api/btproxy/enable', { method: 'POST', body: new URLSearchParams({ on: btOn ? 0 : 1 }) }); if (!r.ok) throw new Error(await r.text()); message('Restarting…'); } catch (error) { message(error.message, true); }
+    });
+  }
+}

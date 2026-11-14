@@ -673,6 +673,39 @@ paths:
         frame must be `t<token>`.
       responses:
         '101': { description: Switching protocols }
+  /api/btproxy:
+    get:
+      tags: [Settings]
+      summary: Bluetooth proxy for Home Assistant (builds that carry it)
+      description: Not in the Pac-Man build, which has the game controller instead. Answers 404 where the build has no proxy. The proxy itself speaks the ESPHome native API on TCP port 6053 (no encryption), see docs/BLUETOOTH_PROXY.md.
+      responses:
+        '200':
+          description: State
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean, description: 'The proxy is switched on (default off); the clock restarts when this changes' }
+                  state: { type: string, description: 'One of `off`, `starting`, `idle` (no Home Assistant connected), `paused` (an update, notification, picture or WLED has the network, or memory is low) or `scanning`' }
+                  client: { type: boolean, description: 'Home Assistant is connected' }
+                  sent: { type: integer, description: 'Bluetooth adverts forwarded since the start' }
+                  dropped: { type: integer, description: 'Adverts dropped because the queue was full or the link was slow' }
+  /api/btproxy/enable:
+    post:
+      tags: [Settings]
+      summary: Turn the Bluetooth proxy on or off
+      description: The clock restarts, as the memory of the Bluetooth stack is set aside (or given back) at start.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                'on': { type: integer, enum: [0, 1] }
+      responses:
+        '204': { description: Saved; restarting }
+        '507': { description: The settings storage is full }
   /api/gamepad:
     get:
       tags: [Play]
