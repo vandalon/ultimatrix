@@ -4,7 +4,7 @@ The clock can work as a Bluetooth proxy for Home Assistant. It listens for Bluet
 
 ## What it does
 
-- Passive scanning only. The clock does not send scan requests and does not connect to devices.
+- It scans passively by default. When Home Assistant asks for active scanning (the scanning mode of the ESPHome device), the clock also asks devices for their scan response, as an ESPHome proxy does. Many phones put their name and service data there. It never connects to devices.
 - It forwards raw adverts with their signal strength, up to 31 bytes of data each.
 - Home Assistant sees it as an ESPHome device with the passive scan, raw advert and scanner state features.
 - It does not support active connections (reading or writing device values, pairing). Devices that need an active connection, such as some Bluetooth sensors with a GATT link, need an ESPHome proxy.

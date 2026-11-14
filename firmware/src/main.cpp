@@ -471,7 +471,7 @@ static void startMdns() {
     if (btproxy::active()) {   // Home Assistant finds the clock as an ESPHome device (Bluetooth proxy) through this record
       const bool bleOk = MDNS.addService("esphomelib", "tcp", 6053);
       uint8_t bm[6]; char bt[18]; esp_read_mac(bm, ESP_MAC_WIFI_STA); snprintf(bt, sizeof(bt), "%02x%02x%02x%02x%02x%02x", bm[0], bm[1], bm[2], bm[3], bm[4], bm[5]);
-      MDNS.addServiceTxt("esphomelib", "tcp", "version", "2025.10.0");
+      MDNS.addServiceTxt("esphomelib", "tcp", "version", "2026.11.1");
       MDNS.addServiceTxt("esphomelib", "tcp", "mac", (const char *)bt);
       MDNS.addServiceTxt("esphomelib", "tcp", "platform", "ESP32");
       MDNS.addServiceTxt("esphomelib", "tcp", "network", "wifi");
@@ -3001,7 +3001,11 @@ static void clockTask(void *) {
   for (;;) loop();
 }
 
+#include "nvs_flash.h"
 extern "C" void app_main() {
+#ifdef UM_BLE_PROXY
+  nvs_flash_init(); btproxy::begin();   // TEST: controller first, before Arduino
+#endif
   initArduino();
   if (xTaskCreatePinnedToCore(clockTask, "ultimatrix", 8192, nullptr, 1, nullptr, 1) != pdPASS)
     ESP_LOGE("ultimatrix", "Could not allocate the clock task");

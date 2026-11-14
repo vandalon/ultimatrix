@@ -46,7 +46,7 @@ constexpr uint32_t kIdleMs = 120000;                           // Home Assistant
 struct Advert { uint8_t mac[6]; int8_t rssi; uint8_t type, len; uint8_t data[kAdvMax]; };
 Advert *ring = nullptr;                      // one writer (the Bluetooth host task), one reader (the proxy task)
 std::atomic<uint32_t> head{0}, tail{0}, sentCount{0}, droppedCount{0};
-std::atomic<bool> synced{false}, scanning{false}, clientUp{false}, started{false}, scanWanted{false};
+std::atomic<bool> synced{false}, scanning{false}, clientUp{false}, started{false}, scanWanted{false}, activeScan{false}, restartScan{false};
 uint8_t ownAddrType = 0;
 int8_t enabledCache = -1;
 bool (*allowFn)(uint32_t) = nullptr;
@@ -80,7 +80,7 @@ void startScan() {
   if (!synced || scanning) return;
   ble_gap_disc_params p = {};
   p.itvl = 512; p.window = 480;          // 320 ms / 300 ms: nearly continuous, leaves Wi-Fi its share (the ESPHome default)
-  p.passive = 1; p.filter_duplicates = 0; // repeated adverts are what room presence measures
+  p.passive = activeScan ? 0 : 1; p.filter_duplicates = 0; // repeated adverts are what room presence measures; active asks devices for their scan response (phones keep their name and service data there)
   if (ble_gap_disc(ownAddrType, BLE_HS_FOREVER, &p, scanEvent, nullptr) == 0) scanning = true;
 }
 void stopScan() { if (scanning.exchange(false)) ble_gap_disc_cancel(); }
@@ -135,11 +135,11 @@ const char *deviceName() { static char name[40]; if (!name[0]) { uint8_t m[6]; e
 bool sendScannerState(Client &c) {
   uint8_t *p = c.tx + 8; size_t n = 0;
   n += putField(p + n, 1, scanning ? 2 : 1 /* RUNNING : STARTING */);
-  // mode and configured_mode are PASSIVE (0): proto3 leaves zero values out
+  if (activeScan) { n += putField(p + n, 2, 1); n += putField(p + n, 3, 1); }   // mode, configured_mode: ACTIVE (passive is 0 and left out)
   return sendBuilt(c, kScannerStateRes, n);
 }
 
-bool handle(Client &c, uint32_t type) {
+bool handle(Client &c, uint32_t type, const uint8_t *b, size_t len) {
   uint8_t *p = c.tx + 8; size_t n = 0;
   switch (type) {
     case kHelloReq:
@@ -154,7 +154,7 @@ bool handle(Client &c, uint32_t type) {
       uint8_t m[6]; char mac[18];
       n += putText(p + n, 2, deviceName());
       esp_read_mac(m, ESP_MAC_WIFI_STA); macText(mac, m); n += putText(p + n, 3, mac);
-      n += putText(p + n, 4, "2025.10.0");      // the ESPHome API level this implements; Home Assistant checks it for old proxies
+      n += putText(p + n, 4, "2026.11.1");      // the ESPHome API level this implements; Home Assistant checks it for old proxies
       n += putText(p + n, 6, "Ultimatrix " UM_MODE_NAME);
       n += putText(p + n, 12, "Ultimatrix");
       n += putText(p + n, 13, deviceName());
@@ -167,7 +167,12 @@ bool handle(Client &c, uint32_t type) {
       c.subscribed = true; scanWanted = true;
       return sendScannerState(c);
     case kUnsubscribeAdvReq: c.subscribed = false; scanWanted = false; return true;
-    case kScannerSetModeReq: return sendScannerState(c);   // always passive
+    case kScannerSetModeReq: {
+      size_t pos = 0; uint64_t key, mode = 0;
+      if (len && getVarint(b, len, pos, key) && (key >> 3) == 1) getVarint(b, len, pos, mode);
+      if (activeScan.exchange(mode == 1) != (mode == 1)) restartScan = true;   // the scan restarts with the new mode
+      return sendScannerState(c);
+    }
     case kConnectionsFreeReq: {
       n += putField(p + n, 1, 0); n += putField(p + n, 2, 0);   // no connection slots: this proxy does not connect to devices
       return sendBuilt(c, kConnectionsFreeRes, n);
@@ -190,7 +195,7 @@ bool feed(Client &c, size_t got) {
       c.skip = len; pos = q; continue;
     }
     if (q + len > c.rxLen) break;
-    if (!handle(c, (uint32_t)type)) return false;
+    if (!handle(c, (uint32_t)type, c.rx + q, (size_t)len)) return false;
     pos = q + len;
   }
   if (pos) { memmove(c.rx, c.rx + pos, c.rxLen - pos); c.rxLen -= pos; }
@@ -266,6 +271,7 @@ void serve(void *) {
     }
     if (millis() - c.lastRx > kIdleMs) { closeClient(c); continue; }
     if (c.subscribed && scanWanted) {
+      if (restartScan.exchange(false)) stopScan();
       if (!scanning) { startScan(); sendScannerState(c); }
       if (!flush(c)) { closeClient(c); continue; }
       stateText = "scanning";
@@ -307,9 +313,11 @@ void begin() {
   const size_t before = heap_caps_get_free_size(MALLOC_CAP_8BIT);
   ESP_LOGW("BtProxy", "before start: heap intact %d, internal free %u (largest %u), 8-bit free %u\n", (int)heap_caps_check_integrity_all(false),
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (unsigned)before);
+  setEnabled(false);   // crash-loop breaker: stays off if the controller init aborts; switched back on once it is up
   const esp_err_t err = nimble_port_init();
   if (err != ESP_OK) { consoleLog("[BtProxy] Bluetooth did not start: %s (free %u)\n", esp_err_to_name(err), (unsigned)before); return; }
   ESP_LOGW("BtProxy", "controller up");
+  setEnabled(true);
   ble_hs_cfg.sync_cb = onSync;
   nimble_port_freertos_init(hostTask);
   stateText = "idle";

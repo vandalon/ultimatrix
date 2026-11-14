@@ -5,7 +5,7 @@
 #include <Arduino.h>
 
 // Bluetooth proxy for Home Assistant (UM_BLE_PROXY): the clock listens for Bluetooth LE adverts and forwards them over the
-// ESPHome native API (TCP 6053, plain text), the way an ESPHome device with `bluetooth_proxy:` does. Passive scanning only
+// ESPHome native API (TCP 6053, plain text), the way an ESPHome device with `bluetooth_proxy:` does. Passive scanning (active when Home Assistant asks for it) only
 // (no connections to devices). Off by default; the memory of the Bluetooth stack is kept or handed back at the start, so
 // switching it on or off restarts the clock.
 namespace btproxy {

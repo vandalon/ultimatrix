@@ -62,11 +62,14 @@ if(TARGET ultimatrix.elf)
     if(ULTIMATRIX_MODE STREQUAL "pacman" AND ULTIMATRIX_BLUETOOTH)
         set(ULTIMATRIX_STATIC_RAM_KB 70)  # the Bluetooth stack (game controller) reserves about 10 KB more
     endif()
-    if(ULTIMATRIX_BLE_PROXY_ON)
-        set(ULTIMATRIX_STATIC_RAM_KB 72)  # the Bluetooth stack reserves about 10 KB more
+    set(ULTIMATRIX_RAM_CHECK_EXTRA "")
+    if(ULTIMATRIX_BLE_PROXY_ON AND NOT UM_IS_S3)
+        set(ULTIMATRIX_RAM_CHECK_EXTRA bt-release)  # the controller memory goes back to the heap while the proxy is off, so it is not counted against the 62 KB
+    elseif(ULTIMATRIX_BLE_PROXY_ON)
+        set(ULTIMATRIX_STATIC_RAM_KB 72)
     endif()
     add_custom_command(TARGET ultimatrix.elf POST_BUILD
-        COMMAND ${PYTHON} "${CMAKE_CURRENT_LIST_DIR}/tools/check-static-ram.py" "$<TARGET_FILE:ultimatrix.elf>" "${CMAKE_OBJDUMP}" "${ULTIMATRIX_MODE}" "${ULTIMATRIX_STATIC_RAM_KB}"
+        COMMAND ${PYTHON} "${CMAKE_CURRENT_LIST_DIR}/tools/check-static-ram.py" "$<TARGET_FILE:ultimatrix.elf>" "${CMAKE_OBJDUMP}" "${ULTIMATRIX_MODE}" "${ULTIMATRIX_STATIC_RAM_KB}" ${ULTIMATRIX_RAM_CHECK_EXTRA}
         VERBATIM)
 endif()
 
