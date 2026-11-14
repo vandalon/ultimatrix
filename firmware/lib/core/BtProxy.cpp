@@ -9,6 +9,7 @@
 #include <errno.h>
 #include "esp_heap_caps.h"
 #include "esp_bt.h"
+#include "esp_log.h"
 #include "esp_mac.h"
 #include "lwip/sockets.h"
 #include <netinet/tcp.h>
@@ -304,8 +305,11 @@ void begin() {
   ring = (Advert *)calloc(kRing, sizeof(Advert));
   if (!ring) { consoleLog("[BtProxy] no memory for the queue\n"); return; }
   const size_t before = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  ESP_LOGW("BtProxy", "before start: heap intact %d, internal free %u (largest %u), 8-bit free %u\n", (int)heap_caps_check_integrity_all(false),
+      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (unsigned)before);
   const esp_err_t err = nimble_port_init();
   if (err != ESP_OK) { consoleLog("[BtProxy] Bluetooth did not start: %s (free %u)\n", esp_err_to_name(err), (unsigned)before); return; }
+  ESP_LOGW("BtProxy", "controller up");
   ble_hs_cfg.sync_cb = onSync;
   nimble_port_freertos_init(hostTask);
   stateText = "idle";
