@@ -293,7 +293,11 @@ bool setEnabled(bool on) {
   return err == ESP_OK;
 }
 
-void boot() { esp_bt_controller_mem_release(active() ? ESP_BT_MODE_CLASSIC_BT : ESP_BT_MODE_BTDM); }
+void boot() {
+#if CONFIG_IDF_TARGET_ESP32   // the S3 has no classic Bluetooth memory to give back
+  esp_bt_controller_mem_release(active() ? ESP_BT_MODE_CLASSIC_BT : ESP_BT_MODE_BTDM);
+#endif
+}
 
 void begin() {
   if (!active() || started.exchange(true)) return;

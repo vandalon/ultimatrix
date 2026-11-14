@@ -19,6 +19,7 @@ ESP32 HUB75 LED-matrix clock firmware (ESP-IDF + Arduino component), 15 clock fa
 - CMakeLists.txt, main/idf_component.yml: ESP-IDF project and Arduino dependency
 - main/CMakeLists.txt: mode/source selection, generated timezone table, embedded web assets; MotoGP selects the F1 face
 - components/clock-libraries/CMakeLists.txt: vendored display/Wi-Fi libraries and shared panel colour-depth setting
+- sdkconfig.defaults.esp32s3, sdkconfig.btproxy.esp32s3, partitions-esp32s3.csv: Adafruit Matrix Portal S3 build (UM_TARGET=esp32s3 tools/idf.sh <mode> build -> build/<mode>-s3; quad PSRAM, GDMA panel driver, fixed HUB75 pins in main.cpp; only the scanner image is tried, with the Bluetooth proxy)
 - partitions.csv, sdkconfig.defaults, dependencies.lock: partition table, IDF config, deps
 - src/main.cpp: app entry (setup/loop), service wiring, dim-colour options and the calibrated brightness floor (GET/POST /api/dim-colour, NVS blob dimColour; panelBrightness() spreads user brightness 1..255 over floor..255; night level for the red night clock via dimColour night=, preview POST /api/night-test), mDNS peer detection with MAC-suffixed hostnames for multiple clocks, boot/geo-IP/update flow and web/API routes, read-only /api/screen BMP preview
 - HANDOFF.txt: older firmware-local notes; root HANDOFF.txt holds current state

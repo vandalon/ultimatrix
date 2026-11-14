@@ -101,11 +101,13 @@ void Clockface::update() {
   const uint32_t now = millis();
   if (now - _reported >= 10000) {
     _reported = now;
+#ifdef HUB75_RING_STREAM
     const auto stats = _display->getRingStats();
     Serial.printf("[Scanner] refill mean=%u max=%u us, row=%u us, missed=%u\n",
                   (unsigned)(stats.meanCycles / getCpuFrequencyMhz()),
                   (unsigned)(stats.maxCycles / getCpuFrequencyMhz()),
                   (unsigned)stats.rowPeriodUs, (unsigned)stats.missed);
+#endif
   }
 #ifdef UM_PATTERN
   drawPattern(_display);

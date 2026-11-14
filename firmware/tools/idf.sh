@@ -6,6 +6,10 @@ mode=${1:-football}
 case "$mode" in football|f1|motogp|tetris|word|mario|luigi|pacman|invaders|pong|binary|nba|mlb|nfl|home|bridge|scanner) ;; *) echo "Usage: $0 {football|f1|motogp|tetris|word|mario|luigi|pacman|invaders|pong|binary|nba|mlb|nfl|home|bridge|scanner} [idf.py actions/options]" >&2; exit 2 ;; esac
 if [ $# -gt 0 ]; then shift; fi
 if [ $# -eq 0 ]; then set -- build; fi
+# UM_TARGET=esp32s3 builds for the ESP32-S3 into build/<mode>-s3 (default: the classic ESP32)
+target=${UM_TARGET:-esp32}
+case "$target" in esp32) build_name=$mode ;; esp32s3) build_name=$mode-s3 ;; *) echo "UM_TARGET must be esp32 or esp32s3" >&2; exit 2 ;; esac
+export UM_TARGET=$target
 export IDF_CCACHE_ENABLE=1
 export IDF_TOOLS_PATH="${IDF_TOOLS_PATH:-$project_root/.tools/espressif}"
 export IDF_PATH="${IDF_PATH:-$project_root/.tools/esp-idf}"
@@ -24,7 +28,7 @@ source "$IDF_PATH/export.sh" >/dev/null
 # equivalent cached path through CMake itself, retaining SDK settings and build
 # outputs. A genuinely different interpreter still gets IDF's normal diagnostic.
 build_python=$(python -c 'import sys; print(sys.executable)')
-if python - "$firmware_root/build/$mode/CMakeCache.txt" "$build_python" <<'PYTHON'
+if python - "$firmware_root/build/$build_name/CMakeCache.txt" "$build_python" <<'PYTHON'
 import os
 from pathlib import Path
 import sys
@@ -39,13 +43,13 @@ if cache.is_file():
 sys.exit(1)
 PYTHON
 then
-  cmake -S "$firmware_root" -B "$firmware_root/build/$mode" \
+  cmake -S "$firmware_root" -B "$firmware_root/build/$build_name" \
     "-DPYTHON=$build_python" "-DULTIMATRIX_MODE=$mode"
 fi
 # An older build directory keeps its saved SDK config, which ignores later changes to sdkconfig.defaults. A saved config
 # that is older than sdkconfig.defaults (or lacks the TLS options the updater and feeds need) is dropped and regenerated.
-saved_config="$firmware_root/build/$mode/sdkconfig"
-if [ -f "$saved_config" ] && { [ "$firmware_root/sdkconfig.defaults" -nt "$saved_config" ] || [ "$firmware_root/sdkconfig.bt" -nt "$saved_config" ] || [ "$firmware_root/sdkconfig.btproxy" -nt "$saved_config" ] || ! grep -q '^CONFIG_ESP_TLS_INSECURE=y' "$saved_config"; }; then
+saved_config="$firmware_root/build/$build_name/sdkconfig"
+if [ -f "$saved_config" ] && { [ "$firmware_root/sdkconfig.defaults" -nt "$saved_config" ] || [ "$firmware_root/sdkconfig.bt" -nt "$saved_config" ] || { [ -f "$firmware_root/sdkconfig.defaults.esp32s3" ] && [ "$target" = esp32s3 ] && [ "$firmware_root/sdkconfig.defaults.esp32s3" -nt "$saved_config" ]; } || [ "$firmware_root/sdkconfig.btproxy" -nt "$saved_config" ] || [ -f "$firmware_root/sdkconfig.btproxy.esp32s3" ] && [ "$target" = esp32s3 ] && [ "$firmware_root/sdkconfig.btproxy.esp32s3" -nt "$saved_config" ] || ! grep -q '^CONFIG_ESP_TLS_INSECURE=y' "$saved_config"; }; then
   echo "Regenerating $saved_config: it predates sdkconfig.defaults." >&2
   rm -f "$saved_config"
 fi
@@ -60,4 +64,4 @@ for arg in "$@"; do
 done
 set -- ${actions[@]+"${actions[@]}"}
 exec "$build_python" "$IDF_PATH/tools/idf.py" -C "$firmware_root" \
-  -B "$firmware_root/build/$mode" "-DULTIMATRIX_MODE=$mode" "$@"
+  -B "$firmware_root/build/$build_name" "-DULTIMATRIX_MODE=$mode" "-DIDF_TARGET=$target" "$@"

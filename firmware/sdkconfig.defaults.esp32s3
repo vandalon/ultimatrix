@@ -1,0 +1,18 @@
+# ESP32-S3 overrides, applied after sdkconfig.defaults (tools/idf.sh with UM_TARGET=esp32s3).
+# Adafruit Matrix Portal S3: 8 MB flash, 2 MB quad PSRAM, HUB75 socket on fixed pins (set in main.cpp).
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ARDUINO_VARIANT="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+# CONFIG_ESPTOOLPY_FLASHSIZE_4MB is not set
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-esp32s3.csv"
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+# PSRAM for the application heap; panel DMA buffers stay in internal RAM.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_QUAD=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# The S3 default window (16) is more than twice the 5 static RX buffers inherited from the classic settings.
+CONFIG_ESP_WIFI_RX_BA_WIN=8

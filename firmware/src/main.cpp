@@ -90,6 +90,16 @@ std::atomic<bool> liveFavouriteOn{false};
 volatile bool faceBootDone = false;
 
 static MatrixPanel_I2S_DMA *display = nullptr;
+// The row-streaming statistics exist only in the classic ESP32 driver (HUB75_RING_STREAM); other chips report them as inactive.
+#ifdef HUB75_RING_STREAM
+using RingStatsT = MatrixPanel_I2S_DMA::RingStats;
+static RingStatsT ringStats() { return display->getRingStats(); }
+static bool ringLateEvent(uint32_t &seen, uint32_t &gapUs, uint32_t &pc, char *task, uint32_t *ms) { return display->nextLateEvent(seen, gapUs, pc, task, ms); }
+#else
+struct RingStatsT { bool active; uint32_t rows, missed, maxCycles, meanCycles, rowPeriodUs, gapMaxUs, late[4], flips, waits, waitUs, waitMaxUs; };
+static RingStatsT ringStats() { return RingStatsT{}; }
+static bool ringLateEvent(uint32_t &, uint32_t &, uint32_t &, char *, uint32_t *) { return false; }
+#endif
 static Clockface *face = nullptr;
 static ClockTime clockTime;
 static WebServer server(80);
@@ -1633,7 +1643,7 @@ static void reportCpu() {
     unsigned busy0 = 100 - std::min(100u, (unsigned)(100ull * (uint32_t)(idle[0] - lastIdle[0]) / wall));
     unsigned busy1 = 100 - std::min(100u, (unsigned)(100ull * (uint32_t)(idle[1] - lastIdle[1]) / wall));
     unsigned ring = 0;
-    MatrixPanel_I2S_DMA::RingStats rs = display->getRingStats();
+    RingStatsT rs = ringStats();
     if (rs.active) ring = (unsigned)(100ull * (uint32_t)(rs.rows - lastRows) * rs.meanCycles / ((uint64_t)getCpuFrequencyMhz() * wall));
     if (rs.active) lastRows = rs.rows;
     consoleLog("[Cpu] core0 busy %u%%, core1 busy %u%% (ring refill %u%% of one core is counted as idle: add it to its core)\n", busy0, busy1, ring);
@@ -1649,7 +1659,7 @@ static void mqttCpuUsage(Mqtt::CpuInfo &out) {
   static uint32_t lastIdle[2] = {0, 0}, lastRows = 0;
   const uint32_t idle[2] = {ulTaskGetIdleRunTimeCounterForCore(0), ulTaskGetIdleRunTimeCounterForCore(1)};
   const int64_t now = esp_timer_get_time();
-  const auto rs = display->getRingStats();
+  const auto rs = ringStats();
   if (lastUs && now > lastUs) {
     const uint64_t wall = now - lastUs;
     unsigned total = 0;
@@ -1683,7 +1693,7 @@ static void reportMemory() {
       (unsigned)uxTaskGetStackHighWaterMark(nullptr), (unsigned)failures, (unsigned)walkUs, (unsigned)millis());
   if (displayReady) reportCpu();
   if (displayReady) {
-    MatrixPanel_I2S_DMA::RingStats rs = display->getRingStats();
+    RingStatsT rs = ringStats();
     if (rs.active)
       consoleLog("[Ring] rows=%u missed=%u mean=%u longest=%u us of %u us per row\n", (unsigned)rs.rows, (unsigned)rs.missed,
           (unsigned)(rs.meanCycles / getCpuFrequencyMhz()), (unsigned)(rs.maxCycles / getCpuFrequencyMhz()), (unsigned)rs.rowPeriodUs);
@@ -1695,7 +1705,7 @@ static void reportMemory() {
           (unsigned)rs.late[0], (unsigned)rs.late[1], (unsigned)rs.late[2], (unsigned)rs.late[3]);
     static uint32_t lateSeen = 0;
     uint32_t gapUs, pc, at; char task[9];
-    while (rs.active && display->nextLateEvent(lateSeen, gapUs, pc, task, &at))
+    while (rs.active && ringLateEvent(lateSeen, gapUs, pc, task, &at))
       consoleLog("[Ring] late: at=%u ms gap=%u us pc=0x%08x task=%s\n", (unsigned)at, (unsigned)gapUs, (unsigned)pc, task);
   }
 }
@@ -2409,7 +2419,15 @@ void setup() {
     consoleLog("[Boot] reset reason %d, setupWifi=%d setupRefreshRestart=%d welcomeMode=%d -> %s display\n", (int)esp_reset_reason(), (int)asked, (int)setupRefreshRestart, (int)welcomeMode, setupRefresh ? "fast setup" : "normal");
   }
   HUB75_I2S_CFG panel(layout::width, layout::height, 1);
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+  // Adafruit Matrix Portal S3: the HUB75 socket is wired to fixed pins
+  panel.gpio.r1 = 42; panel.gpio.g1 = 41; panel.gpio.b1 = 40;
+  panel.gpio.r2 = 38; panel.gpio.g2 = 39; panel.gpio.b2 = 37;
+  panel.gpio.a = 45; panel.gpio.b = 36; panel.gpio.c = 48; panel.gpio.d = 35; panel.gpio.e = 21;
+  panel.gpio.lat = 47; panel.gpio.oe = 14; panel.gpio.clk = 2;
+#else
   panel.gpio.e = 18;
+#endif
   panel.clkphase = false;
   panel.double_buff = !setupRefresh;  // the setup and welcome display is single buffered (static screens, half the DMA memory)
   {  // The colour quality (PanelTier.h). The update-only boot has no face and every KB goes to the download: it takes the light level
@@ -2432,8 +2450,12 @@ void setup() {
     panel.setPixelColorDepthBits(2);  // the setup QR is white on black: fewer bit planes give the fastest refresh, so cameras see no stripes (the library's minimum). The restart after setup returns to UM_PIXEL_DEPTH_BITS
   }
   if (s.swapBlueGreen) {
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+    std::swap(panel.gpio.b1, panel.gpio.g1); std::swap(panel.gpio.b2, panel.gpio.g2);
+#else
     panel.gpio.b1 = 26; panel.gpio.b2 = 12;
     panel.gpio.g1 = 27; panel.gpio.g2 = 13;
+#endif
   }
   display = new MatrixPanel_I2S_DMA(panel);
   if (display->begin()) {
