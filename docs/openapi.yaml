@@ -536,12 +536,13 @@ paths:
                 type: object
                 properties:
                   enabled: { type: boolean, description: 'MQTT link to Home Assistant on or off' }
-                  screenCamera: { type: boolean, description: 'Publish the panel picture as a Home Assistant camera whenever the screen changes' }
+                  screenCamera: { type: boolean, description: 'Publish the panel picture as a Home Assistant camera whenever the screen changes. The camera waits while less than about 32 KB of memory would stay free, which is always the case on Home with the Bluetooth proxy on a classic ESP32' }
                   host: { type: string, description: 'Host name or IP address of the MQTT broker' }
                   port: { type: integer, description: 'Broker port (default 1883)' }
                   user: { type: string, description: 'Broker user name. Empty = no login' }
                   passwordSet: { type: boolean, description: 'True when a password is stored. The password itself is never returned' }
                   connected: { type: boolean, description: 'True while the clock is connected to the broker' }
+                  blockedByProxy: { type: boolean, description: 'True on the Home face of a classic ESP32 while the Bluetooth proxy is on: MQTT stays off and cannot be changed (the saved settings are kept)' }
                   status: { type: string, description: 'Short text about the connection state, for example why it failed' }
     post:
       tags: [Integrations]
@@ -553,7 +554,7 @@ paths:
               type: object
               properties:
                 enabled: { type: string, enum: ['0', '1'], description: 'MQTT link to Home Assistant on or off' }
-                screenCamera: { type: string, enum: ['0', '1'], description: 'Publish the panel picture as a Home Assistant camera whenever the screen changes' }
+                screenCamera: { type: string, enum: ['0', '1'], description: 'Publish the panel picture as a Home Assistant camera whenever the screen changes. The camera waits while less than about 32 KB of memory would stay free, which is always the case on Home with the Bluetooth proxy on a classic ESP32' }
                 host: { type: string, description: IP address or host name of the broker }
                 port: { type: integer, minimum: 1, maximum: 65535, default: 1883, description: 'Broker port (default 1883)' }
                 user: { type: string, description: 'Broker user name. Empty = no login' }
@@ -562,6 +563,7 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Message' }
         '400': { $ref: '#/components/responses/MessageError' }
+        '409': { $ref: '#/components/responses/MessageError' }
         '500': { $ref: '#/components/responses/MessageError' }
   /api/ha:
     get:
@@ -677,7 +679,7 @@ paths:
     get:
       tags: [Settings]
       summary: Bluetooth proxy for Home Assistant (builds that carry it)
-      description: Not in the Pac-Man build, which has the game controller instead. Answers 404 where the build has no proxy. The proxy itself speaks the ESPHome native API on TCP port 6053 (no encryption), see docs/BLUETOOTH_PROXY.md.
+      description: Not in the bridge image. On the classic ESP32 the Football, MotoGP and Home builds switch WLED, canvas, GIFs, DLNA and notices off while it is on (memory). Answers 404 where the build has no proxy. The proxy itself speaks the ESPHome native API on TCP port 6053 (no encryption), see docs/BLUETOOTH_PROXY.md.
       responses:
         '200':
           description: State
@@ -687,7 +689,7 @@ paths:
                 type: object
                 properties:
                   enabled: { type: boolean, description: 'The proxy is switched on (default off); the clock restarts when this changes' }
-                  state: { type: string, description: 'One of `off`, `starting`, `idle` (no Home Assistant connected), `paused` (an update, notification, picture or WLED has the network, or memory is low) or `scanning`' }
+                  state: { type: string, description: 'One of `off`, `starting`, `idle` (no Home Assistant connected), `paused` (a notification, picture or WLED has the network, Home's Home Assistant link is signing in, or memory is low), `stopped` (an update or face install is running; the proxy starts again with the restart) or `scanning`' }
                   client: { type: boolean, description: 'Home Assistant is connected' }
                   sent: { type: integer, description: 'Bluetooth adverts forwarded since the start' }
                   dropped: { type: integer, description: 'Adverts dropped because the queue was full or the link was slow' }
@@ -709,7 +711,7 @@ paths:
   /api/gamepad:
     get:
       tags: [Play]
-      summary: Bluetooth game controller state (Pac-Man build)
+      summary: Bluetooth game controller state (only in a Pac-Man build made with ULTIMATRIX_BLUETOOTH=ON; the default build has the Bluetooth proxy instead)
       responses:
         '200':
           description: State
@@ -1162,6 +1164,8 @@ components:
         nightActive: { type: boolean, description: 'True while night mode is on' }
         nightWhy: { type: string, description: 'Why night mode is on: `dark` (light sensor), `schedule`, or empty' }
         nvsFree: { type: integer, description: Free entries in the settings storage }
+        wledOff: { type: boolean, description: 'True when WLED, the light page, the canvas and the animations are off for this start (Bluetooth needs the memory); not on the bridge' }
+        proxyLean: { type: boolean, description: 'Home and the sports faces on a classic ESP32 only: true while the Bluetooth proxy is on (WLED, notices and DLNA off; Home also has MQTT off)' }
         pinSet: { type: boolean, description: 'True when an admin PIN protects changes' }
         sunTimes: { type: object, additionalProperties: true, description: 'Sunrise and sunset for today, from the clocks location (object; empty when unknown)' }
         network:

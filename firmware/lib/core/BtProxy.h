@@ -19,4 +19,6 @@ const char *state();                // off, starting, idle (no client), paused, 
 uint32_t sent();                    // adverts forwarded since the start
 uint32_t dropped();                 // adverts dropped (queue full, slow client, low memory)
 bool clientConnected();
+bool shutdown();                    // for an update or face install: stops the proxy and hands all Bluetooth memory to the heap until the restart; true the first time
+void hold(bool on);                 // stop scanning for a while (Home: while its Home Assistant link signs in); the client stays connected
 }

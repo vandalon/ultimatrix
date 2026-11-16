@@ -294,7 +294,7 @@ The link is plain MQTT on your local network, without encryption, and costs the 
 
 ### Bluetooth proxy (optional)
 
-The clock can act as a Bluetooth proxy for Home Assistant, like an ESPHome device with `bluetooth_proxy:`. It listens for Bluetooth LE adverts and forwards them, so room-presence tools (Bermuda, iBeacon, Private BLE Device) see devices near the clock. Passive scanning only: it does not connect to devices. Off by default; turn it on in **Settings > Advanced > Bluetooth proxy** (the clock restarts, and keeps about 90 KB of memory for Bluetooth while it is on). Not available on the Pac-Man, Football and Home faces (not enough flash). See [Bluetooth proxy](docs/BLUETOOTH_PROXY.md) for the Home Assistant steps, limits and the API.
+The clock can act as a Bluetooth proxy for Home Assistant, like an ESPHome device with `bluetooth_proxy:`. It listens for Bluetooth LE adverts and forwards them, so room-presence tools (Bermuda, iBeacon, Private BLE Device) see devices near the clock. Passive scanning only: it does not connect to devices. Off by default; turn it on in **Settings > Advanced > Bluetooth proxy** (the clock restarts, and keeps about 60 KB of memory for Bluetooth while it is on). Every face has it, on the classic ESP32 and the ESP32-S3 board. On the classic ESP32, Home and the sports faces (Football, F1, MotoGP, NBA, MLB, NFL) are short of memory with it: while it is on, WLED, the canvas, GIFs, DLNA and notices stay off there, and Home also turns MQTT off (its settings are kept). Pac-Man has it instead of the old Bluetooth game controller. See [Bluetooth proxy](docs/BLUETOOTH_PROXY.md) for the Home Assistant steps, limits and the API.
 
 ### MQTT pixels
 

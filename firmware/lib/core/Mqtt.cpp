@@ -700,6 +700,7 @@ void Mqtt::publishScreen(uint32_t now) {
   if (!_cfg.screenCamera) { if (_snapPhase) { _snap.reset(); _snapPhase = 0; } return; }
   if (!_snapPhase && now - _screenAt < 1000) return;
   constexpr size_t headerSize = 54 + 256 * 4;  // header plus BGR0 palette
+  constexpr size_t kCameraReserve = 32768;  // left free next to a snapshot: a TLS sign-in (Home Assistant, feeds) takes about 20 KB and the Wi-Fi driver a few more at its peak
   constexpr size_t rowSize = 64;  // already aligned to four bytes
   constexpr size_t size = headerSize + 64 * rowSize;
   const auto drop = [&]() { _snap.reset(); _snapPhase = 0; };
@@ -710,10 +711,10 @@ void Mqtt::publishScreen(uint32_t now) {
     _screenAt = now;
     const size_t free = heap_caps_get_free_size(MALLOC_CAP_8BIT);
     const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-    // Allow the image and MQTT queue copy, keeping 16 KiB for other work.
+    // Allow the image and MQTT queue copy, keeping kCameraReserve for other work: the camera waits while memory is short.
     // Each image needs its own block; neither needs the old RGB888-sized block.
     static uint32_t memoryLogAt = 0;
-    if (free < 2 * size + 16384 || largest < size + 1024) {
+    if (free < 2 * size + kCameraReserve || largest < size + 1024) {
       if (!memoryLogAt || now - memoryLogAt >= 30000) {
         ESP_LOGW("MQTT camera", "Waiting for memory: free=%u largest=%u", (unsigned)free, (unsigned)largest);
         memoryLogAt = now;
@@ -758,7 +759,7 @@ void Mqtt::publishScreen(uint32_t now) {
   const size_t free = heap_caps_get_free_size(MALLOC_CAP_8BIT);
   const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
   const size_t pngSize = _snapPng;
-  const bool png = pngSize && pngSize <= 8192 && free >= 2 * pngSize + 16384 && largest >= pngSize + 1024;
+  const bool png = pngSize && pngSize <= 8192 && free >= 2 * pngSize + kCameraReserve && largest >= pngSize + 1024;
   size_t imageSize = png ? pngSize : size;
   std::unique_ptr<uint8_t[]> image(new (std::nothrow) uint8_t[imageSize]);
   if (!image) { release(); drop(); return; }

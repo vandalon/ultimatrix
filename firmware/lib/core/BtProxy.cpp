@@ -15,10 +15,8 @@
 #include <netinet/tcp.h>
 #include <Arduino.h>
 #include <WiFi.h>
-#include "nimble/nimble_port.h"
-#include "nimble/nimble_port_freertos.h"
-#include "host/ble_hs.h"
-#include "host/util/util.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "nvs.h"
 
 #ifndef UM_MODE_NAME
@@ -28,6 +26,7 @@
 // The wire format is the ESPHome native API without encryption: a 0x00 byte, the payload length and the message type as
 // protobuf varints, then the protobuf payload. Only the few messages Home Assistant needs for a passive proxy are
 // implemented; everything else is read and ignored.
+extern std::atomic<uint32_t> memoryAllocationFailures;   // main.cpp: raised when a feed or buffer allocation fails
 namespace btproxy {
 namespace {
 enum : uint32_t {
@@ -40,17 +39,18 @@ constexpr uint32_t kFeaturePassive = 1, kFeatureRaw = 32, kFeatureStateAndMode =
 constexpr uint16_t kPort = 6053;
 constexpr size_t kRing = 32, kAdvMax = 31, kBatch = 12, kRxMax = 192;
 constexpr size_t kTxMax = 16 + kBatch * (kAdvMax + 28);
-constexpr size_t kLowHeap = 24 * 1024, kOkHeap = 36 * 1024;   // pause below, resume above (largest-free accounting is not needed: the buffers are small)
+constexpr size_t kLowHeap = 10 * 1024, kOkHeap = 16 * 1024;   // pause below, resume above: the proxy itself needs only about 3 KB, and the classic ESP32 idles near 30 KB free with the controller running
 constexpr uint32_t kIdleMs = 120000;                           // Home Assistant pings every 20 s
 
 struct Advert { uint8_t mac[6]; int8_t rssi; uint8_t type, len; uint8_t data[kAdvMax]; };
 Advert *ring = nullptr;                      // one writer (the Bluetooth host task), one reader (the proxy task)
 std::atomic<uint32_t> head{0}, tail{0}, sentCount{0}, droppedCount{0};
 std::atomic<bool> synced{false}, scanning{false}, clientUp{false}, started{false}, scanWanted{false}, activeScan{false}, restartScan{false};
-uint8_t ownAddrType = 0;
 int8_t enabledCache = -1;
 bool (*allowFn)(uint32_t) = nullptr;
 const char *stateText = "off";
+std::atomic<bool> held{false};
+std::atomic<int> stopStage{0};               // shutdown(): 1 = asked, 2 = the serve task has let go and ended               // hold(): no scanning while another link needs the heap
 
 // ---- protobuf helpers -------------------------------------------------------------------------------------------
 size_t putVarint(uint8_t *b, uint64_t v) { size_t n = 0; while (v >= 0x80) { b[n++] = (uint8_t)(v | 0x80); v >>= 7; } b[n++] = (uint8_t)v; return n; }
@@ -62,33 +62,74 @@ bool getVarint(const uint8_t *b, size_t len, size_t &pos, uint64_t &out) {
   for (int shift = 0; pos < len && shift < 64; shift += 7) { uint8_t c = b[pos++]; out |= (uint64_t)(c & 0x7F) << shift; if (!(c & 0x80)) return true; }
   return false;
 }
-// ---- scanner (Bluetooth host task) --------------------------------------------------------------------------------
-int scanEvent(struct ble_gap_event *ev, void *) {
-  if (ev->type == BLE_GAP_EVENT_DISC_COMPLETE) { scanning = false; return 0; }
-  if (ev->type != BLE_GAP_EVENT_DISC || !ring) return 0;
-  const uint32_t h = head.load(std::memory_order_relaxed);
-  if (h - tail.load(std::memory_order_acquire) >= kRing) { droppedCount++; return 0; }
-  Advert &a = ring[h % kRing];
-  memcpy(a.mac, ev->disc.addr.val, 6);
-  a.rssi = ev->disc.rssi; a.type = ev->disc.addr.type;
-  a.len = ev->disc.length_data > kAdvMax ? kAdvMax : ev->disc.length_data;
-  if (a.len) memcpy(a.data, ev->disc.data, a.len);
-  head.store(h + 1, std::memory_order_release);
+// ---- scanner: the controller's HCI interface (VHCI), no host stack -----------------------------------------------------
+// A scan-only proxy needs five HCI commands and one event, so the NimBLE host (heap, a task and ~100 KB of flash) is not used.
+SemaphoreHandle_t cmdSem = nullptr;
+volatile uint16_t waitOpcode = 0;
+volatile uint8_t cmdStatus = 0xFF;
+constexpr uint16_t kOpReset = 0x0C03, kOpSetEventMask = 0x0C01, kOpLeScanParams = 0x200B, kOpLeScanEnable = 0x200C;
+
+void hostSendAvailable() {}
+// Runs in the controller task: keep it short. Packet = 0x04, event code, length, parameters.
+int hostRecv(uint8_t *d, uint16_t len) {
+  if (len < 3 || d[0] != 0x04) return 0;
+  const uint8_t evt = d[1], plen = d[2];
+  const uint8_t *p = d + 3;
+  if (len < 3u + plen) return 0;
+  if (evt == 0x0E && plen >= 4) {                   // Command Complete: packets allowed, opcode, status
+    if ((uint16_t)(p[1] | p[2] << 8) == waitOpcode) { cmdStatus = p[3]; if (cmdSem) xSemaphoreGive(cmdSem); }
+  } else if (evt == 0x0F && plen >= 4) {            // Command Status: status, packets allowed, opcode
+    if ((uint16_t)(p[2] | p[3] << 8) == waitOpcode) { cmdStatus = p[0]; if (cmdSem) xSemaphoreGive(cmdSem); }
+  } else if (evt == 0x3E && plen >= 2 && p[0] == 0x02 && ring) {   // LE Meta, LE Advertising Report
+    // The report fields come as arrays: event types, address types, addresses, data lengths, the data, then the RSSIs.
+    const uint8_t n = p[1];
+    if (n == 0 || n > 8) return 0;
+    const uint8_t *addrType = p + 2 + n, *addr = p + 2 + 2 * n, *dlen = p + 2 + 8 * n;
+    const uint8_t *data = dlen + n;
+    size_t total = 0;
+    for (uint8_t i = 0; i < n; i++) total += dlen[i];
+    if (2u + 10u * n + total > plen) return 0;
+    const uint8_t *rssi = data + total;
+    for (uint8_t i = 0; i < n; i++) {
+      const uint32_t h = head.load(std::memory_order_relaxed);
+      if (h - tail.load(std::memory_order_acquire) >= kRing) { droppedCount++; data += dlen[i]; continue; }
+      Advert &a = ring[h % kRing];
+      memcpy(a.mac, addr + 6 * i, 6);
+      a.rssi = (int8_t)rssi[i]; a.type = addrType[i];
+      a.len = dlen[i] > kAdvMax ? kAdvMax : dlen[i];
+      if (a.len) memcpy(a.data, data, a.len);
+      data += dlen[i];
+      head.store(h + 1, std::memory_order_release);
+    }
+  }
   return 0;
+}
+const esp_vhci_host_callback_t vhciCallbacks = {hostSendAvailable, hostRecv};
+
+bool hciCommand(uint16_t opcode, const uint8_t *params, uint8_t n) {
+  uint8_t pk[4 + 8];
+  if (n > 8 || !cmdSem) return false;
+  pk[0] = 0x01; pk[1] = opcode & 0xFF; pk[2] = opcode >> 8; pk[3] = n;
+  if (n) memcpy(pk + 4, params, n);
+  for (int i = 0; i < 100 && !esp_vhci_host_check_send_available(); i++) vTaskDelay(1);
+  while (xSemaphoreTake(cmdSem, 0) == pdTRUE) {}
+  waitOpcode = opcode; cmdStatus = 0xFF;
+  esp_vhci_host_send_packet(pk, 4 + n);
+  return xSemaphoreTake(cmdSem, pdMS_TO_TICKS(500)) == pdTRUE && cmdStatus == 0;
+}
+bool setScan(bool on) {
+  const uint8_t en[2] = {(uint8_t)(on ? 1 : 0), 0};   // filter duplicates off: repeated adverts are what room presence measures
+  return hciCommand(kOpLeScanEnable, en, 2);
 }
 void startScan() {
   if (!synced || scanning) return;
-  ble_gap_disc_params p = {};
-  p.itvl = 512; p.window = 480;          // 320 ms / 300 ms: nearly continuous, leaves Wi-Fi its share (the ESPHome default)
-  p.passive = activeScan ? 0 : 1; p.filter_duplicates = 0; // repeated adverts are what room presence measures; active asks devices for their scan response (phones keep their name and service data there)
-  if (ble_gap_disc(ownAddrType, BLE_HS_FOREVER, &p, scanEvent, nullptr) == 0) scanning = true;
+  // 320 ms interval / 300 ms window: nearly continuous, leaves Wi-Fi its share (the ESPHome default). Active scanning asks devices for
+  // their scan response (phones keep their name and service data there).
+  const uint8_t par[7] = {(uint8_t)(activeScan ? 1 : 0), 0x00, 0x02, 0xE0, 0x01, 0x00 /* public address */, 0x00 /* accept all */};
+  if (hciCommand(kOpLeScanParams, par, 7) && setScan(true)) scanning = true;
+  else consoleLog("[BtProxy] scan did not start\n");
 }
-void stopScan() { if (scanning.exchange(false)) ble_gap_disc_cancel(); }
-void onSync() {
-  if (ble_hs_util_ensure_addr(0) != 0 || ble_hs_id_infer_auto(0, &ownAddrType) != 0) { consoleLog("[BtProxy] no Bluetooth address\n"); return; }
-  synced = true;
-}
-void hostTask(void *) { nimble_port_run(); nimble_port_freertos_deinit(); }
+void stopScan() { if (scanning.exchange(false)) setScan(false); }
 
 // ---- native API connection ----------------------------------------------------------------------------------------
 struct Client {
@@ -228,10 +269,29 @@ void serve(void *) {
   int lfd = -1;
   Client c;
   bool low = false;
+  uint32_t seenFailures = memoryAllocationFailures.load(), backoffUntil = 0;
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(c.fd >= 0 ? 15 : 200));
+    if (stopStage.load()) {   // shutdown(): let go of everything and end the task (its stack goes back to the heap)
+      stopScan(); closeClient(c);
+      if (lfd >= 0) close(lfd);
+      stopStage = 2;
+      vTaskDelete(nullptr);
+    }
     const size_t freeHeap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
     if (freeHeap < kLowHeap) low = true; else if (low && freeHeap > kOkHeap) low = false;
+    const uint32_t failures = memoryAllocationFailures.load();
+    if (failures != seenFailures) { seenFailures = failures; backoffUntil = millis() + 8000; }   // a feed ran out of memory: let go of the client and the sockets for a few seconds
+    if (backoffUntil && (int32_t)(millis() - backoffUntil) < 0) {
+      stopScan(); closeClient(c);
+      if (lfd >= 0) { close(lfd); lfd = -1; }
+      stateText = "paused";
+      continue;
+    }
+    if (low && c.fd >= 0 && !feedsHalted() && WiFi.status() == WL_CONNECTED) {   // a feed refresh dips the heap for a moment: stop scanning but keep Home Assistant connected, it would only reconnect
+      stopScan(); stateText = "paused";
+      continue;
+    }
     const bool halted = feedsHalted() || low || WiFi.status() != WL_CONNECTED;
     if (halted) {                                   // an update, notice, picture or WLED has the network and heap: let go of everything
       stopScan(); closeClient(c);
@@ -270,12 +330,12 @@ void serve(void *) {
       else if (r == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) { closeClient(c); continue; }
     }
     if (millis() - c.lastRx > kIdleMs) { closeClient(c); continue; }
-    if (c.subscribed && scanWanted) {
+    if (c.subscribed && scanWanted && !held.load()) {   // hold(): no scanning, but the link keeps answering Home Assistant's pings, so it does not drop
       if (restartScan.exchange(false)) stopScan();
       if (!scanning) { startScan(); sendScannerState(c); }
       if (!flush(c)) { closeClient(c); continue; }
       stateText = "scanning";
-    } else { stopScan(); tail.store(head.load()); stateText = "idle"; }
+    } else { stopScan(); tail.store(head.load()); stateText = held.load() ? "paused" : "idle"; }
   }
 }
 }  // namespace
@@ -314,18 +374,37 @@ void begin() {
   ESP_LOGW("BtProxy", "before start: heap intact %d, internal free %u (largest %u), 8-bit free %u\n", (int)heap_caps_check_integrity_all(false),
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (unsigned)before);
   setEnabled(false);   // crash-loop breaker: stays off if the controller init aborts; switched back on once it is up
-  const esp_err_t err = nimble_port_init();
-  if (err != ESP_OK) { consoleLog("[BtProxy] Bluetooth did not start: %s (free %u)\n", esp_err_to_name(err), (unsigned)before); return; }
-  ESP_LOGW("BtProxy", "controller up");
+  cmdSem = xSemaphoreCreateBinary();
+  esp_bt_controller_config_t cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+  esp_err_t err = esp_bt_controller_init(&cfg);
+  if (err == ESP_OK) err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
+  if (err == ESP_OK) err = esp_vhci_host_register_callback(&vhciCallbacks);
+  if (err != ESP_OK) { consoleLog("[BtProxy] Bluetooth did not start: 0x%x (free %u)\n", (unsigned)err, (unsigned)before); return; }
   setEnabled(true);
-  ble_hs_cfg.sync_cb = onSync;
-  nimble_port_freertos_init(hostTask);
+  static const uint8_t mask[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x1F, 0x00, 0x20};   // the default plus LE Meta events
+  if (!hciCommand(kOpReset, nullptr, 0) || !hciCommand(kOpSetEventMask, mask, 8)) { consoleLog("[BtProxy] controller did not answer\n"); return; }
+  synced = true;
   stateText = "idle";
   if (xTaskCreate(serve, "btproxy", 4096, nullptr, 1, nullptr) != pdPASS) { consoleLog("[BtProxy] task not started\n"); return; }
   consoleLog("[BtProxy] started: free heap %u -> %u\n", (unsigned)before, (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
 }
 
 void setFilter(bool (*allowed)(uint32_t ip)) { allowFn = allowed; }
+void hold(bool on) { held = on; }
+bool shutdown() {
+  if (!started.load() || stopStage.load()) return false;
+  stopStage = 1;
+  for (int i = 0; i < 50 && stopStage.load() != 2; i++) vTaskDelay(pdMS_TO_TICKS(20));   // the task checks every 15-200 ms
+  if (stopStage.load() != 2) synced = false;   // the task did not answer in time: the controller goes anyway
+  esp_bt_controller_disable();
+  esp_bt_controller_deinit();
+#if CONFIG_IDF_TARGET_ESP32
+  esp_bt_controller_mem_release(ESP_BT_MODE_BTDM);   // the controller's own memory joins the heap; it can only start again after a restart
+#endif
+  stateText = "stopped";
+  consoleLog("[BtProxy] stopped for an update: free heap %u\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+  return true;
+}
 const char *state() { return active() ? stateText : "off"; }
 uint32_t sent() { return sentCount.load(); }
 uint32_t dropped() { return droppedCount.load(); }

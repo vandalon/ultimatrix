@@ -2,12 +2,13 @@
 
 // Drawing helpers for the birthday screens. The panel can't be read back to blend with, so a scene is drawn into a
 // small RGB band first and the band is copied to the panel; the scene runs once per band. Nothing is kept between
-// frames (every scene is a function of the time) and no memory is allocated: the band is 3 KB.
+// frames (every scene is a function of the time) and the 3 KB band is allocated only while a frame is drawn.
 
 #include <Arduino.h>
 #include <algorithm>
 #include <math.h>
 #include <string.h>
+#include <stdlib.h>
 
 namespace birthday {
 
@@ -15,7 +16,8 @@ constexpr int W = 64, H = 64, BAND = 16;
 
 struct RGB { float r, g, b; };
 
-inline uint8_t band[W * BAND * 3];
+constexpr size_t kBandBytes = W * BAND * 3;
+inline uint8_t *band = nullptr;   // only exists while render() runs: 3 KB of heap instead of static RAM
 inline int bandTop = 0;
 
 // 3x5 font, 15 bits per glyph, rows top to bottom: A-Z, 0-9, '!', ':', ' '
@@ -77,7 +79,7 @@ inline void rect(int x, int y, int w, int h, RGB c, float a = 1.0f) {
 
 // Everything drawn so far gets darker (factor 0..1)
 inline void dim(float factor) {
-  for (size_t i = 0; i < sizeof(band); i++) band[i] = band[i] * factor;
+  for (size_t i = 0; i < kBandBytes; i++) band[i] = band[i] * factor;
 }
 
 inline int glyph(char ch) {
@@ -163,8 +165,10 @@ inline void bigText(const char *s, int y, float t, int cx = 32) {
 // Runs the scene once per band and copies each band to the panel. scene() draws with the helpers above.
 template <typename Display, typename Scene>
 void render(Display &display, Scene scene) {
+  band = (uint8_t *)malloc(kBandBytes);
+  if (!band) return;   // no memory right now: skip this frame
   for (bandTop = 0; bandTop < H; bandTop += BAND) {
-    memset(band, 0, sizeof(band));
+    memset(band, 0, kBandBytes);
     scene();
     for (int y = 0; y < BAND; y++)
       for (int x = 0; x < W; x++) {
@@ -172,6 +176,8 @@ void render(Display &display, Scene scene) {
         display.drawPixelRGB888(x, bandTop + y, o[0], o[1], o[2]);
       }
   }
+  free(band);
+  band = nullptr;
 }
 
 }  // namespace birthday

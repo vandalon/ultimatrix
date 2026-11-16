@@ -17,5 +17,7 @@ struct Tier {
 
 constexpr Tier kNormal = {8, 20, 100, 75, 65, 100};
 constexpr Tier kUpdateOnly = {7, 8, 100, 100, 140, 25};
+// Home with the Bluetooth proxy on the classic ESP32: its Home Assistant link needs the heap, so one bit plane less
+constexpr Tier kHomeProxy = {7, 20, 100, 90, 100, 60};
 
 }  // namespace paneltier

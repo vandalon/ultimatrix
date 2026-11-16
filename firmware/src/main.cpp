@@ -51,6 +51,7 @@
 #endif
 #include <BackgroundWait.h>
 #include <BootScreen.h>
+#include <TlsPool.h>
 #include <Console.h>
 #include <TelnetConsole.h>
 #if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS) || defined(UM_MARIO) || defined(UM_LUIGI)
@@ -400,10 +401,17 @@ static bool wledBusy(uint32_t now) { return wled::wanted(now); }  // WLED has th
 #else
 static bool wledBusy(uint32_t) { return false; }
 #endif
-#ifdef UM_GAMEPAD
+#if defined(UM_GAMEPAD)
 static bool btMode() { return gamepad::active(); }  // the Bluetooth controller runs: everything but Home Assistant's MQTT link stays off to keep the heap
+#elif defined(UM_PROXY_LEAN)
+static bool btMode() { return btproxy::enabled(); }  // Home and the sports faces on the classic ESP32: the proxy leaves too little heap, so WLED, DLNA and notices stay off while it is on (telnet stays)
 #else
 static bool btMode() { return false; }
+#endif
+#if defined(UM_PROXY_LEAN)
+static bool btNoTelnet() { return false; }  // telnet stays available in the lean proxy mode
+#else
+static bool btNoTelnet() { return btMode(); }
 #endif
 #if defined(UM_PONG) || defined(UM_INVADERS) || defined(UM_TETRIS) || defined(UM_MARIO) || defined(UM_LUIGI)
 static uint32_t playHoldUntil = 0;   // somebody is steering a game: what is not needed for it stays quiet until 20 s after the last move
@@ -448,7 +456,12 @@ static void mdnsBaseName(char *out, size_t size) {
 static uint32_t mdnsStartedAt = 0;  // for the telnet "mdns" command
 static char mdnsServices[64] = "";  // which services registered, for the telnet "mdns" command
 static void startMdns() {
-  if (memoryShed || updateChecking || !(face || welcomeMode)) return;  // after the face: what can be stopped again (mDNS, telnet) sits above the permanent allocations, so stopping it leaves one big free block
+#ifdef UM_BLE_PROXY
+  const bool proxyOn = btproxy::active();   // the Bluetooth proxy needs mDNS even after memory trouble
+#else
+  const bool proxyOn = false;
+#endif
+  if ((memoryShed && !proxyOn) || updateChecking || !(face || welcomeMode)) return;  // after the face: what can be stopped again (mDNS, telnet) sits above the permanent allocations, so stopping it leaves one big free block
   mdnsRetryAt = millis() + 15000;
   if (mdnsStarted) MDNS.end();
   char base[49];
@@ -691,6 +704,12 @@ static void settingsState() {
   json += ",\"lightReading\":" + String(displayControl.lightReading());
   json += ",\"nightActive\":" + String(displayControl.nightActive() ? "true" : "false");
   json += ",\"nvsFree\":" + String(nvsFreeEntries);
+#ifdef UM_WLED_OVERLAY
+  json += String(",\"wledOff\":") + (wled::suspendedNow() ? "true" : "false");  // off for this start (Bluetooth): no WLED, light page, canvas or animations
+#endif
+#if defined(UM_BLE_PROXY) && defined(UM_PROXY_LEAN)
+  json += String(",\"proxyLean\":") + (btproxy::enabled() ? "true" : "false");
+#endif
   json += ",\"pinSet\":" + String(adminpin::isSet() ? "true" : "false");
   json += ",\"nightWhy\":\"" + String(!Settings::getInstance()->nightClock ? "" : displayControl.roomDark() ? "dark" : displayControl.nightScheduled() ? "schedule" : "") + "\"";
   {
@@ -1212,7 +1231,7 @@ static void saveSettings() {
   if (displayReady) display->setRotation(s.rotation);
   if (timeChanged && face) clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (consoleChanged) {
-    if (s.telnet && !telnetLow && !btMode()) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
+    if (s.telnet && !telnetLow && !btNoTelnet()) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
     else { telnet.stop(); telnetStarted = false; }
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
@@ -1295,7 +1314,7 @@ static void mqttSettingsChanged(const Settings &previous) {
   if ((previous.timezone != s.timezone || previous.use24h != s.use24h || previous.ntpServer != s.ntpServer) && face)
     clockTime.begin(s.timezone.c_str(), s.use24h, s.ntpServer.c_str(), "");
   if (previous.telnet != s.telnet) {
-    if (s.telnet && !telnetLow && !btMode()) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
+    if (s.telnet && !telnetLow && !btNoTelnet()) { telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); telnetStarted = true; }
     else { telnet.stop(); telnetStarted = false; }
     if (WiFi.status() == WL_CONNECTED) startMdns();
   }
@@ -1339,16 +1358,28 @@ static void mqttUpdateInfo(Mqtt::UpdateInfo &out) {
   out.percent = status.busy && status.total ? (int)((uint64_t)status.received * 100 / status.total) : -1;
 }
 
+// Home with the Bluetooth proxy on the classic ESP32: MQTT stays off (its task and buffers are what the Wi-Fi driver ran short of).
+// The saved setting is kept and applies again when the proxy is switched off.
+static bool mqttOffForProxy() {
+#if defined(UM_BLE_PROXY) && defined(UM_PROXY_LEAN) && defined(UM_HOME)
+  return btproxy::enabled();
+#else
+  return false;
+#endif
+}
+
 static void mqttState() {
   const Mqtt::Config &c = Mqtt::instance().config();
   char status[80];
   Mqtt::instance().status(status, sizeof(status));
+  if (c.enabled && mqttOffForProxy()) strlcpy(status, "Off while the Bluetooth proxy is on: Home on this board needs the memory.", sizeof(status));
   server.send(200, "application/json", String("{\"enabled\":") + (c.enabled ? "true" : "false") + ",\"screenCamera\":" + (c.screenCamera ? "true" : "false") + ",\"host\":" + jsonText(c.host) + ",\"port\":" + c.port +
               ",\"user\":" + jsonText(c.user) + ",\"passwordSet\":" + (c.pass[0] ? "true" : "false") +
-              ",\"connected\":" + (Mqtt::instance().connected() ? "true" : "false") + ",\"status\":" + jsonText(status) + "}");
+              ",\"connected\":" + (Mqtt::instance().connected() ? "true" : "false") + ",\"blockedByProxy\":" + (mqttOffForProxy() ? "true" : "false") + ",\"status\":" + jsonText(status) + "}");
 }
 
 static void mqttSave() {
+  if (mqttOffForProxy()) { settingsResponse(409, "MQTT is off while the Bluetooth proxy is on."); return; }
   Mqtt::Config c = Mqtt::instance().config();
   c.enabled = server.arg("enabled") == "1";
   c.screenCamera = server.arg("screenCamera") == "1";
@@ -1412,6 +1443,7 @@ static uint32_t pingToday = 0;
 static void usagePingTask(void *) {
   char body[96];
   snprintf(body, sizeof(body), "{\"face\":\"%s\",\"v\":\"%s\"}", UM_MODE_ID, firmwareUpdate.version());
+  {  // the download lock must be given back before vTaskDelete: a deleted task never runs its destructors, and the lock stayed taken for good
   std::unique_lock<std::mutex> budget(networkBudget(), std::try_to_lock);
   const size_t block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
   if (!budget.owns_lock() || firmwareUpdating || block < 45000) consoleLog("[Ping] skipped (%s), retry in 30 min\n", !budget.owns_lock() ? "download busy" : firmwareUpdating ? "updating" : "low memory");
@@ -1431,6 +1463,7 @@ static void usagePingTask(void *) {
         pingDay = pingToday;
       }
     } else consoleLog("[Ping] could not connect, retry in 30 min\n");
+  }
   }
   pingBusy = false;
   vTaskDelete(nullptr);
@@ -1721,7 +1754,12 @@ static void shedOnLowMemory() {
   if (!bootDone || memoryShed) return;
   memoryShed = true;
   telnet.stop(); telnetStarted = false; telnetLow = true;  // telnet comes back by itself once memory is free again (main loop)
-  if (mdnsStarted) { MDNS.end(); mdnsStarted = false; }
+#ifdef UM_BLE_PROXY
+  const bool keepMdns = btproxy::active();   // Home Assistant finds the Bluetooth proxy only through this record
+#else
+  const bool keepMdns = false;
+#endif
+  if (mdnsStarted && !keepMdns) { MDNS.end(); mdnsStarted = false; }
 #ifdef UM_WLED_OVERLAY
   wled::service(false);  // the UDP listeners and the drawing buffer go too
 #endif
@@ -1997,6 +2035,9 @@ static bool publicHostName(String host) {
 // The WebServer picks a request's handler when it has read the request line only, before the headers (so Host is still the previous
 // request's). The guard therefore takes every request that has a route, remembers the real handler, and decides in handle(), when the
 // headers are known: it answers 403, or passes the request on to the real handler (body limits and raw reads are forwarded too).
+static std::atomic<uint32_t> webSeenAt{0};  // the last web request: someone has the settings page open
+static bool webPageActive() { const uint32_t at = webSeenAt.load(); return at && millis() - at < 10000; }
+
 class HostGuard : public RequestHandler {
 public:
   bool canHandle(WebServer &web, HTTPMethod method, const String &uri) override {
@@ -2009,6 +2050,7 @@ public:
   void upload(WebServer &web, const String &uri, HTTPUpload &up) override { if (_target) _target->upload(web, uri, up); }
   void raw(WebServer &web, const String &uri, HTTPRaw &raw) override { if (_target) _target->raw(web, uri, raw); }
   bool handle(WebServer &web, HTTPMethod method, const String &uri) override {
+    if (method != HTTP_GET || (uri != "/api/firmware" && uri != "/api/btproxy")) webSeenAt = millis() ? millis() : 1;  // the two status polls alone do not count
     const bool clientOk = accessAllowed(web.client().remoteIP(), Settings::getInstance()->accessScope);
     if (!clientOk || (!Settings::getInstance()->anyHost && publicHostName(web.hostHeader()))) {
       web.send(403, "text/plain", clientOk ? "This clock does not answer to public host names. Open it by its address or its .local name."
@@ -2212,7 +2254,7 @@ static void background() {
       }
     } else lowSince = 0;
   }
-  if (!telnetStarted && face && !telnetLow && !btMode() && Settings::getInstance()->telnet) { telnetStarted = true; telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); }
+  if (!telnetStarted && face && !telnetLow && !btNoTelnet() && Settings::getInstance()->telnet) { telnetStarted = true; telnet.begin(telnetCommand, UM_TELNET_COMMON_HELP UM_TELNET_HELP); }
   if (!portalActive && WiFi.status() == WL_CONNECTED && !mdnsStarted && (int32_t)(now - mdnsRetryAt) >= 0) startMdns();
   if (!portalActive && WiFi.status() == WL_CONNECTED) watchMdns(now);
 #ifdef UM_WLED_OVERLAY
@@ -2222,6 +2264,13 @@ static void background() {
   firmwareUpdate.confirmBoot(startupHealthy(), now, memoryAllocationFailures.load());
   FirmwareUpdate::Status updateStatus; firmwareUpdate.status(updateStatus);
   if (updateStatus.ready && !restartAt) restartAt = now + 1500;
+#ifdef UM_BLE_PROXY
+  {  // An update or face install stops the Bluetooth proxy and gets its memory; if the install fails, a restart brings the proxy back
+    static bool proxyStopped = false;
+    if (updateStatus.busy && !firmwareUpdate.stagingOnly() && btproxy::shutdown()) proxyStopped = true;   // preparing a face in the spare slot keeps the proxy (no restart follows)
+    if (proxyStopped && updateStatus.failed && !updateStatus.busy && !restartAt) restartAt = now + 5000;
+  }
+#endif
   if (scheduledMode[0]) {
     // Signed manifest and TLS need a valid clock, so wait for NTP before starting.
     if (WiFi.status() == WL_CONNECTED && time(nullptr) > 1700000000 && !FirmwareUpdate::pendingVerification()) {  // a new image still being verified cannot write another one
@@ -2249,7 +2298,23 @@ static void background() {
   if (!btMode() && !playing(now)) notice::poll(now);
   if (!btMode() && !playing(now)) dlna::poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
   Mqtt::instance().setBusy(playing(now));
-  Mqtt::instance().poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && WiFi.status() == WL_CONNECTED);
+#if defined(UM_BLE_PROXY) && defined(UM_PROXY_LEAN)
+  if (btproxy::enabled()) {  // Home and the sports faces on the classic ESP32: the proxy stops scanning for the biggest moments on the heap
+    bool busy;
+    {  // a feed download (ESPN, schedules, pictures) holds the shared download lock for its whole fetch and parse
+      std::unique_lock<std::mutex> gate(networkBudget(), std::try_to_lock);
+      busy = !gate.owns_lock();
+    }
+#ifdef UM_HOME
+    const auto ha = HaClient::instance().state();  // the Home Assistant link signing in (TLS handshake)
+    busy = busy || ha == HaClient::CONNECTING || ha == HaClient::AUTHENTICATING || ha == HaClient::SUBSCRIBING;
+#else
+    notice::holdFeeds(notice::HOLD_WEB_PAGE, webPageActive());  // the sports feeds park while the settings page is open (the browser loads many files at once); Home keeps its link, the page uses it
+#endif
+    btproxy::hold(busy || webPageActive());
+  }
+#endif
+  Mqtt::instance().poll(now, bootDone && !portalActive && !welcomeMode && !updateOnly && !mqttOffForProxy() && WiFi.status() == WL_CONNECTED);
   if (!playing(now)) autoUpdate(now);
   if (!playing(now)) usagePing(now);
 #ifdef UM_SPORTS_SWITCH
@@ -2381,6 +2446,7 @@ static void watchNvs() {
 
 void setup() {
   Serial.begin(115200);
+  tlspool::reserve();
 #ifdef UM_GAMEPAD
   gamepad::boot();
 #endif
@@ -2398,6 +2464,8 @@ void setup() {
   wled::load();
 #ifdef UM_GAMEPAD
   if (gamepad::active()) wled::suspend(true);   // the Bluetooth controller takes the memory of WLED, the canvas and the GIFs
+#elif defined(UM_PROXY_LEAN)
+  if (btproxy::enabled()) wled::suspend(true);
 #endif
 #endif
 #ifdef UM_HOME
@@ -2429,9 +2497,17 @@ void setup() {
   panel.gpio.e = 18;
 #endif
   panel.clkphase = false;
+#if defined(UM_BLE_PROXY) && defined(UM_PROXY_LEAN) && defined(UM_HOME)
+  panel.double_buff = !setupRefresh;  // Home with the proxy on the classic ESP32 pays for the second buffer with a shorter ring (below)
+#else
   panel.double_buff = !setupRefresh;  // the setup and welcome display is single buffered (static screens, half the DMA memory)
+#endif
   {  // The colour quality (PanelTier.h). The update-only boot has no face and every KB goes to the download: it takes the light level
+#if defined(UM_BLE_PROXY) && defined(UM_PROXY_LEAN) && defined(UM_HOME)
+    const paneltier::Tier &tier = updateOnly ? paneltier::kUpdateOnly : btproxy::enabled() ? paneltier::kHomeProxy : paneltier::kNormal;
+#else
     const paneltier::Tier &tier = updateOnly ? paneltier::kUpdateOnly : paneltier::kNormal;
+#endif
     panelLut = cie_lut_for_depth(tier.bits);
     panel.setPixelColorDepthBits(tier.bits);
     panel.i2sspeed = tier.mhz >= 20 ? HUB75_I2S_CFG::HZ_20M : HUB75_I2S_CFG::HZ_8M;
@@ -2443,6 +2519,9 @@ void setup() {
 #define UM_RING_ROWS 8
 #endif
   if (!setupRefresh) panel.ring_rows = UM_RING_ROWS;  // streaming mode: 8 rows of bit planes are kept, the rest is generated from a compact framebuffer (0 = keep every row)
+#if defined(UM_BLE_PROXY) && defined(UM_PROXY_LEAN)
+  if (!setupRefresh && btproxy::enabled()) panel.ring_rows = 4;  // the heap-hungry faces with the proxy: half the bit planes and DMA descriptors (about 7 KB)
+#endif
 
   if (setupRefresh) {
     panel.i2sspeed = HUB75_I2S_CFG::HZ_20M;
@@ -2790,8 +2869,26 @@ var attempts=0,timer=setInterval(function(){if(++attempts>30){clearInterval(time
   backgroundWork() = background;
 }
 
+// Loop watchdog: Wi-Fi reconnects, the web server and the faces all run in this loop, so a call that never returns left the
+// clock off the network until someone pulled the plug (seen when MQTT was switched off with the Bluetooth proxy on). A timer
+// outside the loop restarts the clock when the loop has not come round for a minute; the next start logs it.
+static std::atomic<uint32_t> loopBeat{0};
+RTC_NOINIT_ATTR static uint32_t loopHangMagic;
+static void loopWatch(void *) {
+  const uint32_t beat = loopBeat.load(std::memory_order_relaxed);
+  if (beat && millis() - beat > 60000) { loopHangMagic = 0x4C4F4F50; esp_restart(); }
+}
+static void startLoopWatch() {
+  if (loopHangMagic == 0x4C4F4F50) { loopHangMagic = 0; consoleLog("[Boot] the previous run stopped responding and was restarted by the loop watchdog\n"); }
+  const esp_timer_create_args_t args = {.callback = loopWatch, .arg = nullptr, .dispatch_method = ESP_TIMER_TASK, .name = "loopwatch", .skip_unhandled_events = true};
+  esp_timer_handle_t timer = nullptr;
+  if (esp_timer_create(&args, &timer) == ESP_OK) esp_timer_start_periodic(timer, 5000000);
+}
+
 void loop() {
   uint32_t loopStart = millis();
+  if (!loopBeat.load(std::memory_order_relaxed)) startLoopWatch();
+  loopBeat.store(loopStart ? loopStart : 1, std::memory_order_relaxed);
   background();
   uint32_t backgroundMs = millis() - loopStart;
   if (portalActive && backgroundMs > 40) consoleLog("[Portal] background() took %u ms\n", (unsigned)backgroundMs);
@@ -2885,7 +2982,7 @@ void loop() {
     bootTick();  // before the check below: it stamps connectedAt on the connect
     if (face && !portalActive && !bootDone && syncedAt) {
       uint32_t holdAt = millis();  // not the loop's `now`: bootTick() just stamped connectedAt/syncedAt/noticeAt with a later time, and an unsigned difference to it would wrap and end the notice at once
-      if (bootHoldOver(holdAt)) { bootDone = true; consoleLog("[Boot] done at %u ms\n", (unsigned)holdAt); }
+      if (bootHoldOver(holdAt)) { bootDone = true; bootScreen.release(); consoleLog("[Boot] done at %u ms\n", (unsigned)holdAt); }
     }
     const char *mqttDisplayMode = "boot";
     if (bootDone) {  // keeps drawing during an update: the feeds are parked, the face shows its last snapshot

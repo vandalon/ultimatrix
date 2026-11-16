@@ -435,7 +435,10 @@ async function load() {
     const response = await fetch('/api/settings', { cache: 'no-store' });
     if (!response.ok) throw new Error('The clock could not load its settings. Reload this page to try again.');
     const data = await response.json();
-    if (!window.wledStarted) { window.wledStarted = true; initWled(); }
+    if (data.wledOff) {   // Bluetooth has the memory: WLED, the light page, the canvas and the animations are off for this start
+      document.querySelectorAll('#wled input, #wled button, #wled select').forEach((el) => { el.disabled = true; if (el.type === 'checkbox') el.checked = false; });
+      document.querySelector('#wled-status').textContent = data.proxyLean ? 'Off while the Bluetooth proxy is on: this face on this board needs the memory.' : 'Off while Bluetooth is on.';
+    } else if (!window.wledStarted) { window.wledStarted = true; initWled(); }
     document.querySelector('#nvs-banner').hidden = !(data.nvsFree < 40);
     showPin(data.pinSet);
     const racing = data.mode === 'F1' || data.mode === 'MotoGP', sporty = racing || data.mode === 'Football';
@@ -463,7 +466,7 @@ async function load() {
         ? 'Open the full-screen controller (a joystick appears wherever you touch), use the arrow keys or W S, or use a game controller. Turn the dial like the original game, by swiping up and down anywhere on the screen: your paddle (the left, orange one) follows it and stops when you stop. With the keys, up and down move it and left or right stops it. A match goes to 7 points and the score on top is yours; then, and after 20 seconds without a move, the computer players take over again.'
         : 'Open the full-screen controller: swipe left and right anywhere to move the cannon, and every touch fires, so a second finger can fire while the first one steers. The arrow keys or A D move, the space bar fires, and so does a game controller. The clock plays again after 20 seconds without a move.';
     }
-    for (const a of document.querySelectorAll('.sidebar nav a[href="/wled"], .sidebar nav a[href="/canvas"], .sidebar nav a[href="/gifs"]')) a.hidden = !!data.btPad;   // off while the Bluetooth controller is on
+    for (const a of document.querySelectorAll('.sidebar nav a[href="/wled"], .sidebar nav a[href="/canvas"], .sidebar nav a[href="/gifs"]')) a.hidden = !!data.btPad || !!data.wledOff;   // off while Bluetooth has the memory
     if (pacman) field('clockShade').closest('.field').hidden = true;   // this face has no background clock to dim
     if (arcade && !pacman && !plumber) {   // Invaders and Pong: the clock and the score
       document.querySelector('#arc-colors').hidden = tetris; document.querySelector('#pong-date').hidden = data.mode !== 'Pong'; document.querySelector('#pong-day').hidden = data.mode !== 'Pong';
@@ -1135,12 +1138,14 @@ async function initHomeAssistant() {
     try {
       const state = await (await fetch('/api/mqtt')).json();
       $('status').textContent = state.status;
-      if (fill) {
-        $('enabled').checked = state.enabled; $('screen-camera').checked = state.screenCamera; $('host').value = state.host; $('port').value = state.port === 1883 ? '' : state.port;
+      const blocked = !!state.blockedByProxy;  // Home with the Bluetooth proxy on the classic ESP32: MQTT stays off, the saved settings are kept
+      document.querySelectorAll('#mqtt input, #mqtt button').forEach((el) => { el.disabled = blocked; });
+      if (fill || blocked) {
+        $('enabled').checked = state.enabled && !blocked; $('screen-camera').checked = state.screenCamera; $('host').value = state.host; $('port').value = state.port === 1883 ? '' : state.port;
         $('user').value = state.user; $('password').placeholder = state.passwordSet ? 'Saved: leave empty to keep' : 'No password';
       }
       clearTimeout(timer);
-      if (state.enabled && !state.connected) timer = setTimeout(() => load(false), 4000);
+      if (state.enabled && !state.connected && !blocked) timer = setTimeout(() => load(false), 4000);
     } catch (_) {}
   };
   $('save').addEventListener('click', async () => {
@@ -1451,7 +1456,7 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
 
 {   // Bluetooth proxy for Home Assistant (only in builds that carry it: the route answers 404 otherwise)
   const card = document.querySelector('#btproxy-card'), status = card && card.querySelector('#btproxy-status'), power = card && card.querySelector('#btproxy-power');
-  const text = { off: 'Off.', starting: 'Starting…', idle: 'On. Waiting for Home Assistant to connect.', scanning: 'On. Home Assistant is connected and the clock is forwarding Bluetooth adverts.', paused: 'On, paused for now (an update, a notification or WLED has the network, or memory is low).' };
+  const text = { off: 'Off.', starting: 'Starting…', stopped: 'Stopped while an update or face installs. It starts again when the clock restarts.', idle: 'On. Waiting for Home Assistant to connect.', scanning: 'On. Home Assistant is connected and the clock is forwarding Bluetooth adverts.', paused: 'On, paused for now (an update, a notification or WLED has the network, or memory is low).' };
   let btOn = false;
   async function proxyState() {
     try {
@@ -1466,7 +1471,7 @@ document.querySelector('#storage-reformat').addEventListener('click', async () =
   if (card) {
     proxyState();
     power.addEventListener('click', async () => {
-      if (!confirm(btOn ? 'Turn the Bluetooth proxy off? The clock restarts.' : 'Turn the Bluetooth proxy on? The clock restarts and keeps about 90 KB of memory for Bluetooth.')) return;
+      if (!confirm(btOn ? 'Turn the Bluetooth proxy off? The clock restarts.' : 'Turn the Bluetooth proxy on? The clock restarts and keeps about 60 KB of memory for Bluetooth.')) return;
       try { const r = await fetch('/api/btproxy/enable', { method: 'POST', body: new URLSearchParams({ on: btOn ? 0 : 1 }) }); if (!r.ok) throw new Error(await r.text()); message('Restarting…'); } catch (error) { message(error.message, true); }
     });
   }

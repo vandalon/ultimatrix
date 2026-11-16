@@ -14,6 +14,7 @@ set(sources
     "${root}/lib/core/TimeService.cpp"
     "${root}/lib/core/JsonScan.cpp"
     "${root}/lib/core/BootScreen.cpp"
+    "${root}/lib/core/TlsPool.cpp"
     "${root}/lib/core/TelnetConsole.cpp"
     "${root}/lib/core/Mqtt.cpp"
     "${root}/lib/core/MqttPixels.cpp"
@@ -184,6 +185,12 @@ if(ULTIMATRIX_BLE_PROXY_ON)
     set(extra_requires bt)
     list(APPEND sources "${root}/lib/core/BtProxy.cpp")
     list(APPEND mode_definitions UM_BLE_PROXY)
+    if(NOT UM_IS_S3 AND ULTIMATRIX_MODE MATCHES "^(football|motogp|home|f1|nba|mlb|nfl)$")
+        list(APPEND mode_definitions UM_PROXY_LEAN)   # the heap-hungry faces (Home and the sports faces): with the proxy on, WLED, canvas, GIFs, DLNA and notices stay off and the panel ring is 4 rows (telnet stays)
+        if(ULTIMATRIX_MODE STREQUAL "home")
+            list(APPEND mode_definitions UM_TLS_POOL=7168)   # one block for the 16 KB TLS records of the Home Assistant link (lib/core/TlsPool.cpp)
+        endif()
+    endif()
 endif()
 idf_component_register(SRCS ${sources}
     INCLUDE_DIRS "${root}/vendor/uzlib" "${root}/lib/core" "${CMAKE_CURRENT_BINARY_DIR}/generated" "${root}/lib/${sport}" "${root}/lib/faces" "${root}/lib/motogp-feed" "${root}/lib/wled" "${root}/clockfaces/${face}"
