@@ -1387,6 +1387,7 @@ static uint32_t pingToday = 0;
 static void usagePingTask(void *) {
   char body[96];
   snprintf(body, sizeof(body), "{\"face\":\"%s\",\"v\":\"%s\"}", UM_MODE_ID, firmwareUpdate.version());
+  {  // the download lock must be given back before vTaskDelete: a deleted task never runs its destructors, and the lock stayed taken for good
   std::unique_lock<std::mutex> budget(networkBudget(), std::try_to_lock);
   const size_t block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
   if (!budget.owns_lock() || firmwareUpdating || block < 45000) consoleLog("[Ping] skipped (%s), retry in 30 min\n", !budget.owns_lock() ? "download busy" : firmwareUpdating ? "updating" : "low memory");
@@ -1406,6 +1407,7 @@ static void usagePingTask(void *) {
         pingDay = pingToday;
       }
     } else consoleLog("[Ping] could not connect, retry in 30 min\n");
+  }
   }
   pingBusy = false;
   vTaskDelete(nullptr);
