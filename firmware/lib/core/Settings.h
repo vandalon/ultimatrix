@@ -70,6 +70,12 @@ struct Settings {
   bool hiddenWifi = false;  // the saved Wi-Fi network is hidden: a scan cannot find it, so it is tried a few times instead
   bool usagePing = true;   // once a day tell the project the face and version, nothing else (counts active clocks)
   bool autoUpdate = true;  // check once a day and install a newer signed image by itself
+#ifdef UM_BINARY
+  static constexpr bool kNightBinaryDefault = true;   // the Binary face shows its night clock in binary unless switched off
+#else
+  static constexpr bool kNightBinaryDefault = false;
+#endif
+  bool nightBinary = kNightBinaryDefault;  // the night clock shows the time in binary (red dots, no seconds) instead of block digits; own NVS key "nightBin"
   bool nightClock = false;  // off: the dim red night clock never replaces the face (not by schedule, not in a dark room); own NVS key
   bool dither = false;  // smoother dark colours at low brightness (HUB75 ordered dithering); own NVS key
   bool telnet = false;  // LAN console on port 23, unauthenticated: off unless switched on

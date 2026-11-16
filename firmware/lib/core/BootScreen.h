@@ -62,6 +62,8 @@ class Screen {
   void setProgress(int percent) { progress_ = percent; }
   // Forget what was drawn (after anything else used the panel).
   void invalidate() { drawn_ = false; }
+  // Give the icon cache (4 KB) back to the heap; it is built again when an icon is next drawn.
+  void release();
 
  private:
   Frame last_{};
@@ -79,7 +81,8 @@ class Screen {
   uint8_t urlQr_[qrcodegen_BUFFER_LEN_FOR_VERSION(3)] = {};
   bool urlQrReady_ = false;
   char url_[32] = "";
-  IconCache icon_;
+  IconCache *icon_ = nullptr;  // 4 KB, only while a screen with an icon is shown (not kept in static RAM)
+  IconCache *cache();
 };
 
 }  // namespace boot

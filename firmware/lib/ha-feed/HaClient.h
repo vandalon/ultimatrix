@@ -78,7 +78,7 @@ class HaClient {
     std::atomic<uint32_t> _historyVersion{0};
     ha::Snapshot _snapshot{};
     bool _valid = false;
-    char _status[64] = "";
+    char _status[96] = "";
     std::atomic<State> _state{IDLE};
     std::atomic<uint32_t> _updates{0};
     std::atomic<bool> _started{false};

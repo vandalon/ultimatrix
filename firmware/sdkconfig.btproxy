@@ -1,0 +1,71 @@
+# Added to sdkconfig.defaults for faces built with ULTIMATRIX_BLE_PROXY (lib/core/BtProxy.cpp): a passive Bluetooth LE scanner.
+# NimBLE host as observer only: no connections, no pairing, no bonds, no GATT work (the classic Bluetooth memory is handed back).
+CONFIG_BT_ENABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=n
+CONFIG_BT_NIMBLE_ENABLED=n
+CONFIG_BT_CONTROLLER_ONLY=y   # the proxy talks HCI to the controller itself (BtProxy.cpp), no host stack
+CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y
+CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=n
+CONFIG_BTDM_CTRL_MODE_BTDM=n
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_NVS_PERSIST=n
+CONFIG_BT_NIMBLE_SECURITY_ENABLE=n
+CONFIG_BT_NIMBLE_GAP_SERVICE=n
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=4096
+CONFIG_BT_NIMBLE_LOG_LEVEL_NONE=y
+# no BT_LOG_CRITICAL_ONLY: it selects the async BLE log (a task with a 2 KB stack and several buffers, 18 KB of heap in all) which is of no use here
+CONFIG_BT_LOG_CRITICAL_ONLY=n
+# Trimmed buffers (every kilobyte here is missing from the heap while the proxy is on): adverts arrive in bursts, so a few more event buffers than the game pad
+CONFIG_BTDM_CTRL_BLE_MAX_CONN=1
+CONFIG_BTDM_SCAN_DUPL_CACHE_SIZE=20
+CONFIG_BT_NIMBLE_MSYS_1_BLOCK_COUNT=8
+CONFIG_BT_NIMBLE_MSYS_2_BLOCK_COUNT=4
+CONFIG_BT_NIMBLE_ACL_BUF_COUNT=4
+CONFIG_BT_NIMBLE_HCI_EVT_HI_BUF_COUNT=4
+CONFIG_BT_NIMBLE_HCI_EVT_LO_BUF_COUNT=8
+CONFIG_ESP_ERR_TO_NAME_LOOKUP=n
+CONFIG_BT_NIMBLE_PRINT_ERR_NAME=n
+# Stripped host: a passive scanner needs no GATT, no privacy/RPA work, no flow control, no reconnect logic
+CONFIG_BT_NIMBLE_GATT_CLIENT=n
+CONFIG_BT_NIMBLE_GATT_SERVER=n
+CONFIG_BT_NIMBLE_HS_PVCY=n
+CONFIG_BT_NIMBLE_HS_FLOW_CTRL=n
+CONFIG_BT_NIMBLE_ENABLE_CONN_REATTEMPT=n
+CONFIG_BT_NIMBLE_BLE_GATT_BLOB_TRANSFER=n
+# Flash savers for the faces that are tight (Football): no WPA2-Enterprise, quieter HAL asserts
+CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
+CONFIG_HAL_ASSERTION_SILENT=y
+CONFIG_MBEDTLS_ERROR_STRINGS=n
+# TLS is only used as a client (HTTPS feeds, MQTT): no TLS server, no rarely used curves or renegotiation
+CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
+CONFIG_MBEDTLS_SSL_RENEGOTIATION=n
+CONFIG_MBEDTLS_ECP_DP_SECP192R1_ENABLED=n
+CONFIG_MBEDTLS_ECP_DP_SECP224R1_ENABLED=n
+CONFIG_MBEDTLS_ECP_DP_SECP192K1_ENABLED=n
+CONFIG_MBEDTLS_ECP_DP_SECP224K1_ENABLED=n
+CONFIG_MBEDTLS_ECP_DP_SECP256K1_ENABLED=n
+CONFIG_MBEDTLS_ECP_DP_BP256R1_ENABLED=n
+CONFIG_MBEDTLS_ECP_DP_BP384R1_ENABLED=n
+CONFIG_MBEDTLS_ECP_DP_BP512R1_ENABLED=n
+# Overnight flash savers for the tight faces (Football, Home): ROM nano printf/scanf, no SAE-PK/OWE/AP-side WPA3, no PPP
+CONFIG_NEWLIB_NANO_FORMAT=y
+CONFIG_ESP_WIFI_ENABLE_SAE_PK=n
+CONFIG_ESP_WIFI_ENABLE_WPA3_OWE_STA=n
+CONFIG_ESP_WIFI_SOFTAP_SAE_SUPPORT=n
+CONFIG_LWIP_PPP_SUPPORT=n
+# Controller buffers for a scan-only proxy: fewer advert-report slots, no duplicate cache (the proxy asks for every advert), no connection-only features
+CONFIG_BTDM_BLE_ADV_REPORT_FLOW_CTRL_SUPP=n
+CONFIG_BTDM_BLE_SCAN_DUPL=n
+CONFIG_BTDM_BLE_PING_EN=n
+CONFIG_BTDM_BLE_CHAN_ASS_EN=n
+# Heap on the classic ESP32 (no PSRAM): the Bluetooth controller keeps ~88 KB, so give back what the Wi-Fi driver does not need on a clock
+CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=n
+CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=8
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=8
+# Own mbedTLS allocator (lib/core/TlsPool.cpp): a reserved block for big TLS records on Home
+CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y

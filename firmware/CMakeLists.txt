@@ -6,9 +6,27 @@ if(NOT ULTIMATRIX_MODE MATCHES "^(football|f1|motogp|tetris|word|mario|luigi|pac
 endif()
 set(SDKCONFIG "${CMAKE_BINARY_DIR}/sdkconfig")
 # Only the Pac-Man face carries the Bluetooth stack (a game controller); its extra settings come after the shared ones.
-option(ULTIMATRIX_BLUETOOTH "Compile the Bluetooth game controller into the Pac-Man face" ON)
+option(ULTIMATRIX_BLUETOOTH "Compile the Bluetooth game controller into the Pac-Man face (off: Pac-Man carries the Bluetooth proxy like the other faces)" OFF)
 if(ULTIMATRIX_MODE STREQUAL "pacman" AND ULTIMATRIX_BLUETOOTH)
     set(SDKCONFIG_DEFAULTS "${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults;${CMAKE_CURRENT_LIST_DIR}/sdkconfig.bt")
+endif()
+# UM_TARGET=esp32s3 (set by tools/idf.sh) adds the S3 overrides and uses its own partition table.
+set(UM_IS_S3 OFF)
+if("$ENV{UM_TARGET}" STREQUAL "esp32s3")
+    set(UM_IS_S3 ON)
+    set(SDKCONFIG_DEFAULTS "${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults;${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults.esp32s3")
+endif()
+# Bluetooth proxy for Home Assistant (scanner over the ESPHome native API, off until switched on in the settings). On the classic ESP32 (no PSRAM) the controller keeps about 60 KB of the heap while it is on, which is only just enough for Football and MotoGP (their feeds need 75-80 KB at their peak): those two switch WLED, the canvas, GIFs, DLNA and notices off while the proxy is on (UM_PROXY_LEAN in main/CMakeLists.txt). The bridge image has none, and the scanner image (a test image without a clock) carries it on the S3 only.
+option(ULTIMATRIX_BLE_PROXY "Compile the Bluetooth proxy for Home Assistant into this face" ON)
+set(ULTIMATRIX_BLE_PROXY_ON OFF)
+if(ULTIMATRIX_BLE_PROXY)
+    if(UM_IS_S3 AND NOT ULTIMATRIX_MODE MATCHES "^(bridge)$")
+        set(ULTIMATRIX_BLE_PROXY_ON ON)
+        set(SDKCONFIG_DEFAULTS "${SDKCONFIG_DEFAULTS};${CMAKE_CURRENT_LIST_DIR}/sdkconfig.btproxy.esp32s3")
+    elseif(NOT UM_IS_S3 AND NOT ULTIMATRIX_MODE MATCHES "^(bridge|scanner)$" AND NOT (ULTIMATRIX_MODE STREQUAL "pacman" AND ULTIMATRIX_BLUETOOTH))
+        set(ULTIMATRIX_BLE_PROXY_ON ON)
+        set(SDKCONFIG_DEFAULTS "${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults;${CMAKE_CURRENT_LIST_DIR}/sdkconfig.btproxy")
+    endif()
 endif()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # esp_insights/esp_rainmaker (unused arduino-esp32 dependencies) call git_describe(), which fails in a
@@ -44,8 +62,17 @@ if(TARGET ultimatrix.elf)
     if(ULTIMATRIX_MODE STREQUAL "pacman" AND ULTIMATRIX_BLUETOOTH)
         set(ULTIMATRIX_STATIC_RAM_KB 70)  # the Bluetooth stack (game controller) reserves about 10 KB more
     endif()
+    if(ULTIMATRIX_MODE STREQUAL "home")
+        set(ULTIMATRIX_STATIC_RAM_KB 66)  # Home was already over 62 KB before the Bluetooth proxy; its runtime free heap is checked on a classic board
+    endif()
+    set(ULTIMATRIX_RAM_CHECK_EXTRA "")
+    if(ULTIMATRIX_BLE_PROXY_ON AND NOT UM_IS_S3)
+        set(ULTIMATRIX_RAM_CHECK_EXTRA bt-release)  # the controller memory goes back to the heap while the proxy is off, so it is not counted against the 62 KB
+    elseif(ULTIMATRIX_BLE_PROXY_ON)
+        set(ULTIMATRIX_STATIC_RAM_KB 72)
+    endif()
     add_custom_command(TARGET ultimatrix.elf POST_BUILD
-        COMMAND ${PYTHON} "${CMAKE_CURRENT_LIST_DIR}/tools/check-static-ram.py" "$<TARGET_FILE:ultimatrix.elf>" "${CMAKE_OBJDUMP}" "${ULTIMATRIX_MODE}" "${ULTIMATRIX_STATIC_RAM_KB}"
+        COMMAND ${PYTHON} "${CMAKE_CURRENT_LIST_DIR}/tools/check-static-ram.py" "$<TARGET_FILE:ultimatrix.elf>" "${CMAKE_OBJDUMP}" "${ULTIMATRIX_MODE}" "${ULTIMATRIX_STATIC_RAM_KB}" ${ULTIMATRIX_RAM_CHECK_EXTRA}
         VERBATIM)
 endif()
 

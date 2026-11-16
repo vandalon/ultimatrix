@@ -1,0 +1,37 @@
+# ESP32-S3 version of sdkconfig.btproxy (applied after sdkconfig.defaults.esp32s3): the S3 has a BLE-only controller, so no BTDM options.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=n
+CONFIG_BT_NIMBLE_ENABLED=n
+CONFIG_BT_CONTROLLER_ONLY=y   # the proxy talks HCI to the controller itself (BtProxy.cpp), no host stack
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_NVS_PERSIST=n
+CONFIG_BT_NIMBLE_SECURITY_ENABLE=n
+CONFIG_BT_NIMBLE_GAP_SERVICE=n
+CONFIG_BT_NIMBLE_LOG_LEVEL_NONE=y
+# TEST CONFIG_BT_LOG_CRITICAL_ONLY=y
+# Controller features a passive scanner does not use (each one takes memory at start)
+# TEST CONFIG_BT_CTRL_LE_LOG_EN=n
+# TEST CONFIG_BT_CTRL_DTM_ENABLE=n
+# TEST CONFIG_BT_CTRL_BLE_ADV=n
+# TEST CONFIG_BT_CTRL_BLE_ADV_REPORT_FLOW_CTRL_NUM=40
+# TEST CONFIG_BT_CTRL_SCAN_DUPL_CACHE_SIZE=20
+# TEST CONFIG_BT_CTRL_BLE_MAX_ACT=2
+
+# TEST: controller task on core 1 (the panel driver runs on core 0)
+# Wi-Fi ran out of internal memory ("wifi:mem fail") once the Bluetooth controller was up: give heap back
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+# TLS buffers went to internal RAM only (Home: "Memory allocation failed", ~20 KB internal free): let large ones use PSRAM
+CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC=n
+CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC=y
+# Internal RAM is short (Home: ~12 KB free after boot): scan-only NimBLE needs few buffers, and its host memory can live in PSRAM
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+CONFIG_BT_NIMBLE_MSYS_1_BLOCK_COUNT=8
+CONFIG_BT_NIMBLE_MSYS_2_BLOCK_COUNT=4
+CONFIG_BT_NIMBLE_TRANSPORT_ACL_FROM_LL_COUNT=4
+CONFIG_BT_NIMBLE_LL_CFG_FEAT_LE_2M_PHY=n
+CONFIG_BT_NIMBLE_LL_CFG_FEAT_LE_CODED_PHY=n

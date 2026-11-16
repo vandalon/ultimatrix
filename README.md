@@ -189,7 +189,7 @@ The page and its assets are stored in firmware flash. A new setting only appears
 
 Brightness can be fixed or follow a light sensor. With automatic brightness enabled, the panel dims to the minimum brightness, and the night clock comes on, when the sensor reads dark and also during the night hours or from sunset to sunrise, if you set those (switch the night clock off to keep the face up while it dims); use the live sensor reading to set the dark and bright limits. Readings are averaged, and small changes are ignored to reduce flicker.
 
-Most faces can switch to a dim numeric clock during chosen hours, from sunset to sunrise, or when the sensor detects a dark room. These work together, also with automatic brightness on. It is dark red by default. Pac-Man uses the border colour for its night clock.
+Most faces can switch to a dim numeric clock during chosen hours, from sunset to sunrise, or when the sensor detects a dark room. These work together, also with automatic brightness on. It is dark red by default. Pac-Man uses the border colour for its night clock. The **Binary night clock** switch shows it as binary dots instead (hours and minutes, no seconds; filled discs for 1, empty rings for 0), on every face; it is on by default on the Binary face.
 
 Mario and Luigi scenes follow sunrise and sunset rather than the night schedule. A dark room can switch them to the dim numeric clock.
 
@@ -291,6 +291,10 @@ Canvas has a **Download picture** button for the current editor image. It export
 - **Wi-Fi signal** and **Free memory**, as diagnostics.
 
 The link is plain MQTT on your local network, without encryption, and costs the clock roughly 10 KB of memory while it is on.
+
+### Bluetooth proxy (optional)
+
+The clock can act as a Bluetooth proxy for Home Assistant, like an ESPHome device with `bluetooth_proxy:`. It listens for Bluetooth LE adverts and forwards them, so room-presence tools (Bermuda, iBeacon, Private BLE Device) see devices near the clock. Passive scanning only: it does not connect to devices. Off by default; turn it on in **Settings > Advanced > Bluetooth proxy** (the clock restarts, and keeps about 60 KB of memory for Bluetooth while it is on). Every face has it, on the classic ESP32 and the ESP32-S3 board. On the classic ESP32, Home and the sports faces (Football, F1, MotoGP, NBA, MLB, NFL) are short of memory with it: while it is on, WLED, the canvas, GIFs, DLNA and notices stay off there, and Home also turns MQTT off (its settings are kept). Pac-Man has it instead of the old Bluetooth game controller. See [Bluetooth proxy](docs/BLUETOOTH_PROXY.md) for the Home Assistant steps, limits and the API.
 
 ### MQTT pixels
 

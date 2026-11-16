@@ -24,6 +24,14 @@ constexpr size_t kTemplateMax = 9000;  // the template and the message around it
 constexpr size_t kMessageMax = 4096;    // a received message. The Energy dashboard's answer is longer but only its first part is read; history is asked for one statistic at a time
 constexpr uint32_t kPingEveryMs = 25000, kSilenceMs = 75000, kStatisticsEveryMs = 60000, kHistoryEveryMs = 600000;
 
+// The message buffer of the link is taken once, early, while the heap is still in one piece, and kept: next to the Bluetooth proxy
+// the free heap is split into small pieces, and a 4 KB buffer asked for later may not find a place although 30 KB is free
+char *heldMessage = nullptr;
+void holdBuffers() {
+  if (!heldMessage) heldMessage = (char *)malloc(kMessageMax);
+}
+struct Raw { char *p; char *get() const { return p; } bool operator!() const { return !p; } };
+
 // The id a message of ours starts with: {"id":N,...
 int idOf(const char *message) { return strncmp(message, "{\"id\":", 6) == 0 ? atoi(message + 6) : 0; }
 
@@ -36,7 +44,10 @@ struct Socket {
   explicit Socket(WiFiClient &c) : client(c) { lastData = millis(); }
 
   bool send(uint8_t opcode, const uint8_t *data, size_t length) {
-    std::unique_ptr<uint8_t[]> frame(new (std::nothrow) uint8_t[length + 14]);
+    // Masked in pieces of 1 KB: a second copy of a whole 9 KB template next to the first one was the biggest moment on the heap
+    constexpr size_t kPiece = 1024;
+    const size_t room = (length < kPiece ? length : kPiece) + 8;
+    std::unique_ptr<uint8_t[]> frame(new (std::nothrow) uint8_t[room]);
     if (!frame) return false;
     uint32_t mask = esp_random();
     size_t at = 0;
@@ -50,8 +61,15 @@ struct Socket {
     }
     memcpy(frame.get() + at, &mask, 4);
     at += 4;
-    for (size_t i = 0; i < length; i++) frame[at + i] = data[i] ^ ((uint8_t *)&mask)[i % 4];
-    return client.write(frame.get(), at + length) == at + length;
+    size_t done = 0;
+    do {  // the header goes out with the first piece
+      const size_t n = length - done < kPiece ? length - done : kPiece;
+      for (size_t i = 0; i < n; i++) frame[at + i] = data[done + i] ^ ((uint8_t *)&mask)[(done + i) % 4];
+      if (client.write(frame.get(), at + n) != at + n) return false;
+      done += n;
+      at = 0;
+    } while (done < length);
+    return true;
   }
   bool text(const char *message, size_t length) { return send(0x1, (const uint8_t *)message, length); }
   bool text(const char *message) { return text(message, strlen(message)); }
@@ -242,6 +260,7 @@ void HaClient::run() {
 
 // One connection from the handshake until it fails, the settings change or an update starts. True when it reached LIVE.
 bool HaClient::session(uint32_t version) {
+  holdBuffers();
   std::unique_ptr<ha::Config> config(new (std::nothrow) ha::Config);
   if (!config) { set(FAILED, "Out of memory"); return false; }
   *config = ha::config();
@@ -303,7 +322,8 @@ bool HaClient::session(uint32_t version) {
   }
 
   Socket socket(*client);
-  std::unique_ptr<char[]> message(new (std::nothrow) char[kMessageMax]);
+  holdBuffers();
+  Raw message{heldMessage};
   if (!message) { set(FAILED, "Out of memory"); client->stop(); return false; }
 
   bool live = false;
@@ -425,46 +445,42 @@ bool HaClient::session(uint32_t version) {
       _resolvedOk = true;
       _resolvedVersion++;
     }
-    std::unique_ptr<char[]> body(new (std::nothrow) char[kTemplateMax + 120]);
-    if (!body) { set(FAILED, "Out of memory"); return false; }
+    // Templates are built in a buffer that is only as big as the template needs and exists only while it is sent
+    auto sendTemplate = [&](uint32_t id, bool report, auto build) -> bool {
+      char head[96];
+      const size_t headLen = snprintf(head, sizeof(head), "{\"id\":%u,\"type\":\"render_template\",%s\"template\":\"", (unsigned)id, report ? "\"report_errors\":true," : "");
+      for (size_t cap : {(size_t)3600, (size_t)5800, kTemplateMax}) {
+        std::unique_ptr<char[]> buffer(new (std::nothrow) char[cap + 120]);
+        if (!buffer) return false;
+        memcpy(buffer.get(), head, headLen);
+        size_t built = build(buffer.get() + headLen, cap);
+        if (!built) continue;
+        size_t at = headLen + built;
+        memcpy(buffer.get() + at, "\"}", 3);
+        socket.text(buffer.get(), at + 2);
+        return true;
+      }
+      return false;
+    };
     templateId = ++lastId;  // Home Assistant wants every id higher than the one before, so this is not always 1
-    char head[80];
-    size_t at = snprintf(head, sizeof(head), "{\"id\":%u,\"type\":\"render_template\",\"report_errors\":true,\"template\":\"", (unsigned)templateId);
-    memcpy(body.get(), head, at);
-    size_t built = ha::buildTemplate(*config, body.get() + at, kTemplateMax);
-    if (!built) { set(FAILED, "Template too long"); return false; }
-    at += built;
-    memcpy(body.get() + at, "\"}", 3);
-    socket.text(body.get(), at + 2);
+    if (!sendTemplate(templateId, true, [&](char *o, size_t n) { return ha::buildTemplate(*config, o, n); })) { set(FAILED, "Template too long"); return false; }
     // The Now playing page has a template of its own: a player starting or a new track arrives at once, and without the page nothing is asked
     mediaId = 0;
     if (config->pages & (ha::PAGE_MEDIA | ha::PAGE_ART_BACKDROP)) {
       mediaId = ++lastId;
-      at = snprintf(head, sizeof(head), "{\"id\":%u,\"type\":\"render_template\",\"template\":\"", (unsigned)mediaId);
-      memcpy(body.get(), head, at);
-      built = ha::media::buildTemplate(*config, body.get() + at, kTemplateMax);
-      if (built) { at += built; memcpy(body.get() + at, "\"}", 3); socket.text(body.get(), at + 2); }
-      else { mediaId = 0; ha::media::clear(); }
+      if (!sendTemplate(mediaId, false, [&](char *o, size_t n) { return ha::media::buildTemplate(*config, o, n); })) { mediaId = 0; ha::media::clear(); }
     }
     devicesId = 0;
     if (config->pages & ha::PAGE_DEVICES) {
       devicesId = ++lastId;
-      at = snprintf(head, sizeof(head), "{\"id\":%u,\"type\":\"render_template\",\"template\":\"", (unsigned)devicesId);
-      memcpy(body.get(), head, at);
-      built = ha::devices::buildTemplate(body.get() + at, kTemplateMax);
-      if (built) { at += built; memcpy(body.get() + at, "\"}", 3); socket.text(body.get(), at + 2); }
-      else devicesId = 0;
+      if (!sendTemplate(devicesId, false, [&](char *o, size_t n) { return ha::devices::buildTemplate(o, n); })) devicesId = 0;
     }
     // The tariff of the Energy dashboard: its hourly prices are in the sensor's attributes
     pricesId = 0;
     const char *priceEntity = ha::autoPriceEntity();
     if ((config->pages & ha::PAGE_ENERGY) && priceEntity[0]) {
       pricesId = ++lastId;
-      at = snprintf(head, sizeof(head), "{\"id\":%u,\"type\":\"render_template\",\"template\":\"", (unsigned)pricesId);
-      memcpy(body.get(), head, at);
-      built = ha::prices::buildTemplate(priceEntity, body.get() + at, kTemplateMax);
-      if (built) { at += built; memcpy(body.get() + at, "\"}", 3); socket.text(body.get(), at + 2); }
-      else pricesId = 0;
+      if (!sendTemplate(pricesId, false, [&](char *o, size_t n) { return ha::prices::buildTemplate(priceEntity, o, n); })) pricesId = 0;
     }
     if (!pricesId) ha::prices::clear();
     return true;
@@ -475,7 +491,7 @@ bool HaClient::session(uint32_t version) {
     int n = socket.message(message.get(), kMessageMax, 1000);
     if (n < 0 && n != -2) {
       consoleLog("[HA] connection ended after %u s (%s): %s\n", (unsigned)((millis() - began) / 1000), live ? "was live" : "never live", socket.why);
-      if (_state != FAILED) set(FAILED, "Connection lost");
+      if (_state != FAILED) { char text[96]; snprintf(text, sizeof(text), "Connection lost: %.60s", socket.why); set(FAILED, text); }
       break;
     }
     if (n == -2 && prefsId && (uint32_t)idOf(message.get()) == prefsId) n = (int)strlen(message.get());  // the Energy dashboard's answer is mostly its device list; the sources that are read come first

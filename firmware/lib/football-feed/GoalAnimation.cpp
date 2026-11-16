@@ -6,6 +6,7 @@
 #include "NumericFont.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -367,7 +368,9 @@ static float hitY, hitRadius;  // where the ball ends up and how big it gets: ab
 // Every LED looks up which spot of the undisturbed net is shifted onto it, so there are no holes.
 static void drawNet(Adafruit_GFX *d, float cx, float cy, float age, float strength, uint16_t color) {
   // How far the ripple moves the net, per pixel of distance, by distance in quarter pixels: one sin and exp per entry, not per LED
-  static float wave[400];
+  // (1.6 KB, taken from the heap only while a ripple runs; without memory the net stays flat)
+  float *wave = strength > 0 ? (float *)malloc(400 * sizeof(float)) : nullptr;
+  if (!wave) strength = 0;
   const int waves = strength > 0 ? (int)fminf(399, (age * 2.0f + 3) * 4) + 1 : 0;
   for (int i = 0; i < waves; i++) {
     float dist = i / 4.0f + 0.01f;
@@ -386,6 +389,7 @@ static void drawNet(Adafruit_GFX *d, float cx, float cy, float age, float streng
       if (modulo(sx + sy, 5) == 0 || modulo(sx - sy, 5) == 0) d->drawPixel(x, y, color);
     }
   }
+  free(wave);
 }
 
 static void drawBall(Adafruit_GFX *d, float cx, float cy, float radius, float spin) {

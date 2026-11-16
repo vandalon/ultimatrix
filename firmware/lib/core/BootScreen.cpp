@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <new>
 extern "C" {
 #include "qrcodegen.h"
 }
@@ -330,6 +331,16 @@ void Screen::setSettingsUrl(const char *url) {
   drawn_ = false;
 }
 
+IconCache *Screen::cache() {
+  if (!icon_) icon_ = new (std::nothrow) IconCache();
+  return icon_;
+}
+
+void Screen::release() {
+  delete icon_;
+  icon_ = nullptr;
+}
+
 bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *text) {
   // One pulse clock runs across Connecting/Syncing/Error, so the next screen carries on from the phase
   bool pulsing = kind == Kind::Connecting || kind == Kind::Syncing || kind == Kind::Error;
@@ -408,27 +419,27 @@ bool Screen::update(Adafruit_GFX &gfx, Kind kind, uint32_t since, const char *te
     case Kind::Logo:  // just the U, faded in
       break;
     case Kind::Connecting:  // blue and pulsing until the network is up
-      drawIcon(gfx, icon_, kWifi, kGreen, level, glow, plain_, true, 0);
+      if (IconCache *c = cache()) drawIcon(gfx, *c, kWifi, kGreen, level, glow, plain_, true, 0);
       break;
     case Kind::Syncing:  // linked, waiting for the time: blue fading to green, pulsing
-      drawIcon(gfx, icon_, kWifi, kGreen, level, glow, plain_, true, now.mix);
+      if (IconCache *c = cache()) drawIcon(gfx, *c, kWifi, kGreen, level, glow, plain_, true, now.mix);
       blockText(gfx, now.text, 54, kAddress);
       break;
     case Kind::Connected:  // linked and time synced: green
-      drawIcon(gfx, icon_, kWifi, kGreen, level, glow, plain_);
+      if (IconCache *c = cache()) drawIcon(gfx, *c, kWifi, kGreen, level, glow, plain_);
       blockText(gfx, now.text, 54, kAddress);
       break;
     case Kind::Error:  // linked, but no time: the settings page is reachable at the address
-      drawIcon(gfx, icon_, kNoTime, kOrange, level, glow);
+      if (IconCache *c = cache()) drawIcon(gfx, *c, kNoTime, kOrange, level, glow);
       blockText(gfx, now.text, 54, kAddress);
       break;
     case Kind::Update:  // a newer signed firmware is on the server: violet and pulsing
-      drawIcon(gfx, icon_, kUpdate, kViolet, level, glow);
+      if (IconCache *c = cache()) drawIcon(gfx, *c, kUpdate, kViolet, level, glow);
       centredSmall(gfx, "UPDATE", 43, shade(kViolet, kUpdateTextLevel));
       centredSmall(gfx, "AVAILABLE", 50, shade(kViolet, kUpdateTextLevel));
       break;
     case Kind::Installing: {  // the update runs on its own, with no face loaded: pulsing arrow, label and a progress bar
-      drawIcon(gfx, icon_, kUpdate, kViolet, level, glow);
+      if (IconCache *c = cache()) drawIcon(gfx, *c, kUpdate, kViolet, level, glow);
       centredSmall(gfx, "UPDATING", 43, shade(kViolet, kUpdateTextLevel));
       const int x = 12, y = 50, w = 40;
       gfx.drawRect(x, y, w, 5, shade(kViolet, kUpdateTextLevel));
