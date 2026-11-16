@@ -689,7 +689,7 @@ paths:
                 type: object
                 properties:
                   enabled: { type: boolean, description: 'The proxy is switched on (default off); the clock restarts when this changes' }
-                  state: { type: string, description: 'One of `off`, `starting`, `idle` (no Home Assistant connected), `paused` (a notification, picture or WLED has the network, Home's Home Assistant link is signing in, or memory is low), `stopped` (an update or face install is running; the proxy starts again with the restart) or `scanning`' }
+                  state: { type: string, description: 'One of `off`, `starting`, `idle` (no Home Assistant connected), `paused` (a notification, picture or WLED has the network, Home''s Home Assistant link is signing in, or memory is low), `stopped` (an update or face install is running; the proxy starts again with the restart) or `scanning`' }
                   client: { type: boolean, description: 'Home Assistant is connected' }
                   sent: { type: integer, description: 'Bluetooth adverts forwarded since the start' }
                   dropped: { type: integer, description: 'Adverts dropped because the queue was full or the link was slow' }
